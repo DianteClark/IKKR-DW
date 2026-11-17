@@ -78,8 +78,6 @@ export function issueEdict(state, kid, id) {
   const hs = kingdomHeroes(state, kid, true);
   if (id === 'festival') k.morale = clamp(k.morale + 12);
   if (id === 'martial') { k.stability = clamp(k.stability + 15); k.morale = clamp(k.morale - 8); }
-  if (id === 'relief') { k.stability = clamp(k.stability + 10); k.morale = clamp(k.morale + 4); }
-  if (id === 'gifts') for (const h of hs) h.loyalty = clamp(h.loyalty + 8);
   if (id === 'conscript') {
     const rng = rngFor(state, kid * 91);
     for (const h of hs) { const cap = squadCap(h, k); while (h.troops.length < cap) h.troops.push(newSoldier(rng)); }
@@ -104,10 +102,7 @@ export function promoteRealm(state, kid) {
   if (!s || !s.ok || !s.afford) return false;
   const k = state.kingdoms[kid];
   k.gold -= s.cost; k.tier = s.next.id; k.morale = clamp(k.morale + 10); k.stability = clamp(k.stability + 10);
-  const oldName = k.name;
-  if (s.next.id === 'kingdom') k.name = k.name.replace(/^(Village|Principality|Duchy|Free Holds|Clans|League) of/, 'Kingdom of');
-  if (s.next.id === 'empire') k.name = k.name.replace(/^\w+( \w+)? of/, 'Empire of');
-  log(state, `${oldName} is now ${k.name} — a${s.next.id === 'empire' ? 'n' : ''} ${s.next.name}!`, kid, 'tier');
+  log(state, `${k.name} has risen to become a${s.next.id === 'empire' ? 'n' : ''} ${s.next.name}!`, kid, 'tier');
   return true;
 }
 

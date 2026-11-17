@@ -1,3 +1,4 @@
+import { scoutLand } from './intel.js';
 // Every player-made change to the campaign goes through here, so the host can replay a peer's actions.
 import { wed, nameChild } from './family.js';
 import { ROLES, ROLE_LEVEL } from './rules.js';
@@ -34,6 +35,7 @@ export function applyAction(state, playerIdx, a) {
     case 'build': return build(state, kid, a.building);
     case 'loadout': return setLoadout(state, kid, a.ids);
     case 'propose': return propose(state, kid, a.to, a.kind);
+    case 'scout': return !!scoutLand(state, kid, a.tid);
     case 'peace': return offerPeace(state, kid, a.to, Math.max(0, a.gold | 0));
     case 'respond': { const p = state.proposals.find((x) => x.id === a.id); if (!p || p.to !== kid) return false; return respondProposal(state, a.id, a.accept); }
     case 'break': return breakTreaty(state, kid, a.other);

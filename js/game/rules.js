@@ -203,8 +203,8 @@ export const PROMOTE = [
   { cost: 1200, need: 'Hold 8 lands with 8 heroes, or 200 soldiers', ok: (heroes, troops, lands) => lands >= 8 && (heroes >= 8 || troops >= 200) },
 ];
 export const BUILDINGS = {
-  pits: { name: 'Training Pits', cost: 500, tier: 1, desc: '+3 command for every hero; drilling gives double experience.' },
-  spies: { name: 'Spy Network', cost: 300, tier: 1, desc: 'Heroes can spy on a neighbour to reveal its army and exact odds.' },
+  pits: { name: 'Training Pits', cost: 500, tier: 1, desc: '+3 command for every hero; resting heroes train twice as hard.' },
+  spies: { name: 'Spy Network', cost: 300, tier: 1, desc: 'Scout two lands each season (more with Scout heroes) to reveal armies and exact odds.' },
   academy: { name: 'War Academy', cost: 600, tier: 1, desc: '+2 command points for stratagems; heroes learn faster.' },
   granary: { name: 'Granaries', cost: 350, tier: 1, desc: '+25% food and protection from famine.' },
   council: { name: 'War Council', cost: 900, tier: 2, desc: 'Bring a 4th stratagem into battle.' },
@@ -223,8 +223,6 @@ export const EDICTS = {
   festival: { name: 'Festival', cost: { gold: 150 }, desc: 'Morale +12 across the realm.' },
   conscript: { name: 'Conscription', cost: { gold: 0 }, desc: 'Every squad is filled with fresh recruits for free. Stability −10, morale −6.' },
   martial: { name: 'Martial Law', cost: { gold: 0 }, desc: 'Stability +15, morale −8.' },
-  relief: { name: 'Relief', cost: { gold: 120, food: 40 }, desc: 'Stability +10, morale +4.' },
-  gifts: { name: 'Gifts to Heroes', cost: { gold: 60, perHero: true }, desc: 'Every hero gains +8 loyalty.' },
 };
 
 export const FOOD = { grass: 30, marsh: 22, dirt: 18, sand: 10, ice: 10, christmas: 12, deepmarsh: 16, lava: 8, cave: 12, dungeon: 10 };

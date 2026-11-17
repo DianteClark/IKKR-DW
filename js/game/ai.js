@@ -3,6 +3,7 @@ import { kingdomHeroes, kingdomTerritories, setOrder, restPrice, rngFor, powerAt
 import { squadCap, squadPower, developCost } from './rules.js';
 import { aiWildsOrder } from './neutral.js';
 import { atWar } from './diplomacy.js';
+import { scoutLand } from './intel.js';
 import { skirmishTargets, heroesAt } from './world.js';
 
 function frontierDistance(state, kid) {
@@ -76,9 +77,8 @@ export function aiOrders(state, kid) {
     if (loc === k.capital && group.length > 1 && !raider) attackers = group.slice(1);
     if (best != null && bestScore * aggression > 1.25) {
       for (const h of attackers) { setOrder(state, h.id, { type: 'attack', target: best }); free.delete(h); }
-    } else if (k.buildings.spies && rng() < 0.15) {
-      const h = group.find((x) => free.has(x));
-      if (h) { setOrder(state, h.id, { type: 'spy', target: rng.pick(targets) }); free.delete(h); }
+    } else if (k.buildings.spies && rng() < 0.3) {
+      scoutLand(state, kid, rng.pick(targets));
     }
   }
   const fd = frontierDistance(state, kid);
@@ -93,7 +93,7 @@ export function aiOrders(state, kid) {
       const wild = t.nb.filter((n) => state.territories[n].owner < 0 && ((state.sites || []).some((s) => s.tid === n && s.status === 'active') || state.heroes.some((v) => v.status === 'vagabond' && v.loc === n) || (!raider && !state.territories[n].protect && rng() < 0.3)));
       if (wild.length) { setOrder(state, h.id, { type: 'move', target: rng.pick(wild) }); continue; }
     }
-    setOrder(state, h.id, { type: h.troops.length < squadCap(h, k) && k.gold > restPrice(state, h) ? 'rest' : 'drill' });
+    setOrder(state, h.id, { type: 'rest' });
   }
 }
 

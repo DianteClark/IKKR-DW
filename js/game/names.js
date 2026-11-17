@@ -1,7 +1,8 @@
 // Place and kingdom name generators (seeded).
 const A = ['Ash', 'Bel', 'Cor', 'Dun', 'El', 'Fal', 'Gal', 'Har', 'Ith', 'Kar', 'Lor', 'Mor', 'Nor', 'Ost', 'Pel', 'Rav', 'Sil', 'Tor', 'Ul', 'Val', 'Wyn', 'Yr', 'Zar', 'Brim', 'Cald', 'Drak', 'Fen', 'Gry', 'Hol', 'Kel', 'Myr', 'Quel', 'Thal', 'Vor'];
 const B = ['dale', 'mere', 'hold', 'ford', 'wick', 'moor', 'reach', 'fell', 'gard', 'haven', 'stead', 'crag', 'march', 'vale', 'spire', 'watch', 'gate', 'barrow', 'holm', 'deep', 'rock', 'wood', 'fall', 'run', 'shire', 'keep'];
-const TITLES = ['Kingdom', 'Dominion', 'Realm', 'Principality', 'Clans', 'Duchy', 'Empire', 'League', 'Throne', 'Free Holds'];
+// realm names never carry a rank (Village/Kingdom/Empire is shown as a tag), so a realm keeps its name for life
+const TITLES = ['House', 'Realm', 'Clans', 'March', 'Free Holds', 'League', 'Throne', 'Dominion', 'Banners', 'Crown'];
 
 export function placeName(rng, used) {
   for (let i = 0; i < 60; i++) {

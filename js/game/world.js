@@ -136,7 +136,7 @@ export function createWorld(seed, players, opts = {}) {
   }
   // Most realms begin as a one-land village with 3 heroes. A few great kingdoms start with several lands and
   // 5 heroes: the powers everyone else should steer clear of until they've grown.
-  const villageName = (cap) => `Village of ${terrs[cap].name}`;
+  const villageName = (cap) => kingdomName(rng, terrs[cap].name);
   players.forEach((p, i) => {
     const k = newKingdom(state, rng, { fid: p.fid, cap: starts[i], player: i, name: p.name || villageName(starts[i]), banner: p.banner || null });
     terrs[starts[i]].level = 1;
@@ -330,13 +330,13 @@ export function troopOptions(state, h) {
 }
 
 // ---------- orders ----------
-// order: {type:'attack'|'move'|'rest'|'drill'|'spy', target?}
+// order: {type:'attack'|'move'|'rest'|'skirmish'|'besiege'|'raid'|wilds…, target?}
 export function setOrder(state, heroId, order) {
   const h = hero(state, heroId);
   if (!h || h.status !== 'active' || h.lentTo >= 0) return false;
   if (order && order.type === 'attack' && !validTargets(state, h).includes(order.target)) return false;
   if (order && order.type === 'move' && !validMoves(state, h).includes(order.target)) return false;
-  if (order && order.type === 'spy' && !validSpyTargets(state, h).includes(order.target)) return false;
+  if (order && (order.type === 'spy' || order.type === 'drill')) return false; // retired orders
   if (order && order.type === 'skirmish' && !skirmishTargets(state, h).includes(order.target)) return false;
   if (order && ['plunder', 'protect', 'explore', 'court'].includes(order.type) && !validNeutralOrder(state, h, order)) return false;
   h.order = order;
@@ -740,27 +740,16 @@ export function applyOrders(state) {
     const k = state.kingdoms[h.kingdom];
     const o = h.order;
     if (o.type === 'move' && validMoves(state, h).includes(o.target)) h.loc = o.target;
-    else if (o.type === 'rest') {
+    else if (o.type === 'rest' || o.type === 'drill') { // old saves may still hold 'drill': it is part of resting now
       h.hp = Math.min(100, h.hp + 45);
+      const pr = gainTroopXp(h, k.buildings.pits ? 2 : 1, rng);
+      gainHeroXp(h, k.buildings.academy ? 2 : 1, rng);
+      if (pr.evolve || pr.elite) results.push({ kid: k.id, text: `${h.name}'s training paid off: ${pr.evolve ? pr.evolve + ' evolved' : ''}${pr.elite ? ' ' + pr.elite + ' became Elite' : ''}.` });
       const cap = squadCap(h, k), cost = Math.round(recruitCost(h.ufid, h.unit) * (k.landless ? 1.6 : 1));
       let added = 0;
       while (h.troops.length < cap && k.gold >= cost) { k.gold -= cost; h.troops.push(newSoldier(rng)); added++; }
       h.loyalty = Math.min(100, h.loyalty + 1);
       if (added) results.push({ kid: k.id, text: `${h.name} rested and took in ${added} recruits.` });
-    } else if (o.type === 'drill') {
-      const pr = gainTroopXp(h, k.buildings.pits ? 2 : 1, rng);
-      gainHeroXp(h, k.buildings.academy ? 2 : 1, rng);
-      if (pr.evolve || pr.elite) results.push({ kid: k.id, text: `${h.name}'s drills paid off: ${pr.evolve ? pr.evolve + ' evolved' : ''}${pr.elite ? ' ' + pr.elite + ' became Elite' : ''}.` });
-    } else if (o.type === 'spy') {
-      const t = state.territories[o.target];
-      if (h.role === 'scout' || rng() < 0.45 + h.int * 0.06) {
-        k.intel[o.target] = { turn: state.turn + 1 };
-        results.push({ kid: k.id, text: `${h.name}'s spies mapped the defences of ${t.name}.` });
-      } else {
-        if (rng() < 0.25) { h.hp = Math.max(20, h.hp - 30); results.push({ kid: k.id, text: `${h.name}'s spies were caught at ${t.name}.` }); }
-        else results.push({ kid: k.id, text: `${h.name} learned nothing at ${t.name}.` });
-        if (t.owner >= 0) state.kingdoms[t.owner].rel[k.id] = (state.kingdoms[t.owner].rel[k.id] || 0) - 10;
-      }
     }
     if (o.type !== 'attack') h.order = null;
   }

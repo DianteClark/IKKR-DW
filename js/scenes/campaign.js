@@ -12,6 +12,7 @@ import {
   hasIntel, friendly, overlordOf, treaty, proposedMajority, totalTroops, fixPortraits, skirmishTargets,
 } from '../game/world.js';
 import { endTurn } from '../game/turn.js';
+import { scoutsLeft, scoutableLands } from '../game/intel.js';
 import { neutralActions, sitesIn, SITES, plunderYield } from '../game/neutral.js';
 import { seasonOf, yearOf, SEASON_FOOD, childrenOf, wedOptions, MARRY_LEVEL, childNames } from '../game/family.js';
 import { runAI } from '../game/ai.js';
@@ -355,8 +356,8 @@ function territoryPanel(tid) {
       const canAtk = validTargets(st, myHere[0]).length;
       add(body, h('div', { class: 'row wrap' },
         canAtk ? btn(k.landless ? 'All rise up' : 'All attack', () => (k.landless ? myHere.forEach((x) => act({ type: 'order', hero: x.id, order: { type: 'attack', target: tid } })) : startTarget(myHere.map((x) => x.id), 'attack')), 'danger small') : null,
-        btn('All rest', () => myHere.forEach((x) => act({ type: 'order', hero: x.id, order: { type: 'rest' } })), 'small'),
-        btn('All drill', () => myHere.forEach((x) => act({ type: 'order', hero: x.id, order: { type: 'drill' } })), 'small')));
+        btn('All rest & train', () => myHere.forEach((x) => act({ type: 'order', hero: x.id, order: { type: 'rest' } })), 'small'),
+));
     }
   }
   const others = st.heroes.filter((x) => x.status === 'active' && x.loc === tid && x.kingdom !== k.id && !(t.owner >= 0 && x.kingdom === t.owner && !mine));
@@ -383,10 +384,20 @@ function territoryPanel(tid) {
       if (notSet.length > 1) add(body, btn('Send all', () => { notSet.forEach((x) => act({ type: 'order', hero: x.id, order: { type: 'attack', target: tid } })); sfx('horn'); }, 'danger small'));
     }
     if (owner && owner.id !== k.id && !k.landless) add(body, btn('Diplomacy…', () => diplomacySheet(owner.id), 'small'));
+    sysLandExtras(body, tid);
   }
   return h('div', { class: 'panel' },
     h('div', { class: 'row' }, h('h2', { class: 'grow' }, t.name), btn('✕', () => { S.sel = null; refreshUI(); }, 'small')),
     body);
+}
+
+// systems-helper additions to the land panel: scouting, weather, sieges, caravans
+function sysLandExtras(body, tid) {
+  const st = S.state, k = myK(), t = st.territories[tid];
+  const left = scoutsLeft(st, k);
+  if (t.owner !== k.id && left > 0 && scoutableLands(st, k.id).includes(tid) && !hasIntel(st, k.id, tid))
+    add(body, btn(`Scout this land (${left} left)`, () => { const r = act({ type: 'scout', tid }); toast(r ? `Scouts sent to ${t.name}` : 'Could not scout', r ? 'good' : 'bad'); sfx('click'); refreshUI(); }, 'small'));
+  else if (t.owner !== k.id && !k.buildings.spies && !hasIntel(st, k.id, tid)) add(body, h('div', { class: 'muted', style: { fontSize: '12px' } }, 'Build a Spy Network to scout lands.'));
 }
 
 function heroBlock(x) {
@@ -401,9 +412,7 @@ function heroBlock(x) {
   const actions = h('div', { class: 'row wrap', style: { gap: '4px', margin: '2px 0 8px' } },
     targets.length ? btn(is('attack') ? `Attack → ${st.territories[x.order.target].name}` : k.landless ? 'Rise up' : 'Attack', () => (k.landless ? o({ type: 'attack', target: targets[0] }) : startTarget([x.id], 'attack')), 'danger small' + (is('attack') || picking('attack') ? ' sel' : '')) : null,
     moves.length ? btn(is('move') ? `Move → ${st.territories[x.order.target].name}` : 'Move', () => startTarget([x.id], 'move'), 'small' + (is('move') || picking('move') ? ' sel' : '')) : null,
-    btn(need ? `Rest${price ? ' ' + price + 'g' : ''}` : 'Rest', () => o({ type: 'rest' }), 'small good' + (is('rest') ? ' sel' : '')),
-    btn('Drill', () => o({ type: 'drill' }), 'small' + (is('drill') ? ' sel' : '')),
-    spies.length ? btn(is('spy') ? `Spy → ${st.territories[x.order.target].name}` : 'Spy', () => startTarget([x.id], 'spy'), 'small' + (is('spy') || picking('spy') ? ' sel' : '')) : null,
+    btn(need ? `Rest & train${price ? ' ' + price + 'g' : ''}` : 'Rest & train', () => o({ type: 'rest' }), 'small good' + (is('rest') ? ' sel' : '')),
     x.order ? btn('Clear', () => o(null), 'small') : null);
   const foes = skirmishTargets(st, x);
   const fightRow = foes.length ? h('div', { class: 'row wrap', style: { gap: '4px', margin: '-4px 0 8px' } }, foes.map((fk) => {
@@ -693,7 +702,7 @@ function intro() {
   const k = myK();
   modal(`Welcome, ${hero(S.state, k.ruler)?.name || 'ruler'}`, h('div', { class: 'col' },
     h('div', {}, `You rule the village of ${S.state.territories[k.capital].name}. Every other land belongs to a rival.`),
-    h('div', {}, '• Tap your town to command heroes: attack, move, rest (heal and recruit), drill or spy.'),
+    h('div', {}, '• Tap your town to command heroes: attack, move, rest (heal, recruit and train) or explore the wilds.'),
     h('div', {}, '• Grow from Village to Kingdom to Empire to unlock troops, stratagems and buildings.'),
     h('div', {}, '• Keep morale, food and stability up or face famine and revolt.'),
     h('div', {}, '• Make allies, demand fealty, lend heroes — and beware of traitors.'),
