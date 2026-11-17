@@ -6,7 +6,7 @@ import { hashStr } from '../engine/rng.js';
 import { drawUnit, drawHero, drawSpriteRef, DUNGEON_TILES } from '../data/art.js';
 import { SPELLS } from '../data/spells.js';
 import { createBattle, step, command, aiThink, battleResult, snapshot, applySnapshot, liveCount, DT, stratagemTargets, planRoute, routeProblem } from '../battle/sim.js';
-import { renderGround, drawFieldOverlay, postRef, TS } from '../battle/field.js';
+import { renderGround, drawFieldOverlay, postRef, TS, nearestPost } from '../battle/field.js';
 import { createFx } from '../battle/fx.js';
 import { formationSlots, FORMATIONS, FORMATION_IDS, STRATAGEMS, commandPool, tierIndex } from '../game/rules.js';
 import { hero, hasIntel } from '../game/world.js';
@@ -386,7 +386,14 @@ function drawRoutes(list, time) {
   for (const s of list) {
     const r = B.render.get(s.id) || s;
     let pts = null, col = '#ffd25a';
-    if (s.chase != null) { const t = sim.squads.find((q) => q.id === s.chase && q.state !== 'dead'); if (t) { pts = [[r.x, r.y], [t.x, t.y]]; col = '#ff6a5a'; } }
+    if (s.chase != null) {
+      const t = sim.squads.find((q) => q.id === s.chase && q.state !== 'dead');
+      if (t) {
+        col = '#ff6a5a';
+        const ids = Math.hypot(t.x - s.x, t.y - s.y) > 6 ? planRoute(sim, s, nearestPost(sim.field, t.x, t.y)) : null;
+        pts = [[r.x, r.y], ...(ids || []).map((id) => [sim.field.posts[id].x, sim.field.posts[id].y]), [t.x, t.y]];
+      }
+    }
     else if (s.path && s.path.length) pts = [[r.x, r.y], ...s.path.map((p) => [p.x, p.y])];
     else if (s.goal != null && s.state === 'move') { const ids = planRoute(sim, s, s.goal); if (ids) pts = [[r.x, r.y], ...ids.map((id) => [sim.field.posts[id].x, sim.field.posts[id].y])]; }
     if (!pts || pts.length < 2) continue;

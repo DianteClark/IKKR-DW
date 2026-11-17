@@ -337,7 +337,15 @@ export function step(sim) {
       if (s.shootCd <= 0 && !s.reform) { shoot(sim, s, foe); s.shootCd = 1.1; }
       continue;
     }
-    if (s.chase && foe) { moveToward(s, foe, speed * (s.buffs.charge > 0 ? 1.25 : 1)); s.state = 'move'; continue; }
+    if (s.chase && foe) {
+      // distant targets are reached by road (no wading through lakes), close ones charged directly
+      if (fd > 6) {
+        if (!s._cp || sim.tick % 20 === 0) { const ids = planRoute(sim, s, nearestPost(sim.field, foe.x, foe.y)); s._cp = ids ? ids.map((id) => ({ x: sim.field.posts[id].x, y: sim.field.posts[id].y })) : null; }
+        if (s._cp && s._cp.length && dist(s, s._cp[0]) < 0.8) s._cp.shift();
+        moveToward(s, s._cp && s._cp.length ? s._cp[0] : foe, speed);
+      } else { s._cp = null; moveToward(s, foe, speed * 1.1); }
+      s.state = 'move'; continue;
+    }
     if (s.path.length) {
       // attack-move (AI marches): stop to fight anyone who blocks the road
       const wp = s.path[0];
@@ -529,7 +537,8 @@ export function aiThink(sim, side) {
   }
   for (const s of S) {
     if (s.special >= 1 && enemies.some((e) => dist(e, s) < 6)) castSpecial(sim, s);
-    const near = enemies.filter((e) => dist(e, s) < 4.5).sort((a, b) => dist(a, s) - dist(b, s))[0];
+    // focus fire: among nearby enemies prefer the weakest (fewest troops, routing, low morale)
+    const near = enemies.filter((e) => dist(e, s) < 4.5).sort((a, b) => (liveCount(a) + a.morale / 25 + dist(a, s) * 0.8 - (a.state === 'rout' ? 3 : 0)) - (liveCount(b) + b.morale / 25 + dist(b, s) * 0.8 - (b.state === 'rout' ? 3 : 0)))[0];
     if (near && !s.reform && s.formCd <= 0 && COUNTER[near.formation] !== s.formation && !s.ranged && (sim.tick / 10 + s.id) % 3 === 0) changeFormation(sim, s, COUNTER[near.formation]);
     if (buff(s, 'confused') || buff(s, 'feint')) continue;
     if (s.state === 'fight' || s.state === 'shoot') continue;
