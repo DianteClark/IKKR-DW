@@ -97,15 +97,15 @@ export function heroPicker(state, playerIdx, onConfirm, opts = {}) {
         onClick: () => { if (i >= 0) picks.splice(i, 1); else if (picks.length < 3) { picks.push(id); sfx('recruit'); } else toast('Pick up to 3 heroes', 'gold'); refresh(); },
       }));
     }
-    go2.disabled = picks.length < 2;
+    go2.disabled = picks.length < 3;
     info.textContent = `${picks.length}/3 chosen`;
   };
   refresh();
   const t = state.territories[k.capital];
   return h('div', { class: 'screen fade-in' },
     h('div', { class: 'panel col grow', style: { minHeight: 0 } },
-      header(opts.title || 'Choose 2–3 heroes', 2, 3, opts.back, h('div', { class: 'row' }, info, go2)),
-      h('div', { class: 'muted small-text' }, `${FACTIONS[k.fid].name} · starting at ${t.name}. The first hero you pick becomes your ruler.`),
+      header(opts.title || 'Choose 3 heroes', 3, 3, opts.back, h('div', { class: 'row' }, info, go2)),
+      h('div', { class: 'muted small-text' }, `${FACTIONS[k.fid].name} · your village at ${t.name}. The first hero you pick becomes your ruler. Gather 5 heroes and the village becomes a kingdom.`),
       h('div', { class: 'scroll grow', style: { minHeight: 0, marginTop: '6px' } }, cont)));
 }
 

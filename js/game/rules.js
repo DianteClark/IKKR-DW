@@ -50,6 +50,7 @@ export function soldierStats(fid, ui, s) {
 }
 export function soldierTitle(fid, ui, s) {
   if (s.s === 3) return s.name || 'Elite';
+  if (s.heir) return `${s.name} · ${RANK_NAMES[s.s - 1][s.r || 0]}`;
   return RANK_NAMES[s.s - 1][s.r || 0];
 }
 
@@ -168,7 +169,7 @@ export const TIERS = [
 export function tierIndex(k) { return Math.max(0, TIERS.findIndex((t) => t.id === (k.tier || 'village'))); }
 export const PROMOTE = [
   null,
-  { cost: 400, need: 'Lead 4 heroes or 40 soldiers', ok: (heroes, troops, lands) => heroes >= 4 || troops >= 40 },
+  { cost: 400, need: 'Lead 4 heroes (happens on its own at 5)', ok: (heroes) => heroes >= 4, auto: 5 },
   { cost: 1200, need: 'Hold 8 lands with 8 heroes, or 200 soldiers', ok: (heroes, troops, lands) => lands >= 8 && (heroes >= 8 || troops >= 200) },
 ];
 export const BUILDINGS = {

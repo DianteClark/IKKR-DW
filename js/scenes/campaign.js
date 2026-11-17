@@ -12,6 +12,7 @@ import {
   hasIntel, friendly, overlordOf, treaty, proposedMajority, totalTroops,
 } from '../game/world.js';
 import { endTurn } from '../game/turn.js';
+import { seasonOf, yearOf, SEASON_FOOD, childrenOf, wedOptions, MARRY_LEVEL } from '../game/family.js';
 import { runAI } from '../game/ai.js';
 import { applyAction } from '../game/actions.js';
 import {
@@ -78,7 +79,7 @@ registerScene('campaign', {
     else {
       persist();
       if (net.role === 'single' && S.state.turn === 1 && !S.state.introShown) intro();
-      else banner(`Turn ${S.state.turn}`, 'blue', myK().name);
+      else banner(`${seasonOf(S.state.turn)}, Year ${yearOf(S.state.turn)}`, 'blue', myK().name);
     }
   },
   exit() { net.onState = null; },
@@ -189,7 +190,7 @@ export function refreshUI() {
     h('span', { class: 'chip', title: 'Food' }, `🌾${Math.round(k.food)} `, h('small', { class: eco.food >= 0 ? 'good' : 'bad' }, sign(eco.food))),
     h('span', { class: 'chip ' + (k.morale < 35 ? 'bad' : ''), title: 'Morale' }, `☺${Math.round(k.morale)}`),
     h('span', { class: 'chip ' + (k.stability < 30 ? 'bad' : ''), title: 'Stability' }, `⚖${Math.round(k.stability)}`),
-    h('span', { class: 'chip muted' }, `T${st.turn}`),
+    h('span', { class: 'chip muted', title: 'One turn is one season' }, `${seasonOf(st.turn)} · Y${yearOf(st.turn)}`),
     h('span', { class: 'grow' }),
     btn('☰', menu, 'small'),
     btn(waiting ? waiting : idle ? `End Turn (${idle})` : 'End Turn', endTurnPressed, 'primary small'),
@@ -374,6 +375,24 @@ export function heroModal(id) {
             h('span', { style: { color: it ? rarityColor(it.rarity) : '#6b6380', fontWeight: 700 } }, it ? it.name : 'Empty'),
             it ? h('span', { class: 'muted', style: { fontSize: '12px' } }, itemStatText(it)) : null));
       }));
+    } else if (tab === 'family') {
+      const sp = x.spouse > 0 ? hero(st, x.spouse) : null;
+      const kids = childrenOf(st, x);
+      const parents = (x.parents || []).map((p) => hero(st, p)).filter(Boolean);
+      const opts = editable && !sp ? wedOptions(st, x) : [];
+      const expecting = x.expecting ? x : sp && sp.expecting ? sp : null;
+      content = h('div', { class: 'col' },
+        h('div', { class: 'muted', style: { fontSize: '13px' } }, `Married heroes may have a child a year later. Heirs train in a parent's squad and become heroes at Elite. Marry from level ${MARRY_LEVEL}.`),
+        parents.length ? h('div', { class: 'row wrap' }, h('b', {}, 'Parents:'), parents.map((p) => h('span', { class: 'chip tap', onClick: () => { m.close(); heroModal(p.id); } }, p.name))) : null,
+        h('div', { class: 'row wrap' }, h('b', {}, 'Spouse:'), sp ? h('span', { class: 'chip good tap', onClick: () => { m.close(); heroModal(sp.id); } }, sp.name + (sp.status !== 'active' ? ` (${sp.status})` : '')) : h('span', { class: 'muted' }, x.widowed ? 'Widowed' : 'Unmarried')),
+        expecting ? h('div', { class: 'chip gold' }, `Expecting a child in ${seasonOf(expecting.expecting + 4)} of year ${yearOf(expecting.expecting + 4)}`) : null,
+        h('b', {}, `Children (${kids.length})`),
+        kids.length ? h('div', { class: 'col', style: { gap: '4px' } }, kids.map((c) => c.hero
+          ? h('div', { class: 'card tap', onClick: () => { m.close(); heroModal(c.hero.id); } }, portrait(c.hero, 2), h('span', { class: 'grow' }, `${c.hero.name} · hero, Lv ${c.hero.level}`))
+          : h('div', { class: 'card' }, unitIcon(c.with.ufid || c.with.fid, c.with.unit, c.soldier.s, 2), h('div', { class: 'col grow', style: { gap: 0 } }, h('b', {}, c.name), h('span', { class: 'muted', style: { fontSize: '12px' } }, `Training in ${c.with.name}'s squad · stage ${c.soldier.s} of 3`))))) : h('div', { class: 'muted' }, 'None yet.'),
+        opts.length ? h('b', {}, 'Arrange a marriage') : null,
+        opts.length ? h('div', { class: 'row wrap' }, opts.map((o) => btn(`${o.name} · Lv ${o.level}`, () => { if (act({ type: 'wed', a: x.id, b: o.id })) { sfx('levelup'); toast(`${x.name} and ${o.name} are wed!`, 'good'); render(); } }, 'small'))) : null,
+        editable && !sp && !opts.length ? h('div', { class: 'muted', style: { fontSize: '13px' } }, x.level < MARRY_LEVEL ? `Reaches marrying age at level ${MARRY_LEVEL}.` : 'No unmarried hero of the opposite gender in your realm is ready to wed.') : null);
     } else {
       const sp = SPELL[x.spell];
       const allies = alliesOf(st, k.id).map((a) => st.kingdoms[a]);
@@ -388,7 +407,7 @@ export function heroModal(id) {
         h('div', { class: 'muted', style: { fontSize: '13px' } }, 'Lent heroes fight in your ally\'s battles and gain experience — but a disloyal hero may decide to stay with them.'));
     }
     const body = h('div', { class: 'col' }, head,
-      tabs([{ id: 'squad', label: 'Squad' }, { id: 'unit', label: 'Unit type' }, { id: 'gear', label: 'Gear' }, { id: 'more', label: 'Tactics' }], (id) => { tab = id; render(); }, tab), content);
+      tabs([{ id: 'squad', label: 'Squad' }, { id: 'unit', label: 'Unit type' }, { id: 'gear', label: 'Gear' }, { id: 'family', label: 'Family' }, { id: 'more', label: 'Tactics' }], (id) => { tab = id; render(); }, tab), content);
     if (m) m.box.querySelector('.body').replaceChildren(body); else m = sheet(x.name, body, [], { side: 'right' });
   };
   render();
@@ -432,6 +451,7 @@ function realmSheet() {
         statRow('Lands', `${eco.lands}`), statRow('Heroes / troops', `${kingdomHeroes(st, k.id, true).length} / ${eco.soldiers}`),
         statRow('Gold per turn', `${sign(eco.gold)}${eco.tributeOut ? ` (−${eco.tributeOut} tribute)` : ''}${eco.tributeIn ? ` (+${eco.tributeIn} tribute)` : ''}`),
         statRow('Food per turn', `${sign(eco.food)}  (grown ${eco.foodMade}, eaten ${eco.foodEaten})`),
+        statRow('Season', `${seasonOf(st.turn)}, year ${yearOf(st.turn)} · harvest ×${SEASON_FOOD[seasonOf(st.turn)]}`),
         h('div', { class: 'row' }, h('span', { style: { width: '90px' } }, 'Morale'), h('div', { class: 'grow' }, bar(k.morale / 100, 'mor')), h('b', {}, Math.round(k.morale))),
         h('div', { class: 'row' }, h('span', { style: { width: '90px' } }, 'Stability'), h('div', { class: 'grow' }, bar(k.stability / 100)), h('b', {}, Math.round(k.stability))),
         k.stability < 30 ? h('div', { class: 'bad', style: { fontSize: '13px' } }, 'Low stability breeds revolts. Very low stability and morale can overthrow you!') : null,
@@ -524,7 +544,7 @@ function diplomacySheet(focusKid) {
 
 function chronicle() {
   const st = S.state;
-  const body = h('div', { class: 'log' }, [...st.log].reverse().slice(0, 150).map((l) => h('div', { class: l.kind || '' }, h('span', { class: 'muted' }, `T${l.turn} `), l.text)));
+  const body = h('div', { class: 'log' }, [...st.log].reverse().slice(0, 150).map((l) => h('div', { class: l.kind || '' }, h('span', { class: 'muted' }, `${seasonOf(l.turn).slice(0, 3)} Y${yearOf(l.turn)} `), l.text)));
   sheet('Chronicle', body, [], { side: 'right' });
 }
 
@@ -544,7 +564,7 @@ function intro() {
     h('div', {}, '• Keep morale, food and stability up or face famine and revolt.'),
     h('div', {}, '• Make allies, demand fealty, lend heroes — and beware of traitors.'),
     h('div', {}, '• You lose only when your last hero falls.'),
-  ), [['To war!', () => { sfx('horn'); banner('Turn 1', 'blue', k.name); }, 'primary']]);
+  ), [['To war!', () => { sfx('horn'); banner('Spring, Year 1', 'blue', k.name); }, 'primary']]);
 }
 
 // ---------- captives ----------
@@ -745,7 +765,7 @@ export function showTurnSummary(prevTurn, reports, summary = { events: [], notes
     mineNotes.length ? h('div', { class: 'col', style: { gap: '3px' } }, mineNotes.map((n) => h('div', { class: n.kind === 'defect' || n.kind === 'famine' || n.kind === 'betrayal' ? 'bad' : n.kind === 'plot' ? 'gold' : '' }, '• ' + n.text))) : null,
     events.length ? h('b', {}, 'Across the land') : null, events,
   ), [['Continue', () => {
-    banner(`Turn ${st.turn}`, bad ? 'bad' : 'blue', k.landless ? 'Your warband wanders' : k.name);
+    banner(`${seasonOf(st.turn)}, Year ${yearOf(st.turn)}`, bad ? 'bad' : 'blue', k.landless ? 'Your warband wanders' : k.name);
     if (captivesOf(st, myKid).length && (reports || []).some((r) => r.captured.length)) showCaptives();
     else if (st.proposals.some((p) => p.to === myKid)) diplomacySheet();
   }, 'primary']], { width: '680px' });

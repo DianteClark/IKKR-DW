@@ -23,7 +23,7 @@ registerScene('lobby', {
     L = { hostFid: null, peerFid: null, state: null, hostPicked: null, peerPicked: null };
     screen(
       h('h2', {}, 'Two-player campaign'),
-      h('div', { class: 'muted' }, 'Each player starts in their own random territory with 2–3 heroes. Turns are played together; battles between you are fought live.'),
+      h('div', { class: 'muted' }, 'Each player starts as a village in their own random land with 3 heroes. Turns are played together; battles between you are fought live.'),
       btn('Host a game', hostFlow, 'primary'),
       h('div', { class: 'row' }, h('input', { class: 'text grow', id: 'code', maxlength: '5', placeholder: 'CODE', autocomplete: 'off', autocapitalize: 'characters' }), btn('Join', () => joinFlow(document.getElementById('code').value.trim()), 'good')),
       btn('Back', () => go('title'), 'small'));

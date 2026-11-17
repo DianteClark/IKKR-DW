@@ -1,7 +1,7 @@
 // Draws the campaign map: terrain (pre-rendered once), ownership overlay, towns, heroes, orders and animated details.
 import { img, loadImage } from '../engine/assets.js';
 import { makeRng, makeNoise } from '../engine/rng.js';
-import { BIOMES, BIOME_IDS, TREES, FACTIONS, drawHero, drawSpriteRef, STRUCT } from '../data/art.js';
+import { BIOMES, BIOME_IDS, TREES, FACTIONS, drawHero, drawSpriteRef, portraitRef, STRUCT } from '../data/art.js';
 import { paintLandWater, paintRiver, drawBlobs, drawNetwork, drawLandmark, preloadLandmarks, ROAD_SHEET, FENCE_SHEET, maskAt } from '../maps/paint.js';
 
 export const TS = 16;
@@ -236,17 +236,32 @@ export function drawHeroes(ctx, state, time) {
   }
   for (const [tid, list] of by) {
     const t = state.territories[tid];
-    list.slice(0, 4).forEach((h, i) => {
-      const x = t.cx * TS + 8 + 30 + (i % 2) * 14, y = t.cy * TS + 8 + Math.floor(i / 2) * 12 - 6;
-      const col = state.kingdoms[h.kingdom].color;
+    const n = Math.min(3, list.length);
+    list.slice(0, 3).forEach((h, i) => {
+      const x = t.cx * TS + 8 + 28 + i * 9, y = t.cy * TS + 10 - (i % 2) * 3;
       ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.beginPath(); ctx.ellipse(x, y, 6, 2, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#1b1420'; ctx.fillRect(x - 7, y - 20, 1, 10);
-      ctx.fillStyle = col; ctx.fillRect(x - 6, y - 20, 5, 3);
       drawHero(ctx, h.fid, h.gender, 3, 'walk', time * 3 + i, x, y, false);
     });
-    if (list.length > 4) {
-      ctx.fillStyle = '#0b0a10'; ctx.fillRect(t.cx * TS + 54, t.cy * TS - 4, 13, 8);
-      ctx.fillStyle = '#ffd25a'; ctx.font = '7px monospace'; ctx.fillText('+' + (list.length - 4), t.cx * TS + 55, t.cy * TS + 2);
+    // portrait pin over the group's leader, ringed in the kingdom colour (HAS hero-pack style)
+    const lead = list[0];
+    const col = state.kingdoms[lead.kingdom].color;
+    const px = t.cx * TS + 8 + 28 + (n - 1) * 4.5, py = t.cy * TS - 24 + Math.round(Math.sin(time * 2 + tid) * 1.2);
+    ctx.fillStyle = 'rgba(10,8,16,.85)';
+    ctx.beginPath(); ctx.arc(px, py, 11, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(px - 5, py + 8); ctx.lineTo(px + 5, py + 8); ctx.lineTo(px, py + 15); ctx.fill();
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(px, py, 10, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(px - 4, py + 7); ctx.lineTo(px + 4, py + 7); ctx.lineTo(px, py + 13); ctx.fill();
+    ctx.fillStyle = '#f4ecd8'; ctx.beginPath(); ctx.arc(px, py, 8, 0, Math.PI * 2); ctx.fill();
+    ctx.save(); ctx.beginPath(); ctx.arc(px, py, 8, 0, Math.PI * 2); ctx.clip();
+    drawSpriteRef(ctx, portraitRef(lead.fid, lead.portrait), px - 8, py - 8, 16, 16);
+    ctx.restore();
+    if (list.length > 1) {
+      const bx = Math.round(px + 9), by = Math.round(py - 8);
+      ctx.fillStyle = '#0b0a10'; ctx.beginPath(); ctx.arc(bx, by, 5.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#ffd25a'; ctx.beginPath(); ctx.arc(bx, by, 4.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#1b1420'; ctx.font = 'bold 7px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(String(list.length), bx, by + 0.5); ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
     }
   }
 }

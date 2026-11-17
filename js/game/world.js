@@ -127,17 +127,27 @@ export function createWorld(seed, players, opts = {}) {
     }
     capitals.push(best);
   }
+  // Most realms begin as a one-land village with 3 heroes. A few great kingdoms start with several lands and
+  // 5 heroes: the powers everyone else should steer clear of until they've grown.
+  const villageName = (cap) => `Village of ${terrs[cap].name}`;
   players.forEach((p, i) => {
-    const k = newKingdom(state, rng, { fid: p.fid, cap: starts[i], player: i, name: p.name });
-    terrs[starts[i]].level = 2;
+    const k = newKingdom(state, rng, { fid: p.fid, cap: starts[i], player: i, name: p.name || villageName(starts[i]) });
+    terrs[starts[i]].level = 1;
     state.players.push({ kingdom: k.id });
   });
-  for (let i = starts.length; i < capitals.length; i++) {
-    const cap = capitals[i];
+  const greatN = { small: 1, medium: 2, large: 3, huge: 4 }[size] || 2;
+  // great kingdoms take the capitals farthest from every player
+  const aiCaps = capitals.slice(starts.length);
+  const farFromPlayers = (id) => Math.min(...starts.map((s) => dist(s, id)));
+  const greatCaps = new Set([...aiCaps].sort((a, b) => farFromPlayers(b) - farFromPlayers(a)).slice(0, greatN));
+  for (const cap of aiCaps) {
     const fits = FACTION_IDS.filter((f) => FACTIONS[f].biomes.includes(terrs[cap].biome));
-    newKingdom(state, rng, { fid: fits.length && rng.chance(0.75) ? rng.pick(fits) : rng.pick(FACTION_IDS), cap });
+    const great = greatCaps.has(cap);
+    const fid = fits.length && rng.chance(0.75) ? rng.pick(fits) : rng.pick(FACTION_IDS);
+    const k = newKingdom(state, rng, { fid, cap, tier: great ? 'kingdom' : 'village', name: great ? undefined : villageName(cap) });
+    k.great = great;
   }
-  const quota = state.kingdoms.map((k) => (k.player >= 0 ? 0 : rng.pick([0, 1, 1, 2, 2, 3, 4, 5])));
+  const quota = state.kingdoms.map((k) => (k.player >= 0 ? 0 : k.great ? rng.int(4, 5) : rng.chance(0.3) ? 1 : 0));
   let grew = true;
   while (grew) {
     grew = false;
@@ -150,27 +160,25 @@ export function createWorld(seed, players, opts = {}) {
   }
   for (const t of terrs) {
     if (t.owner >= 0) continue;
-    const owners = t.nb.map((n) => terrs[n].owner).filter((o) => o >= 0 && state.kingdoms[o].player < 0);
-    if (owners.length && rng.chance(0.55)) t.owner = rng.pick(owners);
+    const owners = t.nb.map((n) => terrs[n].owner).filter((o) => o >= 0 && state.kingdoms[o].player < 0 && !state.kingdoms[o].great && terrs.filter((x) => x.owner === o).length < 2);
+    if (owners.length && rng.chance(0.4)) t.owner = rng.pick(owners);
     else {
       const fits = FACTION_IDS.filter((f) => FACTIONS[f].biomes.includes(t.biome));
-      newKingdom(state, rng, { fid: fits.length ? rng.pick(fits) : rng.pick(FACTION_IDS), cap: t.id });
+      newKingdom(state, rng, { fid: fits.length ? rng.pick(fits) : rng.pick(FACTION_IDS), cap: t.id, name: villageName(t.id) });
     }
   }
-  for (const t of terrs) if (t.owner < 0) newKingdom(state, rng, { fid: rng.pick(FACTION_IDS), cap: t.id });
   for (const t of terrs) t.race = state.kingdoms[t.owner].fid;
 
   const diff = DIFFICULTY[state.difficulty] || DIFFICULTY.normal;
   for (const k of state.kingdoms) {
     if (k.player >= 0) continue;
     const owned = terrs.filter((t) => t.owner === k.id);
-    k.tier = owned.length >= 5 ? 'empire' : owned.length >= 2 ? 'kingdom' : 'village';
-    if (k.tier !== 'village') k.buildings = { spies: true };
-    terrs[k.capital].level = Math.min(3, 1 + Math.floor(owned.length / 2));
-    const n = Math.max(1, Math.round(owned.length * 1.2 * diff.bonus));
+    if (k.great) k.buildings = { spies: true };
+    terrs[k.capital].level = k.great ? 3 : 1;
+    const n = k.great ? Math.round(5 * diff.bonus) : 3;
     const maxU = TIERS[tierIndex(k)].maxUnitLevel;
     for (let i = 0; i < n; i++) {
-      const h = makeHero(state, rng, k.fid, k.id, i === 0 ? k.capital : rng.pick(owned).id, { ruler: i === 0, level: rng.int(0, 1), maxUnit: maxU });
+      const h = makeHero(state, rng, k.fid, k.id, i === 0 ? k.capital : rng.pick(owned).id, { ruler: i === 0, level: k.great ? rng.int(1, 2) : rng.int(0, 1), maxUnit: maxU });
       if (i === 0) k.ruler = h.id;
     }
     k.gold = Math.round((300 + owned.length * 120) * diff.bonus);
@@ -356,7 +364,7 @@ export function gainTroopXp(h, amount, rng) {
     if (s.xp >= ex) {
       s.xp = 0; s.r = 0;
       if (s.s === 1) { s.s = 2; promos.evolve++; }
-      else { s.s = 3; s.name = (rng ? rng.pick(ELITE_NAMES) + ' ' + rng.pick(ELITE_TAGS) : 'Elite'); promos.elite++; }
+      else { s.s = 3; if (!s.heir) s.name = (rng ? rng.pick(ELITE_NAMES) + ' ' + rng.pick(ELITE_TAGS) : 'Elite'); promos.elite++; }
     }
   }
   return promos;

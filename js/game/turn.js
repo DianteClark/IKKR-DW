@@ -1,7 +1,8 @@
 // End-of-turn: economy, prisoners, wanderers, world events, diplomacy, then the next turn begins.
 import { FACTION_IDS } from '../data/art.js';
 import { rngFor, kingdomHeroes, makeHero, decideCaptive, isHumanKingdom, checkKingdoms, log, hero, pickLoadout, tidy } from './world.js';
-import { economyTick, aiDevelop } from './kingdom.js';
+import { economyTick, aiDevelop, autoPromote } from './kingdom.js';
+import { familyTick } from './family.js';
 import { worldEvents, vagabondTick, decayMarks } from './events.js';
 import { diplomacyTick } from './diplomacy.js';
 import { TIERS, tierIndex } from './rules.js';
@@ -27,6 +28,7 @@ export function endTurn(state) {
     decideCaptive(state, h.id, r < harsh ? 'execute' : r < 0.55 ? 'recruit' : r < 0.85 ? 'release' : 'keep');
   }
   vagabondTick(state, rng, notes);
+  familyTick(state, rng, notes);
   const events = worldEvents(state, rng);
   diplomacyTick(state, rng, notes);
   // realms with land but no heroes raise a champion; AI realms grow
@@ -39,6 +41,7 @@ export function endTurn(state) {
     }
     if (k.player < 0) { aiDevelop(state, k, rng); if (state.turn % 5 === 0) k.loadout = pickLoadout(k, rng); }
   }
+  autoPromote(state);
   if (state.turn % 3 === 0) {
     const n = rng.int(1, 2);
     for (let i = 0; i < n; i++) makeHero(state, rng, rng.pick(FACTION_IDS), -1, rng.pick(state.territories).id, { status: 'vagabond', level: Math.floor(state.turn / 6) });

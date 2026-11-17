@@ -4,6 +4,7 @@ import {
   POLICIES, EDICTS, TIERS, tierIndex, PROMOTE, BUILDINGS, territoryIncome, territoryFood, squadCap, newSoldier,
   STRATAGEMS, STRATAGEM_IDS,
 } from './rules.js';
+import { SEASON_FOOD, seasonOf } from './family.js';
 import { kingdomHeroes, kingdomTerritories, totalTroops, log, clamp, rngFor, overlordOf } from './world.js';
 
 export function economyPreview(state, k) {
@@ -13,6 +14,7 @@ export function economyPreview(state, k) {
   for (const t of lands) { gold += territoryIncome(t); food += territoryFood(t); }
   gold = Math.round(gold * tax.gold);
   if (k.buildings.granary) food = Math.round(food * 1.25);
+  food = Math.round(food * SEASON_FOOD[seasonOf(state.turn)]);
   const heroes = kingdomHeroes(state, k.id, true);
   const soldiers = heroes.reduce((n, h) => n + h.troops.length, 0);
   const eat = k.landless ? 0 : Math.round((soldiers * 0.6 + heroes.length * 2) * rat.food); // wanderers live off the land
@@ -107,6 +109,15 @@ export function promoteRealm(state, kid) {
   if (s.next.id === 'empire') k.name = k.name.replace(/^\w+( \w+)? of/, 'Empire of');
   log(state, `${oldName} is now ${k.name} — a${s.next.id === 'empire' ? 'n' : ''} ${s.next.name}!`, kid, 'tier');
   return true;
+}
+
+// a village with enough heroes is a kingdom whether it pays for the ceremony or not
+export function autoPromote(state) {
+  for (const k of state.kingdoms) {
+    if (!k.alive || k.landless || k.kind !== 'realm' || tierIndex(k) !== 0) continue;
+    const s = promotionStatus(state, k.id);
+    if (s && PROMOTE[1].auto && s.heroes >= PROMOTE[1].auto) { k.gold += s.cost; promoteRealm(state, k.id); }
+  }
 }
 
 export function build(state, kid, bid) {
