@@ -303,3 +303,16 @@ input.text:focus { outline: none; box-shadow: 0 0 0 2px var(--gold); }
 .step-dots { display: flex; gap: 6px; align-items: center; }
 .step-dots i { width: 8px; height: 8px; border-radius: 4px; background: #3e3554; }
 .step-dots i.on { background: var(--gold); box-shadow: 0 0 6px var(--gold); }
+
+/* ---- gameplay additions ---- */
+.chip.bad { color: var(--bad); } .chip.good { color: var(--good); } .chip.blue { color: var(--blue); }
+.strat-mini .strat { width: 74px; min-height: 0; padding: 3px 3px 4px; gap: 1px; }
+.strat-mini .strat .art { height: 26px; }
+.strat-mini .strat .name { font-size: 11px; line-height: 1.05; }
+.strat-mini .strat .cost { width: 20px; height: 20px; font-size: 12px; top: -6px; left: -6px; }
+.strat-mini.disabled { opacity: .45; }
+.log div.conquest, .log div.uprising, .log div.tier { color: var(--gold); }
+.log div.betrayal, .log div.execution, .log div.fall, .log div.famine, .log div.overthrow, .log div.revolt { color: var(--bad); }
+.log div.diplomacy { color: var(--blue); }
+.battle-left .card { min-height: 0; }
+.topbar .chip small { font-size: 12px; }

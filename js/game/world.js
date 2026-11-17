@@ -1,4 +1,4 @@
-// Campaign state: kingdoms, territories, heroes, orders and turn resolution.
+// Campaign state: kingdoms, territories, heroes, orders and battles.
 // The state is plain JSON so it can be saved locally and sent to a peer.
 import { makeRng } from '../engine/rng.js';
 import { FACTIONS, FACTION_IDS } from '../data/art.js';
@@ -7,53 +7,66 @@ import { generateTerrain } from './mapgen.js';
 import { kingdomName, KINGDOM_COLORS } from './names.js';
 import { makeItem, SLOTS } from './items.js';
 import {
-  squadCap, recruitCost, squadPower, garrisonPower, territoryIncome, developCost, RANK_XP, LEVEL_XP, unitLevel, HIRE_COST,
+  squadCap, recruitCost, squadPower, garrisonPower, unitLevel, HIRE_COST, EVOLVE_XP, LEVEL_XP, MAX_LEVEL,
+  newSoldier, TIERS, tierIndex, PROMOTE_ELITE_COST, STRATAGEMS, STRATAGEM_IDS,
 } from './rules.js';
+
+export const SIZES = {
+  small: { territories: 24, kingdoms: 8, label: 'Small' },
+  medium: { territories: 44, kingdoms: 15, label: 'Medium' },
+  large: { territories: 70, kingdoms: 24, label: 'Large' },
+  huge: { territories: 100, kingdoms: 32, label: 'Huge archipelago' },
+};
+export const DIFFICULTY = { easy: { aggr: 0.8, bonus: 0.85, grace: 12 }, normal: { aggr: 1, bonus: 1, grace: 8 }, hard: { aggr: 1.2, bonus: 1.2, grace: 5 } };
+export const TRAITS = ['loyal', 'proud', 'cunning', 'honorable', 'greedy', 'fierce', 'calm', 'ambitious'];
 
 const DMG_SPELLS = SPELLS.filter((s) => s.kind === 'damage').map((s) => s.id);
 let terrainCache = null;
 export function terrainOf(state) {
-  if (!terrainCache || terrainCache.seed !== state.seed) terrainCache = { seed: state.seed, t: generateTerrain(state.seed, state.territoryCount) };
+  const key = state.seed + ':' + (state.size || state.territoryCount);
+  if (!terrainCache || terrainCache.key !== key) terrainCache = { key, t: generateTerrain(state.seed, state.size ? { size: state.size } : state.territoryCount) };
   return terrainCache.t;
 }
 
 export function rngFor(state, salt = 0) { return makeRng((state.seed ^ (state.turn * 7919) ^ (state.rngTick++ * 104729) ^ salt) >>> 0); }
+function newId(state) { return state.nextId++; }
+export const clamp = (v, a = 0, b = 100) => Math.max(a, Math.min(b, v));
 
 // ---------- creation ----------
-function newId(state) { return state.nextId++; }
-
-export function makeHero(state, rng, fid, kingdom, loc, opts = {}) {
-  const F = FACTIONS[fid];
-  const gender = rng.chance(0.45) ? 'f' : 'm';
-  const nUnits = F.units.length;
-  // weight toward low/mid units; high units are rarer
-  const unit = opts.unit ?? Math.min(nUnits - 1, Math.floor(Math.pow(rng(), 1.6) * nUnits));
-  const boost = opts.ruler ? 2 : 0;
-  const hero = {
-    id: newId(state), name: uniqueName(state, rng, F) + (rng.chance(0.3) ? ' ' + rng.pick(['the Bold', 'the Red', 'Ironhand', 'the Wise', 'Stormborn', 'the Grim', 'Oathkeeper', 'the Swift', 'Dragonsbane', 'the Elder']) : ''),
-    fid, gender, portrait: rng.int(0, F.portraits.length - 1), kingdom, loc, unit,
-    atk: rng.int(1, 4) + boost, def: rng.int(1, 4) + boost, lead: rng.int(7, 9) + (opts.ruler ? 1 : 0), int: rng.int(1, 4) + boost,
-    level: 1 + (opts.level || 0), xp: 0, morale: 70, hp: 100, loyalty: rng.int(55, 95),
-    gear: {}, status: opts.status || 'active', captor: -1, formation: rng.pick(['wedge', 'line', 'square']),
-    spell: rng.pick(DMG_SPELLS), order: null, troops: [],
-  };
-  for (let i = 0; i < (opts.level || 0); i++) levelUp(hero, rng);
-  const cap = squadCap(hero);
-  const n = opts.troops ?? Math.max(4, cap - rng.int(0, 2));
-  for (let i = 0; i < n; i++) hero.troops.push({ s: 1, r: rng.chance(0.3) ? 1 : 0, xp: 0 });
-  state.heroes.push(hero);
-  return hero;
-}
-
 function uniqueName(state, rng, F) {
   const used = new Set(state.heroes.map((x) => x.name.split(' ')[0]));
   const free = F.names.filter((n) => !used.has(n));
   return rng.pick(free.length ? free : F.names);
 }
+const EPITHETS = ['the Bold', 'the Red', 'Ironhand', 'the Wise', 'Stormborn', 'the Grim', 'Oathkeeper', 'the Swift', 'Dragonsbane', 'the Elder', 'Halfhand', 'the Silent', 'Ashborn', 'the Just'];
+
+export function makeHero(state, rng, fid, kingdom, loc, opts = {}) {
+  const F = FACTIONS[fid];
+  const gender = rng.chance(0.45) ? 'f' : 'm';
+  const nUnits = F.units.length;
+  const maxU = Math.min(nUnits - 1, opts.maxUnit ?? nUnits - 1);
+  const unit = opts.unit ?? Math.min(maxU, Math.floor(Math.pow(rng(), 1.6) * (maxU + 1)));
+  const boost = opts.ruler ? 2 : 0;
+  const hero = {
+    id: newId(state), name: (opts.name || uniqueName(state, rng, F)) + (!opts.name && rng.chance(0.3) ? ' ' + rng.pick(EPITHETS) : ''),
+    fid, ufid: opts.ufid || fid, gender, portrait: rng.int(0, F.portraits.length - 1), kingdom, origin: kingdom, loc, unit,
+    atk: rng.int(1, 4) + boost, def: rng.int(1, 4) + boost, lead: rng.int(7, 9) + (opts.ruler ? 1 : 0), int: rng.int(1, 4) + boost,
+    level: 1, xp: 0, morale: 60, hp: 100, loyalty: rng.int(55, 95), trait: opts.trait || rng.pick(TRAITS), ambition: rng.int(10, 90),
+    gear: {}, status: opts.status || 'active', captor: -1, formation: rng.pick(['wedge', 'line', 'square']),
+    spell: rng.pick(DMG_SPELLS), order: null, troops: [], secret: -1, lentTo: -1, lentTurns: 0,
+  };
+  for (let i = 0; i < (opts.level || 0); i++) levelUp(hero, rng);
+  const cap = squadCap(hero);
+  const n = Math.min(cap, opts.troops ?? Math.max(4, cap - rng.int(0, 2)));
+  for (let i = 0; i < n; i++) { const s = newSoldier(rng); if (rng.chance(0.25)) s.r = 1; hero.troops.push(s); }
+  state.heroes.push(hero);
+  return hero;
+}
 
 function levelUp(hero, rng) {
+  hero.level++;
   const k = rng.pick(['atk', 'atk', 'def', 'def', 'int', 'lead']);
-  if (k === 'lead') hero.lead = Math.min(14, hero.lead + 1); else hero[k] += 1;
+  if (k === 'lead') hero.lead = Math.min(16, hero.lead + 1); else hero[k] += 1;
   hero[rng.pick(['atk', 'def', 'int'])] += 1;
 }
 
@@ -64,20 +77,35 @@ export function giveItem(state, rng, kid, tier) {
   return it;
 }
 
-// players: [{fid}] — each gets a one-territory start far from the other
+export function newKingdom(state, rng, { fid, cap, player = -1, name, kind = 'realm', tier = 'village' }) {
+  const usedColors = new Set(state.kingdoms.filter((k) => k.alive).map((k) => k.color));
+  const color = KINGDOM_COLORS.find((c) => !usedColors.has(c)) || KINGDOM_COLORS[state.kingdoms.length % KINGDOM_COLORS.length];
+  const k = {
+    id: state.kingdoms.length, name: name || kingdomName(rng, state.territories[cap].name), fid, color, kind,
+    gold: player >= 0 ? 800 : 500, food: 120, morale: 60, stability: 60, tier,
+    buildings: {}, policy: { tax: 'normal', rations: 'normal' }, edictTurn: -1,
+    troopRaces: [fid], alive: true, landless: false, player, ruler: -1, capital: cap, items: [], rel: {}, intel: {}, loadout: [],
+  };
+  state.kingdoms.push(k);
+  if (cap != null && cap >= 0) state.territories[cap].owner = k.id;
+  return k;
+}
+
+// players: [{fid}] — each gets a one-territory start far from the others
 export function createWorld(seed, players, opts = {}) {
-  const territoryCount = opts.territories || 44;
+  const size = opts.size || 'medium';
+  const conf = SIZES[size] || SIZES.medium;
   const state = {
-    v: 1, seed, territoryCount, turn: 1, nextId: 1, rngTick: 0, mode: players.length > 1 ? 'p2p' : 'single',
-    territories: [], kingdoms: [], heroes: [], items: {}, log: [], players: [], pendingCaptives: [], over: null,
+    v: 2, seed, size, territoryCount: conf.territories, difficulty: opts.difficulty || 'normal', turn: 1, nextId: 1, rngTick: 0,
+    mode: players.length > 1 ? 'p2p' : 'single', territories: [], kingdoms: [], heroes: [], items: {}, log: [], players: [],
+    pendingCaptives: [], treaties: [], events: [], over: null, dialogue: [], demands: [], proposals: [],
   };
   const T = terrainOf(state);
   const rng = makeRng(seed ^ 0xabcdef);
-  state.territories = T.territories.map((t) => ({ id: t.id, name: t.name, cx: t.cx, cy: t.cy, biome: t.biome, nb: t.nb, owner: -1, level: rng.int(0, 1), ruined: 0 }));
+  state.territories = T.territories.map((t) => ({ id: t.id, name: t.name, cx: t.cx, cy: t.cy, biome: t.biome, nb: t.nb, owner: -1, level: rng.int(0, 1), ruined: 0, race: null, fx: [] }));
   const terrs = state.territories;
   const dist = (a, b) => Math.hypot(terrs[a].cx - terrs[b].cx, terrs[a].cy - terrs[b].cy);
 
-  // player starts: far apart
   const starts = [];
   const order = rng.shuffle(terrs.map((t) => t.id));
   for (const p of players) {
@@ -89,11 +117,8 @@ export function createWorld(seed, players, opts = {}) {
     }
     starts.push(best);
   }
-
-  // AI kingdom capitals by farthest-point sampling from the player starts
-  const K = opts.kingdoms || 15;
   const capitals = [...starts];
-  while (capitals.length < K + starts.length) {
+  while (capitals.length < conf.kingdoms + starts.length && capitals.length < terrs.length) {
     let best = -1, bd = -1;
     for (const t of terrs) {
       if (capitals.includes(t.id)) continue;
@@ -102,26 +127,16 @@ export function createWorld(seed, players, opts = {}) {
     }
     capitals.push(best);
   }
-  let colorI = 0;
-  const mkKingdom = (fid, cap, player) => {
-    const k = { id: state.kingdoms.length, name: kingdomName(rng, terrs[cap].name), fid, color: KINGDOM_COLORS[colorI++ % KINGDOM_COLORS.length], gold: player >= 0 ? 800 : 500, alive: true, player, ruler: -1, capital: cap, items: [] };
-    state.kingdoms.push(k);
-    terrs[cap].owner = k.id;
-    return k;
-  };
   players.forEach((p, i) => {
-    const k = mkKingdom(p.fid, starts[i], i);
-    k.name = p.name || k.name;
+    const k = newKingdom(state, rng, { fid: p.fid, cap: starts[i], player: i, name: p.name });
     terrs[starts[i]].level = 2;
     state.players.push({ kingdom: k.id });
   });
   for (let i = starts.length; i < capitals.length; i++) {
     const cap = capitals[i];
     const fits = FACTION_IDS.filter((f) => FACTIONS[f].biomes.includes(terrs[cap].biome));
-    const fid = fits.length && rng.chance(0.75) ? rng.pick(fits) : rng.pick(FACTION_IDS);
-    mkKingdom(fid, cap, -1);
+    newKingdom(state, rng, { fid: fits.length && rng.chance(0.75) ? rng.pick(fits) : rng.pick(FACTION_IDS), cap });
   }
-  // grow AI kingdoms with uneven quotas (large and small realms); players stay at 1 territory
   const quota = state.kingdoms.map((k) => (k.player >= 0 ? 0 : rng.pick([0, 1, 1, 2, 2, 3, 4, 5])));
   let grew = true;
   while (grew) {
@@ -133,60 +148,68 @@ export function createWorld(seed, players, opts = {}) {
       terrs[rng.pick(frontier)].owner = k.id; quota[k.id]--; grew = true;
     }
   }
-  // leftover land → independent minor realms (one territory each) or absorbed by a neighbor
   for (const t of terrs) {
     if (t.owner >= 0) continue;
     const owners = t.nb.map((n) => terrs[n].owner).filter((o) => o >= 0 && state.kingdoms[o].player < 0);
     if (owners.length && rng.chance(0.55)) t.owner = rng.pick(owners);
     else {
       const fits = FACTION_IDS.filter((f) => FACTIONS[f].biomes.includes(t.biome));
-      mkKingdom(fits.length ? rng.pick(fits) : rng.pick(FACTION_IDS), t.id, -1);
+      newKingdom(state, rng, { fid: fits.length ? rng.pick(fits) : rng.pick(FACTION_IDS), cap: t.id });
     }
   }
-  // second pass for any still unowned (neighbor of a fresh minor)
-  for (const t of terrs) if (t.owner < 0) mkKingdom(rng.pick(FACTION_IDS), t.id, -1);
+  for (const t of terrs) if (t.owner < 0) newKingdom(state, rng, { fid: rng.pick(FACTION_IDS), cap: t.id });
+  for (const t of terrs) t.race = state.kingdoms[t.owner].fid;
 
-  // heroes for AI kingdoms
+  const diff = DIFFICULTY[state.difficulty] || DIFFICULTY.normal;
   for (const k of state.kingdoms) {
     if (k.player >= 0) continue;
     const owned = terrs.filter((t) => t.owner === k.id);
+    k.tier = owned.length >= 5 ? 'empire' : owned.length >= 2 ? 'kingdom' : 'village';
+    if (k.tier !== 'village') k.buildings = { spies: true };
     terrs[k.capital].level = Math.min(3, 1 + Math.floor(owned.length / 2));
-    const n = Math.max(1, Math.round(owned.length * 1.2));
+    const n = Math.max(1, Math.round(owned.length * 1.2 * diff.bonus));
+    const maxU = TIERS[tierIndex(k)].maxUnitLevel;
     for (let i = 0; i < n; i++) {
-      const h = makeHero(state, rng, k.fid, k.id, i === 0 ? k.capital : rng.pick(owned).id, { ruler: i === 0, level: rng.int(0, 1) });
+      const h = makeHero(state, rng, k.fid, k.id, i === 0 ? k.capital : rng.pick(owned).id, { ruler: i === 0, level: rng.int(0, 1), maxUnit: maxU });
       if (i === 0) k.ruler = h.id;
     }
-    k.gold = 300 + owned.length * 120;
+    k.gold = Math.round((300 + owned.length * 120) * diff.bonus);
+    k.food = 100 + owned.length * 30;
+    k.loadout = pickLoadout(k, rng);
   }
-  // player candidates: 6 heroes of their race to pick 2-3 from
-  state.players.forEach((p, i) => {
+  state.players.forEach((p) => {
     const k = state.kingdoms[p.kingdom];
     p.candidates = [];
     const usedUnits = new Set();
     for (let j = 0; j < 6; j++) {
       let unit;
-      do { unit = rng.int(0, FACTIONS[k.fid].units.length - 1); } while (usedUnits.has(unit) && usedUnits.size < FACTIONS[k.fid].units.length);
+      do { unit = rng.int(0, 2); } while (usedUnits.has(unit) && usedUnits.size < 3);
       usedUnits.add(unit);
-      const h = makeHero(state, rng, k.fid, k.id, k.capital, { status: 'candidate', unit, ruler: j === 0 });
+      const h = makeHero(state, rng, k.fid, k.id, k.capital, { status: 'candidate', unit, ruler: j === 0, troops: 5 });
       p.candidates.push(h.id);
     }
     for (let j = 0; j < 3; j++) giveItem(state, rng, k.id, 0);
+    k.loadout = ['rally'];
   });
-  // a few vagabonds roam from the start
-  for (let i = 0; i < 4; i++) makeHero(state, rng, rng.pick(FACTION_IDS), -1, rng.pick(terrs).id, { status: 'vagabond' });
+  for (let i = 0; i < Math.round(conf.territories / 10); i++) makeHero(state, rng, rng.pick(FACTION_IDS), -1, rng.pick(terrs).id, { status: 'vagabond' });
   log(state, 'The age of war begins.');
   return state;
 }
 
-// player picks 2-3 of their candidates
+export function pickLoadout(k, rng) {
+  const tier = TIERS[tierIndex(k)];
+  const pool = STRATAGEM_IDS.filter((id) => STRATAGEMS[id].tier <= tier.stratTier);
+  return rng.shuffle([...pool]).slice(0, tier.stratSlots + (k.buildings && k.buildings.council ? 1 : 0));
+}
+
 export function confirmPicks(state, playerIdx, heroIds) {
   const p = state.players[playerIdx];
   const k = state.kingdoms[p.kingdom];
   const rng = rngFor(state, 77 + playerIdx);
   for (const id of p.candidates) {
-    const h = state.heroes[heroIndex(state, id)];
-    if (heroIds.includes(id)) { h.status = 'active'; h.loyalty = 100; }
-    else { h.status = 'vagabond'; h.kingdom = -1; h.loc = rng.pick(state.territories).id; }
+    const h = hero(state, id);
+    if (heroIds.includes(id)) { h.status = 'active'; h.loyalty = 90; }
+    else { h.status = 'vagabond'; h.kingdom = -1; h.origin = -1; h.loc = rng.pick(state.territories).id; }
   }
   k.ruler = heroIds[0];
   p.picked = true;
@@ -201,52 +224,69 @@ export function heroIndex(state, id) {
   return m.get(id);
 }
 export function hero(state, id) { const i = heroIndex(state, id); return i == null ? null : state.heroes[i]; }
-export function heroesAt(state, tid, kid) { return state.heroes.filter((h) => h.status === 'active' && h.loc === tid && (kid == null || h.kingdom === kid)); }
-export function kingdomHeroes(state, kid) { return state.heroes.filter((h) => h.status === 'active' && h.kingdom === kid); }
+export function heroesAt(state, tid, kid) { return state.heroes.filter((h) => h.status === 'active' && h.loc === tid && h.lentTo < 0 && (kid == null || h.kingdom === kid)); }
+export function kingdomHeroes(state, kid, includeLent = false) { return state.heroes.filter((h) => h.status === 'active' && h.kingdom === kid && (includeLent || h.lentTo < 0)); }
 export function kingdomTerritories(state, kid) { return state.territories.filter((t) => t.owner === kid); }
 export function captivesOf(state, kid) { return state.heroes.filter((h) => h.status === 'captive' && h.captor === kid); }
 export function vagabondsIn(state, tid) { return state.heroes.filter((h) => h.status === 'vagabond' && h.loc === tid); }
-export function log(state, text, kid = -1) { state.log.push({ turn: state.turn, text, kid }); if (state.log.length > 300) state.log.splice(0, state.log.length - 300); }
+export function totalTroops(state, kid) { return kingdomHeroes(state, kid, true).reduce((n, h) => n + h.troops.length, 0); }
+export function log(state, text, kid = -1, kind = '') { state.log.push({ turn: state.turn, text, kid, kind }); if (state.log.length > 400) state.log.splice(0, state.log.length - 400); }
 export function playerKingdom(state, playerIdx) { const p = state.players[playerIdx]; return p ? state.kingdoms[p.kingdom] : null; }
+export function isHumanKingdom(state, kid) { return kid >= 0 && state.kingdoms[kid] && state.kingdoms[kid].player >= 0; }
+
+export function treaty(state, a, b, type) {
+  return state.treaties.find((t) => (!type || t.type === type) && ((t.a === a && t.b === b) || (t.a === b && t.b === a)));
+}
+export function allied(state, a, b) { return a === b || !!treaty(state, a, b, 'alliance'); }
+export function overlordOf(state, kid) { const t = state.treaties.find((x) => x.type === 'vassal' && x.b === kid); return t ? t.a : -1; }
+export function friendly(state, a, b) {
+  if (a < 0 || b < 0) return false;
+  if (a === b || allied(state, a, b)) return true;
+  const oa = overlordOf(state, a), ob = overlordOf(state, b);
+  return oa === b || ob === a || (oa >= 0 && oa === ob) || (oa >= 0 && allied(state, oa, b)) || (ob >= 0 && allied(state, ob, a));
+}
 
 export function validTargets(state, h) {
+  const k = state.kingdoms[h.kingdom];
   const t = state.territories[h.loc];
-  return t.nb.filter((n) => state.territories[n].owner !== h.kingdom);
+  if (k.landless) return t.owner !== h.kingdom && !friendly(state, h.kingdom, t.owner) ? [t.id] : []; // a warband rises up where it stands
+  return t.nb.filter((n) => { const o = state.territories[n].owner; return o !== h.kingdom && !friendly(state, h.kingdom, o); });
 }
 export function validMoves(state, h) {
+  const k = state.kingdoms[h.kingdom];
   const t = state.territories[h.loc];
-  return t.nb.filter((n) => state.territories[n].owner === h.kingdom);
+  if (k.landless) return t.nb; // wanderers go anywhere
+  return t.nb.filter((n) => { const o = state.territories[n].owner; return o === h.kingdom || friendly(state, h.kingdom, o); });
+}
+export function validSpyTargets(state, h) {
+  const k = state.kingdoms[h.kingdom];
+  if (!k.buildings.spies) return [];
+  return validTargets(state, h);
+}
+// unit types this hero may lead: any race the realm can raise, up to the realm's tier
+export function troopOptions(state, h) {
+  const k = state.kingdoms[h.kingdom];
+  const maxL = TIERS[tierIndex(k)].maxUnitLevel;
+  const out = [];
+  for (const fid of k.troopRaces) FACTIONS[fid].units.forEach((u, i) => { if (unitLevel(fid, i) <= maxL) out.push({ fid, ui: i }); });
+  return out;
 }
 
 // ---------- orders ----------
-// order: {type:'attack'|'move'|'rest'|'drill'|'recruit', target?}
+// order: {type:'attack'|'move'|'rest'|'drill'|'spy', target?}
 export function setOrder(state, heroId, order) {
   const h = hero(state, heroId);
-  if (!h || h.status !== 'active') return false;
+  if (!h || h.status !== 'active' || h.lentTo >= 0) return false;
   if (order && order.type === 'attack' && !validTargets(state, h).includes(order.target)) return false;
   if (order && order.type === 'move' && !validMoves(state, h).includes(order.target)) return false;
+  if (order && order.type === 'spy' && !validSpyTargets(state, h).includes(order.target)) return false;
   h.order = order;
   return true;
 }
 
-export function recruitPrice(h) { return Math.max(0, squadCap(h) - h.troops.length) * recruitCost(h.fid, h.unit); }
-
-export function develop(state, kid, tid) {
-  const t = state.territories[tid], k = state.kingdoms[kid];
-  if (t.owner !== kid || t.level >= 3) return false;
-  const c = developCost(t);
-  if (k.gold < c) return false;
-  k.gold -= c; t.level++; t.ruined = 0;
-  log(state, `${k.name} developed ${t.name} (level ${t.level}).`, kid);
-  return true;
-}
-
-export function hireVagabond(state, kid, heroId) {
-  const h = hero(state, heroId), k = state.kingdoms[kid];
-  if (!h || h.status !== 'vagabond' || state.territories[h.loc].owner !== kid || k.gold < HIRE_COST) return false;
-  k.gold -= HIRE_COST; h.status = 'active'; h.kingdom = kid; h.loyalty = 60; h.order = null;
-  log(state, `${h.name} swore loyalty to ${k.name}.`, kid);
-  return true;
+export function restPrice(state, h) {
+  const k = state.kingdoms[h.kingdom];
+  return Math.round(Math.max(0, squadCap(h, k) - h.troops.length) * recruitCost(h.ufid, h.unit) * (k.landless ? 1.6 : 1));
 }
 
 export function equip(state, kid, heroId, itemId) {
@@ -256,29 +296,67 @@ export function equip(state, kid, heroId, itemId) {
   k.items.splice(i, 1);
   if (h.gear[it.slot] != null) k.items.push(h.gear[it.slot]);
   h.gear[it.slot] = itemId;
+  h.loyalty = Math.min(100, h.loyalty + 2);
 }
 export function unequip(state, kid, heroId, slot) {
   const h = hero(state, heroId), k = state.kingdoms[kid];
   if (!h || h.kingdom !== kid || h.gear[slot] == null) return;
   k.items.push(h.gear[slot]); delete h.gear[slot];
 }
-
-export function changeUnit(state, heroId, unit) {
-  // switching unit type disbands the squad (fresh recruits next refill)
+export function changeUnit(state, heroId, ufid, unit) {
   const h = hero(state, heroId);
-  if (!h || h.unit === unit) return;
-  h.unit = unit; h.troops = [];
+  if (!h || (h.unit === unit && h.ufid === ufid)) return false;
+  if (!troopOptions(state, h).some((o) => o.fid === ufid && o.ui === unit)) return false;
+  h.ufid = ufid; h.unit = unit; h.troops = [];
+  return true;
+}
+export function hireVagabond(state, kid, heroId) {
+  const h = hero(state, heroId), k = state.kingdoms[kid];
+  if (!h || h.status !== 'vagabond' || k.gold < HIRE_COST) return false;
+  const ok = k.landless ? kingdomHeroes(state, kid).some((x) => x.loc === h.loc) : state.territories[h.loc].owner === kid;
+  if (!ok) return false;
+  k.gold -= HIRE_COST; joinKingdom(state, h, kid, 60);
+  log(state, `${h.name} swore loyalty to ${k.name}.`, kid);
+  return true;
+}
+export function joinKingdom(state, h, kid, loyalty = 55) {
+  const k = state.kingdoms[kid];
+  h.status = 'active'; h.kingdom = kid; h.loyalty = loyalty; h.order = null; h.captor = -1; h.secret = -1; h.lentTo = -1;
+  if (!k.troopRaces.includes(h.fid)) { k.troopRaces.push(h.fid); log(state, `${k.name} can now raise ${FACTIONS[h.fid].race} troops.`, kid); }
+  if (!k.landless && state.territories[h.loc].owner !== kid) { const own = kingdomTerritories(state, kid); if (own.length) h.loc = (own.find((t) => t.id === k.capital) || own[0]).id; }
+}
+
+// promote a named Elite soldier into a full hero
+export function promoteElite(state, kid, heroId, troopIdx) {
+  const h = hero(state, heroId), k = state.kingdoms[kid];
+  if (!h || h.kingdom !== kid || k.gold < PROMOTE_ELITE_COST) return null;
+  const s = h.troops[troopIdx];
+  if (!s || s.s !== 3) return null;
+  const rng = rngFor(state, heroId * 3 + troopIdx);
+  k.gold -= PROMOTE_ELITE_COST;
+  h.troops.splice(troopIdx, 1);
+  const fid = h.ufid;
+  const nh = makeHero(state, rng, fid, kid, h.loc, { name: s.name, unit: h.unit, ufid: fid, troops: 0, level: 1 });
+  nh.loyalty = 85; nh.trait = 'loyal';
+  if (!k.troopRaces.includes(fid)) k.troopRaces.push(fid);
+  log(state, `${s.name} was raised from the ranks to lead a squad.`, kid);
+  return nh;
 }
 
 // ---------- troop growth ----------
-export function gainTroopXp(h, amount) {
-  const promos = [];
+const ELITE_NAMES = ['Brann', 'Kesh', 'Orla', 'Tamsin', 'Vex', 'Rurik', 'Mira', 'Duro', 'Ilse', 'Gorr', 'Sefa', 'Lukan', 'Yeva', 'Hask', 'Nira', 'Borin', 'Tova', 'Kael', 'Runa', 'Zed'];
+const ELITE_TAGS = ['Steelheart', 'the Unbroken', 'Quickblade', 'Stonewall', 'the Lucky', 'Ravenshield', 'Grimtooth', 'the Fox', 'Bloodaxe', 'Lightfoot'];
+export function gainTroopXp(h, amount, rng) {
+  const promos = { rank: 0, evolve: 0, elite: 0 };
   for (const s of h.troops) {
+    if (s.s === 3) continue;
     s.xp += amount;
-    const table = RANK_XP[s.s - 1];
-    while (s.r < table.length && s.xp >= table[s.r]) {
-      if (s.s === 1 && s.r === table.length - 1) { s.s = 2; s.r = 0; s.xp = 0; promos.push('evolve'); break; }
-      s.r++; promos.push('rank');
+    const [rx, ex] = EVOLVE_XP[s.s];
+    if (!s.r && s.xp >= rx) { s.r = 1; promos.rank++; }
+    if (s.xp >= ex) {
+      s.xp = 0; s.r = 0;
+      if (s.s === 1) { s.s = 2; promos.evolve++; }
+      else { s.s = 3; s.name = (rng ? rng.pick(ELITE_NAMES) + ' ' + rng.pick(ELITE_TAGS) : 'Elite'); promos.elite++; }
     }
   }
   return promos;
@@ -286,12 +364,11 @@ export function gainTroopXp(h, amount) {
 export function gainHeroXp(h, amount, rng) {
   h.xp += amount;
   let ups = 0;
-  while (h.xp >= LEVEL_XP(h.level)) { h.xp -= LEVEL_XP(h.level); h.level++; levelUp(h, rng); ups++; }
+  while (h.level < MAX_LEVEL && h.xp >= LEVEL_XP(h.level)) { h.xp -= LEVEL_XP(h.level); levelUp(h, rng); ups++; }
   return ups;
 }
 
 // ---------- battles ----------
-// Collects this turn's attacks into battles, grouped by attacking kingdom + target.
 export function collectBattles(state) {
   const groups = new Map();
   for (const h of state.heroes) {
@@ -300,96 +377,129 @@ export function collectBattles(state) {
     if (!groups.has(key)) groups.set(key, { att: h.kingdom, tid: h.order.target, attackers: [] });
     groups.get(key).attackers.push(h.id);
   }
+  // lent heroes join their host's attacks on nearby lands
+  for (const h of state.heroes) {
+    if (h.status !== 'active' || h.lentTo < 0) continue;
+    const g = [...groups.values()].find((b) => b.att === h.lentTo && (b.tid === h.loc || state.territories[b.tid].nb.includes(h.loc)));
+    if (g && !g.attackers.includes(h.id)) g.attackers.push(h.id);
+  }
   return [...groups.values()];
 }
 
-// Called right before a battle runs: refreshes defender + validity.
 export function prepareBattle(state, b) {
   const t = state.territories[b.tid];
-  b.attackers = b.attackers.filter((id) => { const h = hero(state, id); return h && h.status === 'active' && h.kingdom === b.att; });
+  b.attackers = b.attackers.filter((id) => { const h = hero(state, id); return h && h.status === 'active' && (h.kingdom === b.att || h.lentTo === b.att); });
   if (!b.attackers.length || t.owner === b.att) return null;
+  if (t.owner >= 0 && friendly(state, b.att, t.owner)) return null;
   b.def = t.owner;
   b.defenders = heroesAt(state, b.tid, t.owner).map((h) => h.id);
+  for (const h of state.heroes) if (h.status === 'active' && h.lentTo === t.owner && h.loc === b.tid) b.defenders.push(h.id);
   b.level = t.level; b.biome = t.biome;
+  const attK = state.kingdoms[b.att];
+  b.landless = !!attK.landless;
+  b.siege = t.level >= 2 && !attK.landless;
   return b;
 }
 
-export function isHumanKingdom(state, kid) { return kid >= 0 && state.kingdoms[kid] && state.kingdoms[kid].player >= 0; }
+// attacker win chance (0..1). Without spy intel it is only a rough read.
+export function battleOdds(state, b, intel) {
+  const items = state.items;
+  const attK = state.kingdoms[b.att], defK = b.def >= 0 ? state.kingdoms[b.def] : null;
+  const ap = b.attackers.reduce((s, id) => s + squadPower(hero(state, id), items, attK.morale), 0) * (1 + tierIndex(attK) * 0.04);
+  const dp = b.defenders.reduce((s, id) => s + squadPower(hero(state, id), items, defK ? defK.morale : 60), 0)
+    + garrisonPower(state.territories[b.tid]) * (b.defenders.length ? 0.6 : 1.2) * (b.siege ? 1.25 : 1);
+  let p = 1 / (1 + Math.exp(-8.8 * (ap / (ap + dp) - 0.5)));
+  if (!intel) p = Math.round(p * 5) / 5;
+  return Math.max(0.03, Math.min(0.97, p));
+}
 
 export function autoResolve(state, b) {
   const rng = rngFor(state, b.tid * 31 + b.att);
-  const items = state.items;
-  const H = (ids) => ids.map((id) => hero(state, id));
-  const att = H(b.attackers), def = H(b.defenders);
-  const ap = att.reduce((s, h) => s + squadPower(h, items), 0);
-  const dp = def.reduce((s, h) => s + squadPower(h, items), 0) + garrisonPower(state.territories[b.tid]) * (def.length ? 0.6 : 1.2);
-  const r = ap / (ap + dp);
-  const attWins = r + (rng() - 0.5) * 0.3 > 0.5;
-  const out = { winner: attWins ? 'att' : 'def', heroes: {} };
-  const apply = (list, won, ratio) => {
-    for (const h of list) {
-      const lossFrac = won ? 0.1 + 0.35 * (1 - ratio) : 0.45 + 0.4 * (1 - ratio);
+  const p = battleOdds(state, b, true);
+  const attWins = rng() < p;
+  const out = { winner: attWins ? 'att' : 'def', heroes: {}, treachery: [] };
+  const apply = (ids, won, ratio) => {
+    for (const id of ids) {
+      const h = hero(state, id);
+      const lossFrac = won ? 0.08 + 0.3 * (1 - ratio) : 0.4 + 0.4 * (1 - ratio);
       const alive = h.troops.map((_, i) => i).filter(() => rng() > lossFrac);
-      out.heroes[h.id] = { alive, defeated: !won ? rng() < 0.35 : rng() < 0.04 };
+      out.heroes[id] = { alive, defeated: !won ? rng() < 0.35 : rng() < 0.04 };
     }
   };
-  apply(att, attWins, r);
-  apply(def, !attWins, 1 - r);
+  apply(b.attackers, attWins, p);
+  apply(b.defenders, !attWins, 1 - p);
+  // sleepers turn their coats when their true master is on the field
+  for (const id of [...b.attackers, ...b.defenders]) { const h = hero(state, id); if (h.secret >= 0 && (h.secret === b.att || h.secret === b.def)) out.treachery.push(id); }
   return out;
 }
 
-// result: { winner:'att'|'def', heroes: { [heroId]: { alive:[troop idx], defeated:bool } }, retreated?:bool }
+// result: { winner:'att'|'def', heroes:{[id]:{alive,defeated}}, retreated?, treachery?:[ids] }
 export function applyBattle(state, b, result) {
   const rng = rngFor(state, b.tid * 17 + 5);
   const t = state.territories[b.tid];
   const attK = state.kingdoms[b.att], defK = b.def >= 0 ? state.kingdoms[b.def] : null;
   const attWon = result.winner === 'att';
-  const report = { tid: b.tid, att: b.att, def: b.def, attWon, captured: [], died: [], retreated: [], promoted: 0, evolved: 0, loot: null };
+  const report = { tid: b.tid, att: b.att, def: b.def, attWon, captured: [], died: [], retreated: [], promoted: 0, evolved: 0, elites: 0, loot: null, defected: [], leveled: [] };
+  for (const id of result.treachery || []) {
+    const h = hero(state, id); if (!h || h.status !== 'active') continue;
+    const to = h.secret >= 0 ? h.secret : (h.kingdom === b.att ? b.def : b.att);
+    if (to >= 0 && state.kingdoms[to].alive) {
+      const from = state.kingdoms[h.kingdom];
+      joinKingdom(state, h, to, 70);
+      report.defected.push(id);
+      log(state, `${h.name} betrayed ${from.name} and joined ${state.kingdoms[to].name}!`, -1, 'betrayal');
+    }
+  }
   const settle = (ids, won) => {
     for (const id of ids) {
       const h = hero(state, id); if (!h) continue;
       const r = result.heroes[id] || { alive: h.troops.map((_, i) => i), defeated: false };
       h.troops = r.alive.map((i) => h.troops[i]).filter(Boolean);
-      const promos = gainTroopXp(h, won ? 2 : 1);
-      report.promoted += promos.filter((p) => p === 'rank').length;
-      report.evolved += promos.filter((p) => p === 'evolve').length;
-      gainHeroXp(h, won ? 4 : 2, rng);
-      h.morale = Math.max(5, Math.min(100, h.morale + (won ? 10 : -18)));
+      const pr = gainTroopXp(h, won ? 2 : 1, rng);
+      report.promoted += pr.rank; report.evolved += pr.evolve; report.elites += pr.elite;
+      if (gainHeroXp(h, won ? 4 : 2, rng)) report.leveled.push(h.id);
+      h.loyalty = clamp(h.loyalty + (won ? 2 : -2));
       h.order = null;
       if (r.defeated) h.hp = Math.max(10, h.hp - 45);
       h._defeated = r.defeated;
     }
   };
-  settle(b.attackers, attWon);
-  settle(b.defenders, !attWon);
+  settle(b.attackers.filter((id) => !report.defected.includes(id)), attWon);
+  settle(b.defenders.filter((id) => !report.defected.includes(id)), !attWon);
+  const shift = (k, m, s) => { if (k) { k.morale = clamp(k.morale + m); k.stability = clamp(k.stability + s); } };
+  shift(attK, attWon ? 6 : -6, attWon ? 0 : -2);
+  shift(defK, attWon ? -8 : 5, attWon ? -5 : 1);
+  if (defK) { defK.rel[b.att] = (defK.rel[b.att] || 0) - 25; attK.rel[b.def] = (attK.rel[b.def] || 0) - 10; }
 
   const capture = (h, captorK) => {
-    if (rng() < 0.15) { h.status = 'dead'; report.died.push(h.id); log(state, `${h.name} fell in battle at ${t.name}.`); return; }
-    h.status = 'captive'; h.captor = captorK; h.kingdom = h.kingdom; h.order = null;
+    if (rng() < 0.12) { h.status = 'dead'; report.died.push(h.id); log(state, `${h.name} fell in battle at ${t.name}.`, -1, 'death'); return; }
+    h.status = 'captive'; h.captor = captorK; h.order = null; h.lentTo = -1;
     report.captured.push(h.id);
-    log(state, `${h.name} was captured by ${state.kingdoms[captorK].name}.`);
+    log(state, `${h.name} was captured by ${state.kingdoms[captorK].name}.`, -1, 'capture');
     if (isHumanKingdom(state, captorK)) state.pendingCaptives.push(h.id);
   };
 
   if (attWon) {
     t.owner = b.att; t.ruined = 2; t.level = Math.max(0, t.level - 1);
-    for (const id of b.attackers) { const h = hero(state, id); if (h && h.status === 'active') h.loc = b.tid; }
+    if (attK.landless) { attK.landless = false; attK.capital = t.id; log(state, `${attK.name} rose from the wilds and seized ${t.name}!`, attK.id, 'uprising'); }
+    if (t.race && !attK.troopRaces.includes(t.race)) attK.troopRaces.push(t.race);
+    for (const id of b.attackers) { const h = hero(state, id); if (h && h.status === 'active' && !report.defected.includes(id) && h.lentTo < 0) h.loc = b.tid; }
     for (const id of b.defenders) {
-      const h = hero(state, id); if (!h || h.status !== 'active') continue;
+      const h = hero(state, id); if (!h || h.status !== 'active' || report.defected.includes(id)) continue;
       const home = retreatSpot(state, h, b.tid);
       if (h._defeated || home == null) capture(h, b.att);
       else { h.loc = home; report.retreated.push(h.id); }
     }
     const it = giveItem(state, rng, b.att, Math.min(3, Math.floor(state.turn / 8) + (rng.chance(0.3) ? 1 : 0)));
     report.loot = it.id;
-    log(state, `${attK.name} conquered ${t.name}${defK ? ' from ' + defK.name : ''}.`);
+    log(state, `${attK.name} conquered ${t.name}${defK ? ' from ' + defK.name : ''}.`, -1, 'conquest');
   } else {
     for (const id of b.attackers) {
-      const h = hero(state, id); if (!h || h.status !== 'active') continue;
+      const h = hero(state, id); if (!h || h.status !== 'active' || report.defected.includes(id)) continue;
       if (h._defeated && b.def >= 0 && rng() < 0.6) capture(h, b.def);
     }
     if (defK) { const it = giveItem(state, rng, b.def, Math.min(3, Math.floor(state.turn / 10))); report.loot = it.id; }
-    log(state, `${defK ? defK.name : 'The defenders'} held ${t.name} against ${attK.name}.`);
+    log(state, `${defK ? defK.name : 'The defenders'} held ${t.name} against ${attK.name}.`, -1, 'defense');
   }
   for (const h of state.heroes) delete h._defeated;
   checkKingdoms(state);
@@ -413,16 +523,34 @@ export function decideCaptive(state, heroId, decision) {
   const captor = state.kingdoms[h.captor];
   const rng = rngFor(state, heroId * 13);
   state.pendingCaptives = state.pendingCaptives.filter((x) => x !== heroId);
-  if (decision === 'execute') { h.status = 'dead'; log(state, `${captor.name} executed ${h.name}.`); return 'executed'; }
-  if (decision === 'release') { h.status = 'vagabond'; h.kingdom = -1; h.captor = -1; h.loyalty = rng.int(20, 60); log(state, `${captor.name} released ${h.name}, who now wanders as a vagabond.`); return 'released'; }
+  const homeK = h.kingdom >= 0 ? state.kingdoms[h.kingdom] : null;
+  if (decision === 'execute') {
+    h.status = 'dead';
+    log(state, `${captor.name} executed ${h.name}.`, -1, 'execution');
+    for (const x of kingdomHeroes(state, captor.id)) if (x.fid === h.fid) x.loyalty = Math.max(0, x.loyalty - 6);
+    if (homeK) homeK.rel[captor.id] = (homeK.rel[captor.id] || 0) - 40;
+    checkKingdoms(state);
+    return 'executed';
+  }
+  if (decision === 'release') {
+    h.captor = -1;
+    if (homeK && homeK.alive && homeK.player >= 0) {
+      h.status = 'active';
+      if (!homeK.landless) h.loc = (kingdomTerritories(state, homeK.id)[0] || state.territories[h.loc]).id;
+      log(state, `${captor.name} released ${h.name}, who returned to ${homeK.name}.`);
+    } else { h.status = 'vagabond'; h.kingdom = -1; h.loyalty = rng.int(20, 60); log(state, `${captor.name} released ${h.name}, who now wanders as a vagabond.`); }
+    if (homeK) homeK.rel[captor.id] = (homeK.rel[captor.id] || 0) + 15;
+    checkKingdoms(state);
+    return 'released';
+  }
   if (decision === 'recruit') {
-    const oldK = state.kingdoms[h.kingdom];
-    const isRuler = oldK && oldK.ruler === h.id && oldK.alive;
-    const chance = (isRuler ? 0.12 : 0.3) + (1 - h.loyalty / 100) * 0.55;
+    const isRuler = homeK && homeK.ruler === h.id && homeK.alive;
+    const traitMod = { loyal: -0.15, proud: -0.1, honorable: -0.05, greedy: 0.1, ambitious: 0.08, cunning: 0.05 }[h.trait] || 0;
+    const chance = (isRuler ? 0.1 : 0.28) + (1 - h.loyalty / 100) * 0.5 + traitMod + (captor.morale - 50) / 300;
     if (rng() < chance) {
-      if (isRuler) oldK.ruler = -1;
-      h.status = 'active'; h.kingdom = h.captor; h.captor = -1; h.loyalty = 50; h.loc = captor.capital; h.order = null;
-      if (state.territories[h.loc].owner !== captor.id) { const own = kingdomTerritories(state, captor.id); if (own.length) h.loc = own[0].id; }
+      if (isRuler) homeK.ruler = -1;
+      joinKingdom(state, h, captor.id, 50);
+      if (captor.landless) { const mate = kingdomHeroes(state, captor.id).find((x) => x.id !== h.id); if (mate) h.loc = mate.loc; }
       log(state, `${h.name} joined ${captor.name}.`);
       checkKingdoms(state);
       return 'joined';
@@ -438,120 +566,129 @@ export function checkKingdoms(state) {
   for (const k of state.kingdoms) {
     if (!k.alive) continue;
     const owned = kingdomTerritories(state, k.id);
+    const heroes = kingdomHeroes(state, k.id, true);
     if (!owned.length) {
+      if (k.player >= 0) {
+        if (heroes.length) {
+          if (!k.landless) { k.landless = true; state.treaties = state.treaties.filter((t) => t.type !== 'vassal' || (t.a !== k.id && t.b !== k.id)); log(state, `${k.name} has lost all its lands. Its heroes fight on as a wandering warband.`, k.id, 'fall'); }
+          continue;
+        }
+        if (state.heroes.some((h) => h.status === 'captive' && h.kingdom === k.id)) continue; // their fate is still undecided
+      }
       k.alive = false;
-      log(state, `${k.name} has fallen.`);
-      for (const h of state.heroes) if (h.kingdom === k.id && h.status === 'active') { h.status = 'vagabond'; h.kingdom = -1; h.order = null; }
+      log(state, `${k.name} has fallen.`, -1, 'fall');
+      for (const h of state.heroes) if (h.kingdom === k.id && h.status === 'active') { h.status = 'vagabond'; h.kingdom = -1; h.order = null; h.lentTo = -1; }
+      state.treaties = state.treaties.filter((t) => t.a !== k.id && t.b !== k.id);
       continue;
     }
+    if (k.landless) k.landless = false;
     if (!owned.some((t) => t.id === k.capital)) k.capital = owned[0].id;
     const r = hero(state, k.ruler);
     if (!r || r.status !== 'active' || r.kingdom !== k.id) {
-      const hs = kingdomHeroes(state, k.id).sort((a, b) => b.level - a.level);
-      if (hs.length) { k.ruler = hs[0].id; }
+      const hs = heroes.sort((a, b) => b.level - a.level);
+      if (hs.length) k.ruler = hs[0].id;
     }
   }
-  // victory
-  const alivePlayers = state.players.filter((p) => state.kingdoms[p.kingdom].alive);
-  const owners = new Set(state.territories.map((t) => t.owner));
-  if (owners.size === 1) {
-    const w = [...owners][0];
-    state.over = { winner: w };
-  } else if (state.players.length && !alivePlayers.length) state.over = { winner: -1 };
+  checkVictory(state);
 }
 
-// ---------- end of turn ----------
+function blocs(state) {
+  const alive = state.kingdoms.filter((k) => k.alive);
+  const parent = new Map(alive.map((k) => [k.id, k.id]));
+  const find = (x) => { while (parent.get(x) !== x) x = parent.get(x); return x; };
+  for (const t of state.treaties) if ((t.type === 'alliance' || t.type === 'vassal') && parent.has(t.a) && parent.has(t.b)) parent.set(find(t.a), find(t.b));
+  const out = new Map();
+  for (const k of alive) { const r = find(k.id); if (!out.has(r)) out.set(r, []); out.get(r).push(k.id); }
+  return [...out.values()];
+}
+export function proposedMajority(state, kid) {
+  const mine = state.treaties.filter((t) => t.type === 'alliance' && (t.a === kid || t.b === kid));
+  if (!mine.length) return true;
+  return mine.filter((t) => t.proposer === kid).length * 2 > mine.length;
+}
+function checkVictory(state) {
+  if (state.over) return;
+  const owners = new Set(state.territories.map((t) => t.owner));
+  if (owners.size === 1) { state.over = { winner: [...owners][0], type: 'solo', members: [...owners] }; return; }
+  // a landless human warband keeps the war going
+  const wanderers = state.players.map((p) => state.kingdoms[p.kingdom]).filter((k) => k.alive && k.landless).map((k) => k.id);
+  for (const bloc of blocs(state)) {
+    if (![...owners].every((o) => bloc.includes(o))) continue;
+    if (wanderers.some((w) => !bloc.includes(w))) return;
+    const humans = bloc.filter((k) => state.kingdoms[k].player >= 0);
+    const hasAlliance = state.treaties.some((t) => t.type === 'alliance' && bloc.includes(t.a));
+    if (!hasAlliance) { const lord = bloc.find((k) => overlordOf(state, k) < 0); state.over = { winner: lord, type: 'solo', members: bloc }; return; }
+    const winners = humans.filter((k) => proposedMajority(state, k));
+    if (!humans.length && state.players.some((p) => state.kingdoms[p.kingdom].alive)) return;
+    if (winners.length || !humans.length) { state.over = { winner: winners[0] ?? bloc[0], type: 'alliance', members: bloc, winners }; return; }
+  }
+  const humansAlive = state.players.filter((p) => state.kingdoms[p.kingdom].alive);
+  if (state.players.length && !humansAlive.length) state.over = { winner: -1, type: 'defeat', members: [] };
+}
+
+// ---------- orders that resolve at end of turn ----------
 export function applyOrders(state) {
-  // non-combat orders (attacks resolve as battles)
+  const rng = rngFor(state, 4242);
+  const results = [];
   for (const h of state.heroes) {
     if (h.status !== 'active' || !h.order) continue;
     const k = state.kingdoms[h.kingdom];
     const o = h.order;
-    if (o.type === 'move' && state.territories[o.target].owner === h.kingdom) h.loc = o.target;
-    else if (o.type === 'rest') { h.morale = Math.min(100, h.morale + 25); h.hp = Math.min(100, h.hp + 40); }
-    else if (o.type === 'drill') { h.morale = Math.min(100, h.morale + 10); gainTroopXp(h, 1); }
-    else if (o.type === 'recruit') {
-      const cap = squadCap(h), cost = recruitCost(h.fid, h.unit);
-      while (h.troops.length < cap && k.gold >= cost) { k.gold -= cost; h.troops.push({ s: 1, r: 0, xp: 0 }); }
-      h.morale = Math.min(100, h.morale + 5);
+    if (o.type === 'move' && validMoves(state, h).includes(o.target)) h.loc = o.target;
+    else if (o.type === 'rest') {
+      h.hp = Math.min(100, h.hp + 45);
+      const cap = squadCap(h, k), cost = Math.round(recruitCost(h.ufid, h.unit) * (k.landless ? 1.6 : 1));
+      let added = 0;
+      while (h.troops.length < cap && k.gold >= cost) { k.gold -= cost; h.troops.push(newSoldier(rng)); added++; }
+      h.loyalty = Math.min(100, h.loyalty + 1);
+      if (added) results.push({ kid: k.id, text: `${h.name} rested and took in ${added} recruits.` });
+    } else if (o.type === 'drill') {
+      const pr = gainTroopXp(h, k.buildings.pits ? 2 : 1, rng);
+      gainHeroXp(h, k.buildings.academy ? 2 : 1, rng);
+      if (pr.evolve || pr.elite) results.push({ kid: k.id, text: `${h.name}'s drills paid off: ${pr.evolve ? pr.evolve + ' evolved' : ''}${pr.elite ? ' ' + pr.elite + ' became Elite' : ''}.` });
+    } else if (o.type === 'spy') {
+      const t = state.territories[o.target];
+      if (rng() < 0.45 + h.int * 0.06) {
+        k.intel[o.target] = { turn: state.turn + 1 };
+        results.push({ kid: k.id, text: `${h.name}'s spies mapped the defences of ${t.name}.` });
+      } else {
+        if (rng() < 0.25) { h.hp = Math.max(20, h.hp - 30); results.push({ kid: k.id, text: `${h.name}'s spies were caught at ${t.name}.` }); }
+        else results.push({ kid: k.id, text: `${h.name} learned nothing at ${t.name}.` });
+        if (t.owner >= 0) state.kingdoms[t.owner].rel[k.id] = (state.kingdoms[t.owner].rel[k.id] || 0) - 10;
+      }
     }
     if (o.type !== 'attack') h.order = null;
   }
+  return results;
 }
-
-export function endTurn(state) {
-  const rng = rngFor(state, 999);
-  const summary = [];
-  // income + upkeep
+// keep save files small: drop the long dead and items nobody holds
+export function tidy(state) {
+  state.heroes = state.heroes.filter((h) => h.status !== 'dead' || state.turn - (h.diedTurn ?? state.turn) < 2);
+  for (const h of state.heroes) if (h.status === 'dead' && h.diedTurn == null) h.diedTurn = state.turn;
+  const held = new Set();
   for (const k of state.kingdoms) {
-    if (!k.alive) continue;
-    let inc = 0;
-    for (const t of kingdomTerritories(state, k.id)) inc += territoryIncome(t);
-    k.gold += inc;
-  }
-  for (const t of state.territories) if (t.ruined > 0) t.ruined--;
-  // heroes recover a little, idle morale drifts to 60
-  for (const h of state.heroes) {
-    if (h.status !== 'active') continue;
-    h.hp = Math.min(100, h.hp + 10);
-    if (h.morale < 60) h.morale += 3; else if (h.morale > 80) h.morale -= 2;
-    h.order = null;
-  }
-  // captives held by AI
-  for (const h of state.heroes) {
-    if (h.status !== 'captive' || isHumanKingdom(state, h.captor)) continue;
-    const r = rng();
-    decideCaptive(state, h.id, r < 0.2 ? 'execute' : r < 0.55 ? 'recruit' : r < 0.8 ? 'release' : 'keep');
-  }
-  // vagabonds wander, join AI lords, or rise up
-  for (const h of state.heroes) {
-    if (h.status !== 'vagabond') continue;
-    const t = state.territories[h.loc];
-    if (rng() < 0.5) h.loc = rng.pick(t.nb);
-    const here = state.territories[h.loc];
-    const ownerK = here.owner >= 0 ? state.kingdoms[here.owner] : null;
-    if (ownerK && ownerK.player < 0 && rng() < 0.1) {
-      h.status = 'active'; h.kingdom = ownerK.id; h.loyalty = 55;
-      log(state, `The vagabond ${h.name} joined ${ownerK.name}.`);
-      continue;
-    }
-    const defenders = heroesAt(state, here.id, here.owner);
-    if (!defenders.length && state.turn > 3 && rng() < 0.07) {
-      const win = rng() < (squadPower(h, state.items) / (squadPower(h, state.items) + garrisonPower(here)));
-      if (win) {
-        const old = ownerK ? ownerK.name : 'nobody';
-        const k = { id: state.kingdoms.length, name: `Uprising of ${here.name}`, fid: h.fid, color: KINGDOM_COLORS[state.kingdoms.length % KINGDOM_COLORS.length], gold: 200, alive: true, player: -1, ruler: h.id, capital: here.id, items: [] };
-        state.kingdoms.push(k);
-        here.owner = k.id; here.ruined = 1;
-        h.status = 'active'; h.kingdom = k.id; h.loyalty = 100;
-        log(state, `${h.name} led an uprising and seized ${here.name} from ${old}!`);
-        summary.push(`Uprising! ${h.name} seized ${here.name}.`);
-      } else {
-        h.troops = h.troops.slice(0, Math.floor(h.troops.length / 2));
-        log(state, `An uprising led by ${h.name} at ${here.name} was crushed.`);
+    if (k.player < 0 && k.items.length) {
+      // AI hands spare gear to its heroes, keeps a small armory
+      for (const id of [...k.items]) {
+        const it = state.items[id]; if (!it) continue;
+        const h = kingdomHeroes(state, k.id).find((x) => x.gear[it.slot] == null || (state.items[x.gear[it.slot]] || {}).rarity < it.rarity);
+        if (h) equip(state, k.id, h.id, id);
       }
+      if (k.items.length > 6) k.items.splice(0, k.items.length - 6);
     }
+    if (!k.alive) k.items = [];
+    k.items.forEach((id) => held.add(id));
   }
-  // a realm with land but no heroes raises a new champion
-  for (const k of state.kingdoms) {
-    if (!k.alive || kingdomHeroes(state, k.id).length) continue;
-    const h = makeHero(state, rng, k.fid, k.id, k.capital, { troops: 5 });
-    if (k.ruler < 0 || !hero(state, k.ruler) || hero(state, k.ruler).status !== 'active') k.ruler = h.id;
-    log(state, `${h.name} rose to defend ${k.name}.`, k.id);
-  }
-  // new wanderers now and then
-  if (state.turn % 3 === 0) {
-    const n = rng.int(1, 2);
-    for (let i = 0; i < n; i++) makeHero(state, rng, rng.pick(FACTION_IDS), -1, rng.pick(state.territories).id, { status: 'vagabond', level: Math.floor(state.turn / 6) });
-  }
-  checkKingdoms(state);
-  state.turn++;
-  return summary;
+  for (const h of state.heroes) if (h.status !== 'dead') Object.values(h.gear).forEach((id) => held.add(id));
+  for (const id of Object.keys(state.items)) if (!held.has(+id)) delete state.items[id];
+  if (state.log.length > 250) state.log.splice(0, state.log.length - 250);
 }
+export function hasIntel(state, kid, tid) { const i = state.kingdoms[kid].intel[tid]; return !!i && i.turn >= state.turn; }
 
 export function powerAt(state, tid) {
   const t = state.territories[tid];
-  return heroesAt(state, tid, t.owner).reduce((s, h) => s + squadPower(h, state.items), 0) + garrisonPower(t);
+  const k = t.owner >= 0 ? state.kingdoms[t.owner] : null;
+  return heroesAt(state, tid, t.owner).reduce((s, h) => s + squadPower(h, state.items, k ? k.morale : 60), 0) + garrisonPower(t);
 }
 
 export { SLOTS, unitLevel };

@@ -1,6 +1,7 @@
-// Numbers that define units, heroes, formations and the economy.
+// Numbers that define units, heroes, formations, stratagems, kingdoms and the economy.
 import { FACTIONS } from '../data/art.js';
 
+// ---------------- units ----------------
 // per unit level (index 0..6 inside a faction)
 const HP = [9, 12, 15.5, 20, 25, 31, 38];
 const ATK = [2.6, 3.2, 3.9, 4.7, 5.6, 6.6, 7.8];
@@ -12,29 +13,59 @@ export const RANGED = {
   stronghold: [3, 4], enclave: [1, 4], orcs: [0, 4], dwarves: [3], conflux: [4],
 };
 
-export const RANKS = [['Recruit', 'Veteran', 'Elite'], ['Recruit', 'Veteran', 'Elite', 'Champion']];
-// xp needed for next rank, per stage
-export const RANK_XP = [[2, 4, 7], [3, 6, 10]];
+// stage 1 → stage 2 (new sprite, or stats only) → stage 3 Elite (named, hero-grade stats, stage-2 sprite)
+export const STAGE_NAMES = ['', 'Recruit', 'Veteran', 'Elite'];
+export const RANK_NAMES = [['Recruit', 'Seasoned'], ['Veteran', 'Hardened'], ['Elite']];
+export const EVOLVE_XP = { 1: [2, 5], 2: [4, 9] }; // [xp for rank 1, xp to evolve]
 
 export function unitLevel(fid, ui) { return Math.min(6, Math.round(ui * 6 / Math.max(1, FACTIONS[fid].units.length - 1))); }
 export function isRanged(fid, ui) { return (RANGED[fid] || []).includes(ui); }
+export function hasUpgradeArt(fid, ui) { return !FACTIONS[fid].units[ui].tint2; }
+export function unitName(fid, ui, stage) {
+  const n = FACTIONS[fid].units[ui].n;
+  if (stage >= 2 && !hasUpgradeArt(fid, ui)) return 'Veteran ' + n[0];
+  return n[stage >= 2 ? 1 : 0];
+}
+export function unitWeight(fid, ui) { return 1 + unitLevel(fid, ui) * 0.22; }
 
-export function unitName(fid, ui, stage) { return FACTIONS[fid].units[ui].n[stage === 2 ? 1 : 0]; }
+// a freshly recruited soldier with rolled stats
+export function newSoldier(rng) {
+  const r = () => 88 + Math.floor((rng ? rng() : Math.random()) * 25);
+  return { s: 1, r: 0, xp: 0, g: [r(), r(), r()] };
+}
 
 // stats of one soldier
 export function soldierStats(fid, ui, s) {
   const L = unitLevel(fid, ui);
+  const g = s.g || [100, 100, 100];
+  const noArt = !hasUpgradeArt(fid, ui);
+  const base = noArt ? 1.15 : 1; // factions without upgraded sprites start stronger
+  if (s.s === 3) {
+    // Elite: named, roughly a level-2 hero
+    return { hp: Math.max(52, HP[L] * 2.6) * g[0] / 100 * base, atk: Math.max(6.5, ATK[L] * 2.0) * g[1] / 100 * base, def: Math.max(4, DEF[L] * 1.9) * g[2] / 100 * base, spd: SPD[L] };
+  }
   const st = s.s === 2 ? 1.38 : 1;
-  const rk = 1 + 0.09 * s.r;
-  return { hp: HP[L] * st * rk, atk: ATK[L] * st * rk, def: DEF[L] * st * rk, spd: SPD[L] };
+  const rk = 1 + 0.08 * (s.r || 0);
+  return { hp: HP[L] * st * rk * base * g[0] / 100, atk: ATK[L] * st * rk * base * g[1] / 100, def: DEF[L] * st * rk * base * g[2] / 100, spd: SPD[L] };
+}
+export function soldierTitle(fid, ui, s) {
+  if (s.s === 3) return s.name || 'Elite';
+  return RANK_NAMES[s.s - 1][s.r || 0];
 }
 
-export function squadCap(hero) {
-  const L = unitLevel(hero.fid, hero.unit);
-  return Math.max(5, Math.min(10, Math.round(hero.lead + 1 - L * 0.65)));
-}
+// ---------------- heroes ----------------
+export const MAX_LEVEL = 30;
+export const LEVEL_XP = (lvl) => 6 + lvl * 5;
 
-export function recruitCost(fid, ui) { return 12 + unitLevel(fid, ui) * 9; }
+// command points: how many soldiers a hero can lead (bigger units take more room)
+export function commandCap(hero, kingdom) {
+  const pits = kingdom && kingdom.buildings && kingdom.buildings.pits ? 3 : 0;
+  return Math.min(45, 5 + Math.floor((hero.level - 1) * 1.6) + Math.max(0, hero.lead - 8) + pits);
+}
+export function squadCap(hero, kingdom) {
+  return Math.max(1, Math.floor(commandCap(hero, kingdom) / unitWeight(hero.ufid || hero.fid, hero.unit) + 1e-6));
+}
+export function recruitCost(fid, ui) { return 10 + unitLevel(fid, ui) * 8; }
 
 export function heroTotals(hero, items) {
   const t = { atk: hero.atk, def: hero.def, lead: hero.lead, int: hero.int, morale: 0, spd: 0 };
@@ -45,58 +76,129 @@ export function heroTotals(hero, items) {
   }
   return t;
 }
+export function raceMatch(hero) { return (hero.ufid || hero.fid) === hero.fid; }
 
 // rough strength of a hero's squad for AI + auto-resolve
-export function squadPower(hero, items) {
+export function squadPower(hero, items, morale = 60) {
   const t = heroTotals(hero, items);
+  const uf = hero.ufid || hero.fid;
   let p = 0;
   for (const s of hero.troops) {
-    const st = soldierStats(hero.fid, hero.unit, s);
+    const st = soldierStats(uf, hero.unit, s);
     p += st.hp * 0.5 + st.atk * 3 + st.def * 2;
   }
   p *= 1 + t.atk * 0.03 + t.def * 0.025;
-  p *= 0.6 + 0.4 * (hero.morale / 100);
+  if (raceMatch(hero)) p *= 1.1;
+  p *= 0.6 + 0.4 * (Math.min(100, morale + t.morale) / 100);
+  p *= 0.5 + 0.5 * (hero.hp ?? 100) / 100;
   p += 18 + hero.level * 6;
   return p;
 }
-
 export function garrisonPower(terr) { return 25 + terr.level * 30; }
 
-// ---- formations ----
+// ---------------- formations ----------------
 export const FORMATIONS = {
-  wedge: { name: 'Wedge', beats: 'line', desc: 'Charge: +attack. Beats Line.', atk: 1.12, def: 0.95, spd: 1.05 },
-  line: { name: 'Line', beats: 'square', desc: 'Wide front: ranged +25%. Beats Square.', atk: 1.0, def: 1.0, spd: 1.0, ranged: 1.25 },
-  square: { name: 'Square', beats: 'wedge', desc: 'Shield wall: +defense. Beats Wedge.', atk: 0.92, def: 1.22, spd: 0.85 },
-  loose: { name: 'Loose', beats: null, desc: 'Fast; arrows hurt less, melee hurts more.', atk: 1.0, def: 0.88, spd: 1.3, arrowGuard: 0.65 },
+  wedge: { name: 'Wedge', beats: 'line', desc: 'Charge: +attack. Beats Line.', atk: 1.12, def: 0.95, spd: 1.05, time: 3 },
+  line: { name: 'Line', beats: 'square', desc: 'Wide front: ranged +25%. Beats Square.', atk: 1.0, def: 1.0, spd: 1.0, ranged: 1.25, time: 2.5 },
+  square: { name: 'Square', beats: 'wedge', desc: 'Shield wall: +defense. Beats Wedge.', atk: 0.92, def: 1.22, spd: 0.85, time: 3.5 },
+  loose: { name: 'Loose', beats: null, desc: 'Fast; arrows hurt less, melee hurts more.', atk: 1.0, def: 0.88, spd: 1.3, arrowGuard: 0.65, time: 1.5 },
 };
 export const FORMATION_IDS = Object.keys(FORMATIONS);
 export function formationEdge(a, b) {
+  if (!FORMATIONS[a] || !FORMATIONS[b]) return 1;
   if (FORMATIONS[a].beats === b) return 1.25;
   if (FORMATIONS[b].beats === a) return 0.8;
   return 1;
 }
-// slot offsets (in tiles) for n soldiers, facing +x
+// seconds to switch formation; big squads and stiff formations take longer, leadership helps
+export function formationChangeTime(from, to, n, lead) {
+  let t = FORMATIONS[to].time;
+  if (from === 'loose') t *= 0.8;
+  if (from === 'square') t *= 1.25;
+  t *= 0.85 + Math.min(0.6, n / 40);
+  t -= Math.max(0, lead - 8) * 0.08;
+  return Math.max(1, t);
+}
+// slot offsets (in tiles) for n soldiers, facing +x. spacing tightens as squads grow
 export function formationSlots(f, n) {
   const out = [];
+  const sp = n > 20 ? 0.42 : n > 10 ? 0.5 : 0.58;
   if (f === 'wedge') {
-    let i = 0, row = 1;
-    while (out.length < n) { for (let k = 0; k <= row && out.length < n; k++) out.push([-row * 0.55, (k - row / 2) * 0.6]); row++; i++; }
+    let row = 1;
+    while (out.length < n) { for (let k = 0; k <= row && out.length < n; k++) out.push([-row * sp, (k - row / 2) * sp * 1.05]); row++; }
   } else if (f === 'line') {
-    const cols = Math.ceil(n / 2);
-    for (let i = 0; i < n; i++) out.push([0.3 - Math.floor(i / cols) * 0.6, ((i % cols) - (cols - 1) / 2) * 0.6]);
+    const rows = n > 24 ? 3 : 2, cols = Math.ceil(n / rows);
+    for (let i = 0; i < n; i++) out.push([0.3 - Math.floor(i / cols) * sp, ((i % cols) - (cols - 1) / 2) * sp]);
   } else if (f === 'square') {
     const side = Math.ceil(Math.sqrt(n));
-    for (let i = 0; i < n; i++) out.push([((i % side) - (side - 1) / 2) * 0.55 - 0.3, (Math.floor(i / side) - (side - 1) / 2) * 0.55]);
+    for (let i = 0; i < n; i++) out.push([((i % side) - (side - 1) / 2) * sp - 0.3, (Math.floor(i / side) - (side - 1) / 2) * sp]);
   } else {
-    for (let i = 0; i < n; i++) { const a = i * 2.39996, r = 0.55 + Math.sqrt(i) * 0.42; out.push([Math.cos(a) * r - 0.3, Math.sin(a) * r]); }
+    for (let i = 0; i < n; i++) { const a = i * 2.39996, r = 0.55 + Math.sqrt(i) * sp * 0.75; out.push([Math.cos(a) * r - 0.3, Math.sin(a) * r]); }
   }
   return out;
 }
 
-// ---- economy ----
+// ---------------- stratagems ----------------
+// target: 'enemyFighting' enemy squad already in combat · 'enemy' any enemy squad · 'own' own squad · 'army' all own · 'post' own post · 'route' a path
+export const STRATAGEMS = {
+  rally: { name: 'Rally', cost: 2, tier: 0, target: 'army', icon: 'Bless', desc: 'All your squads regain 30 morale.' },
+  march: { name: 'Forced March', cost: 1, tier: 0, target: 'own', icon: 'Haste', desc: 'A squad moves 60% faster for 12s.' },
+  ambush: { name: 'Ambush', cost: 3, tier: 0, target: 'enemyFighting', icon: 'FirstStrike', desc: 'Hidden troops strike an enemy squad that is already fighting.' },
+  fire: { name: 'Fire Attack', cost: 3, tier: 1, target: 'enemy', icon: 'Inferno', desc: 'Set fire around an enemy squad. Burns for 8s. Weak underground.' },
+  confuse: { name: 'Confusion', cost: 2, tier: 1, target: 'enemy', icon: 'Hypnotize', desc: 'An enemy squad stops and mills about for 7s.' },
+  fortify: { name: 'Fortify', cost: 2, tier: 1, target: 'post', icon: 'StoneSkin', desc: 'Your squads at a post take 40% less damage for 15s.' },
+  smoke: { name: 'Smoke Screen', cost: 1, tier: 1, target: 'own', icon: 'Blind', desc: 'Arrows barely hurt this squad for 10s.' },
+  feint: { name: 'Feigned Retreat', cost: 2, tier: 1, target: 'own', icon: 'DeflectMissle', desc: 'Break off and fall back; the enemy that chases is left exposed.' },
+  discord: { name: 'Sow Discord', cost: 3, tier: 2, target: 'enemy', icon: 'Curse', desc: 'Enemy squad loses 35 morale. A disloyal hero may turn on his lord.' },
+  landslide: { name: 'Rockslide', cost: 4, tier: 2, target: 'route', icon: 'StoneSpikes', desc: 'Trigger the land itself: cut a path and crush anyone on it.' },
+  warcry: { name: 'War Cry', cost: 2, tier: 2, target: 'own', icon: 'Bloodlust', desc: "Fill a hero's special at once and +15% attack for 10s." },
+};
+export const STRATAGEM_IDS = Object.keys(STRATAGEMS);
+export function commandPool(heroes, tierIdx, academy) {
+  const bestInt = heroes.reduce((m, h) => Math.max(m, h.int || 0), 0);
+  return 4 + Math.floor(bestInt / 2) + tierIdx * 2 + (academy ? 2 : 0);
+}
+
+// ---------------- kingdoms ----------------
+export const TIERS = [
+  { id: 'village', name: 'Village', maxUnitLevel: 2, stratSlots: 1, stratTier: 0, desc: 'A young holding. Weak troops only, one stratagem.' },
+  { id: 'kingdom', name: 'Kingdom', maxUnitLevel: 4, stratSlots: 3, stratTier: 1, desc: 'Three stratagems per battle, buildings, alliances and spies.' },
+  { id: 'empire', name: 'Empire', maxUnitLevel: 6, stratSlots: 3, stratTier: 2, desc: 'All troop tiers, grand stratagems, demand vassals.' },
+];
+export function tierIndex(k) { return Math.max(0, TIERS.findIndex((t) => t.id === (k.tier || 'village'))); }
+export const PROMOTE = [
+  null,
+  { cost: 400, need: 'Lead 4 heroes or 40 soldiers', ok: (heroes, troops, lands) => heroes >= 4 || troops >= 40 },
+  { cost: 1200, need: 'Hold 8 lands with 8 heroes, or 200 soldiers', ok: (heroes, troops, lands) => lands >= 8 && (heroes >= 8 || troops >= 200) },
+];
+export const BUILDINGS = {
+  pits: { name: 'Training Pits', cost: 500, tier: 1, desc: '+3 command for every hero; drilling gives double experience.' },
+  spies: { name: 'Spy Network', cost: 300, tier: 1, desc: 'Heroes can spy on a neighbour to reveal its army and exact odds.' },
+  academy: { name: 'War Academy', cost: 600, tier: 1, desc: '+2 command points for stratagems; heroes learn faster.' },
+  granary: { name: 'Granaries', cost: 350, tier: 1, desc: '+25% food and protection from famine.' },
+  council: { name: 'War Council', cost: 900, tier: 2, desc: 'Bring a 4th stratagem into battle.' },
+};
+
+export const POLICIES = {
+  tax: { low: { name: 'Low', gold: 0.75, morale: 3, stability: 2 }, normal: { name: 'Normal', gold: 1, morale: 0, stability: 0 }, high: { name: 'High', gold: 1.3, morale: -4, stability: -3 } },
+  rations: { half: { name: 'Half', food: 0.6, morale: -4 }, normal: { name: 'Normal', food: 1, morale: 0 }, feast: { name: 'Feast', food: 1.4, morale: 4 } },
+};
+export const EDICTS = {
+  festival: { name: 'Festival', cost: { gold: 150 }, desc: 'Morale +12 across the realm.' },
+  conscript: { name: 'Conscription', cost: { gold: 0 }, desc: 'Every squad is filled with fresh recruits for free. Stability −10, morale −6.' },
+  martial: { name: 'Martial Law', cost: { gold: 0 }, desc: 'Stability +15, morale −8.' },
+  relief: { name: 'Relief', cost: { gold: 120, food: 40 }, desc: 'Stability +10, morale +4.' },
+  gifts: { name: 'Gifts to Heroes', cost: { gold: 60, perHero: true }, desc: 'Every hero gains +8 loyalty.' },
+};
+
+export const FOOD = { grass: 30, marsh: 22, dirt: 18, sand: 10, ice: 10, christmas: 12, deepmarsh: 16, lava: 8, cave: 12, dungeon: 10 };
+export function territoryFood(t) { return (FOOD[t.biome] || 15) + t.level * 6 - (t.ruined ? 8 : 0) - (t.blight ? 12 : 0); }
 export const INCOME_BASE = 60;
-export function territoryIncome(t) { return INCOME_BASE + t.level * 30 - (t.ruined ? 30 : 0); }
+export function territoryIncome(t) { return INCOME_BASE + t.level * 30 - (t.ruined ? 30 : 0) - (t.blight ? 20 : 0); }
 export function developCost(t) { return 250 * (t.level + 1); }
 export const HIRE_COST = 400;
+export const PROMOTE_ELITE_COST = 300;
 
-export const LEVEL_XP = (lvl) => 6 + lvl * 5;
+// legacy names still used by some UI code
+export const RANKS = [['Recruit', 'Seasoned'], ['Veteran', 'Hardened'], ['Elite', 'Elite']];
+export const RANK_XP = [EVOLVE_XP[1], EVOLVE_XP[2]];

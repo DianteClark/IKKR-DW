@@ -145,10 +145,9 @@ export function drawUnit(ctx, fid, ui, stage, anim, t, x, y, flip, alpha = 1) {
   const u = sh.units[ui];
   let im = img(sh.src);
   if (!im) return;
-  if (stage === 2 && u.tint2) im = recolor(sh.src, 'elite', eliteTint) || im;
   const a = sh.anims[anim] || sh.anims.idle;
   const f = anim === 'death' ? Math.min(a[1] - 1, Math.floor(t)) : Math.floor(t) % a[1];
-  const sx = a[0] + f * 16, sy = u.y[stage === 2 ? 1 : 0];
+  const sx = a[0] + f * 16, sy = u.y[stage >= 2 ? 1 : 0];
   if (alpha !== 1) ctx.globalAlpha = alpha;
   if (flip) {
     ctx.save(); ctx.translate(Math.round(x), 0); ctx.scale(-1, 1);
