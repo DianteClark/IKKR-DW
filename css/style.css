@@ -391,3 +391,10 @@ body.side-open #toasts { left: calc(26vw + 6px); max-width: 48vw; }
 .bc-row { min-height: 0; padding: 2px 8px; border-width: 6px; }
 .bc-row .seg button { min-height: 30px; padding: 3px 10px; font-size: 14px; }
 .sumcard { min-height: 0; border-width: 6px; }
+.goals { position: absolute; top: calc(52px + var(--sat)); left: calc(6px + var(--sal)); z-index: 4; max-width: min(44vw, 330px); }
+.goals-chip { display: flex; gap: 8px; align-items: center; max-width: 100%; font: inherit; font-size: 13px; color: var(--ink); background: rgba(16,12,24,.86); border: 2px solid #6b5432; border-radius: 4px; padding: 4px 10px; cursor: pointer; }
+.goals-panel { padding: 8px 10px; gap: 4px; font-size: 14px; }
+.goal { display: flex; gap: 8px; align-items: flex-start; padding: 2px 0; }
+.goal.done { opacity: .55; } .goal.done .goal-tick { color: var(--good); }
+.goal.next .goal-tick { color: var(--gold); }
+.goal-tick { width: 14px; flex: none; }

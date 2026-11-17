@@ -27,6 +27,7 @@ import { EVENT_INFO } from '../game/events.js';
 import { captureScene, decisionScene } from '../game/dialogue.js';
 import { renderTerrain, drawTerrain, drawOverlay, drawSites, drawTowns, drawHeroes, drawOrders, drawAnimated, drawSeason, captureFx, renderMinimap, updateMinimap, hitTest, drawLandOutline, drawGuards, setSeason, TS } from '../campaign/mapview.js';
 import { bannerEl } from '../engine/banner.js';
+import { GOALS, goalState, newlyDone } from '../campaign/goals.js';
 import { portrait, unitIcon, itemIcon, heroCard, orderLabel, kingdomBadge, unitCard } from '../campaign/widgets.js';
 import { saveCampaign, getRecord, prettyCode, stampCampaign } from '../game/save.js';
 import { sfx, music } from '../engine/audio.js';
@@ -241,6 +242,7 @@ function buildUI() {
   ui.top = mount(h('div', { class: 'topbar' }));
   ui.side = mount(h('div', { class: 'side', style: { display: 'none' } }));
   ui.bottom = mount(h('div', { class: 'bottombar' }));
+  ui.goals = mount(h('div', { class: 'goals' }));
   // minimap: tap to jump anywhere (essential on huge and enormous maps)
   const mw = S.T.W > 150 ? 168 : 128, mh = Math.round(mw * S.T.H / S.T.W);
   ui.mini = mount(h('canvas', { class: 'minimap', width: mw * 2, height: mh * 2, style: { width: mw + 'px', height: mh + 'px' } }));
@@ -275,6 +277,7 @@ export function refreshUI() {
     btn('☰', menu, 'small'),
     btn(waiting ? waiting : idle ? `End Turn (${idle})` : 'End Turn', endTurnPressed, 'primary small'),
   );
+  renderGoals();
   ui.bottom.innerHTML = '';
   const prisoners = captivesOf(st, k.id).length;
   add(ui.bottom,
@@ -604,6 +607,41 @@ function heroesList() {
   render();
 }
 
+// ---------- early goals ----------
+let goalsOpen = false, goalsBusy = false;
+function renderGoals() {
+  if (!ui.goals) return;
+  const st = S.state, k = myK();
+  const g = goalState(st, k.id);
+  // pay out anything just achieved (through an action so the host stays in charge)
+  if (!goalsBusy && !S.busy) {
+    const fresh = newlyDone(st, k);
+    if (fresh.length) {
+      goalsBusy = true;
+      setTimeout(() => {
+        for (const G of fresh) if (act({ type: 'goal', id: G.id })) { sfx('levelup'); banner('Goal complete', 'good', `${G.title} · +${G.reward}g`); toast(G.tip, 'gold'); }
+        goalsBusy = false;
+      }, 400);
+    }
+  }
+  const doneN = GOALS.filter((G) => g.done[G.id]).length;
+  ui.goals.innerHTML = '';
+  if (g.hidden || doneN === GOALS.length || S.sel != null && goalsOpen === false && window.innerWidth < 700) { ui.goals.style.display = 'none'; return; }
+  ui.goals.style.display = '';
+  const next = GOALS.find((G) => !g.done[G.id]);
+  if (!goalsOpen) {
+    ui.goals.append(h('button', { class: 'goals-chip', onClick: () => { goalsOpen = true; sfx('click'); renderGoals(); } },
+      h('span', { class: 'gold' }, `Goals ${doneN}/${GOALS.length}`), h('span', { class: 'ellipsis' }, next.title)));
+    return;
+  }
+  ui.goals.append(h('div', { class: 'panel goals-panel' },
+    h('div', { class: 'row' }, h('b', { class: 'grow gold' }, `Goals ${doneN}/${GOALS.length}`), btn('Hide', () => confirm('Hide goals?', 'You can bring them back from the menu.', 'Hide', 'Keep').then((ok) => { if (ok) act({ type: 'hideGoals' }); }), 'tiny ghost'), btn('▴', () => { goalsOpen = false; renderGoals(); }, 'tiny')),
+    GOALS.map((G) => h('div', { class: 'goal ' + (g.done[G.id] ? 'done' : G === next ? 'next' : '') },
+      h('span', { class: 'goal-tick' }, g.done[G.id] ? '✔' : '○'),
+      h('div', { class: 'col grow', style: { gap: 0, minWidth: 0 } }, h('span', {}, G.title, h('small', { class: 'muted' }, ` · +${G.reward}g`)),
+        G === next ? h('small', { class: 'muted' }, G.how) : null)))));
+}
+
 // ---------- economy breakdown: why each number moves this season ----------
 function economySheet(focusOn = 'gold') {
   const st = S.state, k = myK(), e = economyPreview(st, k);
@@ -770,7 +808,7 @@ function menu() {
   modal('Menu', h('div', { class: 'col' },
     h('div', { class: 'row wrap' }, h('span', { class: 'chip gold' }, `Campaign ${prettyCode(S.state.cid)}`), h('span', { class: 'chip' }, `Seed ${S.state.seed}`), h('span', { class: 'chip' }, `${seasonOf(S.state.turn)}, year ${yearOf(S.state.turn)}`)),
     net.role === 'single' ? h('div', { class: 'muted' }, 'Your campaign saves automatically every season. Find it under Continue.') : h('div', { class: 'muted' }, `Two-player · ${net.role === 'host' ? 'You are hosting' : 'Connected to host'}. Both of you keep a copy of this campaign — either of you can host it again from Continue.`)),
-  [['Resume'], ['Quit to title', () => { if (net.role !== 'single') net.close(); go('title'); }, 'danger']], { dismiss: true });
+  [...(goalState(S.state, myK().id).hidden ? [['Show goals', () => { act({ type: 'hideGoals', hidden: false }); }]] : []), ['Resume'], ['Quit to title', () => { if (net.role !== 'single') net.close(); go('title'); }, 'danger']], { dismiss: true });
 }
 
 function intro() {
