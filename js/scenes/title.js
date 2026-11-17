@@ -46,18 +46,21 @@ function renderScene() {
   ctx.fillStyle = 'rgba(255,236,170,.25)'; ctx.beginPath(); ctx.arc(vw * 0.72, vh * 0.48, 26, 0, Math.PI * 2); ctx.fill();
   for (const c of clouds) { const x = ((c.x + t * c.s) % (vw + 120)) - 60; cloud(x, c.y, c.w); }
   const trees = img(TREES);
-  // far mountain range (darkened)
-  if (trees) {
-    ctx.globalAlpha = 0.55;
-    const off = (t * 2) % 16;
-    for (let x = -32; x < vw + 32; x += 16) {
-      const hgt = 2 + Math.floor((Math.sin(x * 0.07) + 1) * 1.5);
-      for (let r = 0; r < hgt; r++) ctx.drawImage(trees, 416 + 32, 336 + 16, 16, 16, Math.round(x - off), Math.round(vh - 98 - r * 12), 16, 16);
-      ctx.drawImage(trees, 416 + 32, 336, 16, 16, Math.round(x - off), Math.round(vh - 98 - hgt * 12), 16, 16);
+  // two jagged mountain ranges, drawn as stepped pixel silhouettes
+  const range = (base, amp, freq, seed, col, snow, par) => {
+    const off = t * par;
+    ctx.fillStyle = col;
+    for (let x = 0; x < vw + 4; x += 2) {
+      const X = x + off;
+      const hgt = amp * (0.55 + 0.45 * Math.sin(X * freq + seed)) * (0.7 + 0.3 * Math.sin(X * freq * 2.7 + seed * 2)) + 4 * Math.abs(Math.sin(X * freq * 7 + seed));
+      const top = Math.round(base - hgt);
+      ctx.fillRect(x, top, 3, vh - top);
+      if (snow && hgt > amp * 0.8) { ctx.fillStyle = snow; ctx.fillRect(x, top, 3, Math.round((hgt - amp * 0.8) * 0.9) + 1); ctx.fillStyle = col; }
     }
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = 'rgba(70,90,120,.35)'; ctx.fillRect(0, vh - 100, vw + 2, 30);
-  }
+  };
+  range(vh - 92, 54, 0.021, 1.3, '#5b6fa6', '#dfe8ff', 1.2);
+  range(vh - 78, 40, 0.034, 4.1, '#435285', '#c7d3f2', 2.4);
+  ctx.fillStyle = 'rgba(241,178,122,.18)'; ctx.fillRect(0, vh - 110, vw + 2, 40);
   // hills
   const grass = img(BIOMES.grass.src);
   const groundY = vh - 64;
@@ -92,10 +95,12 @@ function renderScene() {
   }
   // foreground trees drifting slowly
   if (trees) {
-    const off = (t * 10) % 64;
-    for (let x = -64; x < vw + 64; x += 64) {
-      ctx.drawImage(trees, 16 + 16, 16, 16, 16, Math.round(x - off), vh - 22, 16, 16);
-      ctx.drawImage(trees, 16, 16, 16, 16, Math.round(x - off + 20), vh - 16, 16, 16);
+    const span = vw + 160, off = (t * 10) % span;
+    for (let i = 0; i < 14; i++) {
+      const x = ((i * 97.3) % span) - off; const xx = x < -40 ? x + span : x;
+      const y = vh - 14 - ((i * 37) % 9);
+      ctx.drawImage(trees, 32, 16, 16, 16, Math.round(xx - 80), y, 16, 16);
+      if (i % 3 === 0) ctx.drawImage(trees, 32, 16, 16, 16, Math.round(xx - 70), y + 6, 16, 16);
     }
   }
   // vignette
