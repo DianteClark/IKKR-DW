@@ -1,105 +1,159 @@
-// Draws the campaign map: terrain (pre-rendered once), ownership overlay, towns, heroes and orders.
-import { img } from '../engine/assets.js';
-import { makeRng } from '../engine/rng.js';
-import { BIOMES, BIOME_IDS, TILE, TREES, OCEAN, FACTIONS, drawHero, drawSpriteRef } from '../data/art.js';
+// Draws the campaign map: terrain (pre-rendered once), ownership overlay, towns, heroes, orders and animated details.
+import { img, loadImage } from '../engine/assets.js';
+import { makeRng, makeNoise } from '../engine/rng.js';
+import { BIOMES, BIOME_IDS, TREES, FACTIONS, drawHero, drawSpriteRef, STRUCT } from '../data/art.js';
+import { paintLandWater, paintRiver, drawBlobs, drawNetwork, drawLandmark, preloadLandmarks, ROAD_SHEET, FENCE_SHEET, maskAt } from '../maps/paint.js';
 
 export const TS = 16;
+const FIELD_SHEET = 'assets/has2020/Landscape Objects/FieldSpriteSheet.png';
+const DOCKS = 'assets/weekly/DockAndLighthouseSpriteSheet.png';
+const SHIP = 'assets/weekly/Ship/Ship.png';
+[FIELD_SHEET, DOCKS, SHIP, ROAD_SHEET, FENCE_SHEET].forEach((s) => loadImage(s));
+preloadLandmarks();
+
+const DECOR = {
+  flower: [[32, 0], [48, 0], [32, 16], [48, 16]],
+  rock: [[64, 0], [80, 0], [64, 16], [80, 16]],
+  bush: [[96, 0], [112, 0], [96, 16], [112, 16]],
+  log: [[128, 0], [144, 0], [128, 16], [144, 16]],
+  grass: [[96, 16], [112, 0]],
+};
+const HOUSE_ROW = { grass: [0, 48, 9], dirt: [0, 48, 9], sand: [16, 48, 9], lava: [16, 48, 9], marsh: [32, 48, 5], deepmarsh: [32, 48, 5], ice: [48, 48, 9], christmas: [48, 48, 9], cave: [32, 48, 5], dungeon: [0, 48, 9] };
 
 export function renderTerrain(T) {
   const { W, H, land, biome, feat } = T;
-  const c = document.createElement('canvas');
-  c.width = W * TS; c.height = H * TS;
-  const x = c.getContext('2d');
-  x.imageSmoothingEnabled = false;
-  const rng = makeRng(T.decorSeed);
-  const ocean = img(OCEAN);
-  const tiles = BIOME_IDS.map((b) => img(BIOMES[b].src));
-  const trees = img(TREES);
-  const at = (cx, cy) => (cx < 0 || cy < 0 || cx >= W || cy >= H ? -1 : cy * W + cx);
-  // base
-  for (let cy = 0; cy < H; cy++) for (let cx = 0; cx < W; cx++) {
-    const i = cy * W + cx;
-    if (!land[i]) {
-      const o = [[0, 0], [16, 0], [0, 16], [16, 16]][(cx * 3 + cy * 5) & 3];
-      if (ocean) x.drawImage(ocean, o[0], o[1], 16, 16, cx * TS, cy * TS, TS, TS);
-      continue;
-    }
-    const ts = tiles[biome[i]];
-    const t = TILE.textured[Math.floor(rng() * TILE.textured.length)];
-    if (ts) x.drawImage(ts, t[0], t[1], 16, 16, cx * TS, cy * TS, TS, TS);
-  }
-  // soften biome seams with a dithered fringe
-  const id = x.getImageData(0, 0, c.width, c.height), px = id.data, CW = c.width;
-  const copyPx = (sx, sy, dx, dy) => { const s = (sy * CW + sx) * 4, d = (dy * CW + dx) * 4; px[d] = px[s]; px[d + 1] = px[s + 1]; px[d + 2] = px[s + 2]; };
-  for (let cy = 0; cy < H; cy++) for (let cx = 0; cx < W; cx++) {
-    const i = cy * W + cx; if (!land[i]) continue;
-    const r = at(cx + 1, cy), d = at(cx, cy + 1);
-    if (r >= 0 && land[r] && biome[r] !== biome[i]) {
-      for (let py = 0; py < TS; py++) for (let k = 1; k <= 3; k++) if (rng() < 0.55 - k * 0.12) copyPx(cx * TS + TS + k, cy * TS + py, cx * TS + TS - k, cy * TS + py);
-    }
-    if (d >= 0 && land[d] && biome[d] !== biome[i]) {
-      for (let pxx = 0; pxx < TS; pxx++) for (let k = 1; k <= 3; k++) if (rng() < 0.55 - k * 0.12) copyPx(cx * TS + pxx, cy * TS + TS + k, cx * TS + pxx, cy * TS + TS - k);
-    }
-  }
-  // shoreline: round convex land corners, then outline + foam on water side
-  const isLandPx = new Uint8Array(c.width * c.height);
-  for (let cy = 0; cy < H; cy++) for (let cx = 0; cx < W; cx++) {
-    if (!land[cy * W + cx]) continue;
-    const L = land[at(cx - 1, cy)] === 1, R = land[at(cx + 1, cy)] === 1, U = land[at(cx, cy - 1)] === 1, D = land[at(cx, cy + 1)] === 1;
-    for (let py = 0; py < TS; py++) for (let pxx = 0; pxx < TS; pxx++) {
-      let keep = true;
-      const cut = 5;
-      if (!L && !U && pxx + py < cut) keep = false;
-      if (!R && !U && (TS - 1 - pxx) + py < cut) keep = false;
-      if (!L && !D && pxx + (TS - 1 - py) < cut) keep = false;
-      if (!R && !D && (TS - 1 - pxx) + (TS - 1 - py) < cut) keep = false;
-      if (keep) isLandPx[(cy * TS + py) * CW + cx * TS + pxx] = 1;
-    }
-  }
-  const PH = c.height;
-  for (let py = 0; py < PH; py++) for (let pxx = 0; pxx < CW; pxx++) {
-    const k = py * CW + pxx;
-    if (isLandPx[k]) continue;
-    // nearest land within 3px
-    let dmin = 9;
-    for (let dy = -3; dy <= 3 && dmin > 1; dy++) {
-      const yy = py + dy; if (yy < 0 || yy >= PH) continue;
-      for (let dx = -3; dx <= 3; dx++) {
-        const xx = pxx + dx; if (xx < 0 || xx >= CW) continue;
-        if (isLandPx[yy * CW + xx]) { const dd = Math.max(Math.abs(dx), Math.abs(dy)); if (dd < dmin) dmin = dd; }
+  const N = W * H;
+  // biome for water cells = nearest land biome (so coast pixels are textured right); distance for deep water
+  const bIdx = new Uint8Array(N), wdist = new Uint16Array(N).fill(65535);
+  let fr = [];
+  for (let i = 0; i < N; i++) if (land[i]) { bIdx[i] = biome[i]; wdist[i] = 0; fr.push(i); }
+  while (fr.length) {
+    const nf = [];
+    for (const j of fr) {
+      const x = j % W, y = (j / W) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const k = ny * W + nx; if (wdist[k] > wdist[j] + 1) { wdist[k] = wdist[j] + 1; bIdx[k] = bIdx[j]; nf.push(k); }
       }
     }
-    const o = k * 4;
-    const cellLand = land[((py / TS) | 0) * W + ((pxx / TS) | 0)];
-    if (cellLand) { // a rounded-off corner: paint water there
-      px[o] = 36; px[o + 1] = 159; px[o + 2] = 222;
+    fr = nf;
+  }
+  const deep = new Uint8Array(N);
+  const dn = makeNoise(T.decorSeed ^ 0x3a);
+  for (let i = 0; i < N; i++) if (!land[i] && wdist[i] >= 3 && (wdist[i] >= 7 || dn((i % W) / 6, ((i / W) | 0) / 6, 2) > 0.45)) deep[i] = 1;
+  // deep patches need to be at least 2 cells thick for the blob tiles
+  for (let pass = 0; pass < 2; pass++) for (let y = 1; y < H - 1; y++) for (let x2 = 1; x2 < W - 1; x2++) {
+    const i = y * W + x2; if (!deep[i]) continue;
+    if (!(deep[i - 1] || deep[i + 1]) || !(deep[i - W] || deep[i + W])) deep[i] = 0;
+  }
+  const c = paintLandWater({ W, H, land, biomeIdx: bIdx, deep }, T.decorSeed);
+  const x = c.getContext('2d');
+  x.imageSmoothingEnabled = false;
+  const rng = makeRng(T.decorSeed ^ 0x51);
+  const tiles = BIOME_IDS.map((b) => img(BIOMES[b].src));
+  // fields
+  const fs = img(FIELD_SHEET);
+  if (fs) for (const f of T.fields || []) {
+    const bx = f.kind === 2 || f.kind === 3 ? 64 : 0, by = f.kind === 1 || f.kind === 3 ? 16 : 0;
+    for (let dy = 0; dy < f.h; dy++) for (let dx = 0; dx < f.w; dx++) {
+      const col = dx === 0 ? 0 : dx === f.w - 1 ? 3 : 1 + (dx % 2);
+      x.drawImage(fs, bx + col * 16, by, 16, 16, (f.x + dx) * TS, (f.y + dy) * TS, TS, TS);
     }
-    if (dmin === 1) { px[o] = 6; px[o + 1] = 6; px[o + 2] = 8; }
-    else if (dmin === 2) { px[o] = 196; px[o + 1] = 236; px[o + 2] = 255; }
-    else if (dmin === 3 && ((pxx + py) & 1)) { px[o] = 120; px[o + 1] = 200; px[o + 2] = 240; }
   }
-  x.putImageData(id, 0, 0);
-
-  // decor on open land
-  for (let cy = 0; cy < H; cy++) for (let cx = 0; cx < W; cx++) {
-    const i = cy * W + cx;
-    if (!land[i] || feat[i] || rng() > 0.07) continue;
-    const ts = tiles[biome[i]]; const d = TILE.decor[Math.floor(rng() * TILE.decor.length)];
-    if (ts) x.drawImage(ts, d[0], d[1], 16, 16, cx * TS, cy * TS, TS, TS);
+  // rivers
+  for (const r of T.rivers || []) paintRiver(x, r.filter((_, i) => i % 2 === 0 || i === r.length - 1), { w0: 3, w1: 5.5 });
+  // roads (bridges where they cross rivers)
+  const roadSheet = img(ROAD_SHEET);
+  if (T.road && roadSheet) {
+    drawNetwork(x, roadSheet, W, H, T.road, 1, 0, 0, (cx, cy) => T.river && T.river[cy * W + cx]);
+    for (let cy = 0; cy < H; cy++) for (let cx = 0; cx < W; cx++) {
+      const i = cy * W + cx; if (!T.road[i] || !T.river[i]) continue;
+      const m = maskAt(T.road, W, H, cx, cy, (v) => v === 1);
+      const horiz = (m & 2) || (m & 8);
+      x.drawImage(roadSheet, horiz ? 192 : 208, 288, 16, 16, cx * TS, cy * TS, TS, TS);
+    }
   }
-  // forests and mountains via 3x3 blob tiles
-  if (trees) for (let cy = 0; cy < H; cy++) for (let cx = 0; cx < W; cx++) {
-    const i = cy * W + cx, f = feat[i]; if (!f) continue;
-    const b = BIOMES[BIOME_IDS[biome[i]]];
-    let base;
-    if (f === 1) { if (!b.tree) continue; base = b.tree; } else base = [b.mtn, 336];
-    const same = (j) => j >= 0 && feat[j] === f;
-    const L = same(at(cx - 1, cy)), R = same(at(cx + 1, cy)), U = same(at(cx, cy - 1)), D = same(at(cx, cy + 1));
-    const col = !L ? 0 : !R ? 2 : 1, row = !U ? 0 : !D ? 2 : 1;
-    x.drawImage(trees, base[0] + 16 + col * 16, base[1] + row * 16, 16, 16, cx * TS, cy * TS, TS, TS);
+  // decor (clustered by the generator)
+  for (const d of T.decor || []) {
+    const ts = tiles[biome[d.y * W + d.x]]; if (!ts) continue;
+    const opts = DECOR[d.k] || DECOR.flower; const t = opts[Math.floor(rng() * opts.length)];
+    x.drawImage(ts, t[0], t[1], 16, 16, d.x * TS, d.y * TS, TS, TS);
   }
+  // forests and mountains
+  const trees = img(TREES);
+  drawBlobs(x, trees, W, H, feat, 1, (cx, cy) => BIOMES[BIOME_IDS[biome[cy * W + cx]]].tree);
+  drawBlobs(x, trees, W, H, feat, 2, (cx, cy) => [BIOMES[BIOME_IDS[biome[cy * W + cx]]].mtn, 336]);
+  // fences + hamlet houses
+  const fence = img(FENCE_SHEET);
+  if (T.fences && fence) {
+    const snowy = (cx, cy) => { const b = BIOME_IDS[biome[cy * W + cx]]; return b === 'ice' || b === 'christmas'; };
+    for (let cy = 0; cy < H; cy++) for (let cx = 0; cx < W; cx++) {
+      if (!T.fences[cy * W + cx]) continue;
+      const m = maskAt(T.fences, W, H, cx, cy, (v) => v === 1);
+      const AT = { 0: [32, 0], 2: [16, 0], 8: [48, 0], 10: [32, 0] };
+      const p = AT[m & 10] || [32, 0];
+      x.drawImage(fence, 64 + p[0], (snowy(cx, cy) ? 64 : 0) + p[1], 16, 16, cx * TS, cy * TS + 4, TS, TS);
+    }
+  }
+  const st = img(STRUCT);
+  if (st) for (const hs of T.houses || []) {
+    const [row, x0, n] = HOUSE_ROW[hs.biome] || HOUSE_ROW.grass;
+    x.fillStyle = 'rgba(0,0,0,.22)'; x.beginPath(); x.ellipse(hs.x * TS + 8, hs.y * TS + 14, 7, 2.5, 0, 0, Math.PI * 2); x.fill();
+    x.drawImage(st, x0 + (hs.v % n) * 16, row, 16, 16, hs.x * TS, hs.y * TS, TS, TS);
+  }
+  // sparkle spots for animated water
+  T._sparkles = [];
+  const sr = makeRng(T.decorSeed ^ 0x99);
+  for (let i = 0; i < N; i++) if (!land[i] && wdist[i] >= 2 && sr() < 0.05) T._sparkles.push([(i % W) * TS + sr.int(2, 13), ((i / W) | 0) * TS + sr.int(2, 13), sr() * 6]);
   return c;
 }
+
+// animated bits: landmarks, lighthouses, ships, water glints. viewRect in world px
+export function drawAnimated(ctx, T, time, view) {
+  const v = view || { x: 0, y: 0, w: 1e9, h: 1e9 };
+  const inV = (px, py, m = 48) => px > v.x - m && py > v.y - m && px < v.x + v.w + m && py < v.y + v.h + m;
+  // water glints
+  for (const [sx, sy, ph] of T._sparkles || []) {
+    if (!inV(sx, sy, 4)) continue;
+    const k = (time * 1.4 + ph) % 6;
+    if (k < 0.5) { ctx.fillStyle = '#d6fff4'; ctx.fillRect(sx, sy, 3, 1); }
+    else if (k < 1) { ctx.fillStyle = '#a6fcdb'; ctx.fillRect(sx + 1, sy, 1, 1); }
+  }
+  for (const L of T.landmarks || []) {
+    const px = L.x * TS, py = L.y * TS;
+    if (!inV(px, py)) continue;
+    ctx.fillStyle = 'rgba(0,0,0,.2)';
+    ctx.beginPath(); ctx.ellipse(px + (L.kind.length && L.kind in SMALL ? 8 : 16), py + (L.kind in SMALL ? 14 : 29), L.kind in SMALL ? 6 : 13, 3, 0, 0, Math.PI * 2); ctx.fill();
+    drawLandmark(ctx, L.kind, px, py, time, L.x + L.y);
+  }
+  const dk = img(DOCKS);
+  if (dk) for (const d of T.docks || []) {
+    const px = d.x * TS, py = d.y * TS;
+    if (!inV(px, py)) continue;
+    const f = Math.floor(time * 4 + d.x) % 5;
+    ctx.drawImage(dk, 48 + f * 16, 0, 16, 32, px, py - 18, 16, 32);
+  }
+  const ship = img(SHIP);
+  if (ship) for (const r of T.seaRoutes || []) {
+    const pts = r.pts; if (pts.length < 2) continue;
+    // length + position (ping-pong)
+    let len = 0; const seg = [];
+    for (let i = 0; i < pts.length - 1; i++) { const l = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]); seg.push(l); len += l; }
+    const speed = 1.1;
+    const tt = (time * speed + (r.a * 7 % 11)) % (len * 2);
+    let d = tt < len ? tt : len * 2 - tt; const fwd = tt < len;
+    let i = 0; while (i < seg.length - 1 && d > seg[i]) { d -= seg[i]; i++; }
+    const a = pts[i], b = pts[i + 1], f = seg[i] ? d / seg[i] : 0;
+    const wx = (a[0] + (b[0] - a[0]) * f) * TS + 8, wy = (a[1] + (b[1] - a[1]) * f) * TS + 8;
+    if (!inV(wx, wy)) continue;
+    let ang = Math.atan2((b[1] - a[1]), (b[0] - a[0])); if (!fwd) ang += Math.PI;
+    const dir = (Math.round(((ang + Math.PI / 2) / (Math.PI * 2)) * 8) % 8 + 8) % 8; // 0=N clockwise
+    const bob = Math.sin(time * 3 + r.a) * 0.8;
+    ctx.fillStyle = 'rgba(166,252,219,.55)'; ctx.fillRect(Math.round(wx - 6), Math.round(wy + 5), 12, 1);
+    ctx.drawImage(ship, dir * 16, 48, 16, 48, Math.round(wx - 8), Math.round(wy - 40 + bob), 16, 48);
+  }
+}
+const SMALL = { campfire: 1, fountain: 1, monolith: 1, monolithb: 1, eye: 1, dragonvein: 1, rallyflag: 1 };
 
 function hexA(hex, a) {
   const n = parseInt(hex.slice(1), 16);
@@ -113,27 +167,39 @@ export function renderOverlay(T, state) {
   c.width = W * TS; c.height = H * TS;
   const x = c.getContext('2d');
   const ownerOf = (i) => (i < 0 || terr[i] < 0 ? -2 : state.territories[terr[i]].owner);
+  const at = (cx, cy) => (cx < 0 || cy < 0 || cx >= W || cy >= H ? -1 : cy * W + cx);
   for (let cy = 0; cy < H; cy++) for (let cx = 0; cx < W; cx++) {
     const i = cy * W + cx; const t = terr[i]; if (t < 0) continue;
     const o = state.territories[t].owner; if (o < 0) continue;
     const col = state.kingdoms[o].color;
-    x.fillStyle = hexA(col, 0.16);
+    x.fillStyle = hexA(col, 0.13);
     x.fillRect(cx * TS, cy * TS, TS, TS);
-    // borders
-    const nbs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-    for (const [dx, dy] of nbs) {
-      const nx = cx + dx, ny = cy + dy;
-      const j = nx < 0 || ny < 0 || nx >= W || ny >= H ? -1 : ny * W + nx;
+  }
+  // borders: realm borders = bright 2px line with dark backing; territory borders inside a realm = dotted
+  for (let cy = 0; cy < H; cy++) for (let cx = 0; cx < W; cx++) {
+    const i = cy * W + cx; const t = terr[i]; if (t < 0) continue;
+    const o = state.territories[t].owner; if (o < 0) continue;
+    const col = state.kingdoms[o].color;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const j = at(cx + dx, cy + dy);
       const nt = j < 0 ? -1 : terr[j];
-      if (nt === t) continue;
+      if (nt === t || nt < 0) continue;
       const realm = ownerOf(j) !== o;
-      x.fillStyle = realm ? col : hexA(col, 0.55);
-      const w = realm ? 3 : 1;
-      if (!realm && ((cx + cy) & 1)) continue;
-      if (dx === 1) x.fillRect(cx * TS + TS - w, cy * TS, w, TS);
-      if (dx === -1) x.fillRect(cx * TS, cy * TS, w, TS);
-      if (dy === 1) x.fillRect(cx * TS, cy * TS + TS - w, TS, w);
-      if (dy === -1) x.fillRect(cx * TS, cy * TS, TS, w);
+      const px = cx * TS, py = cy * TS;
+      if (realm) {
+        x.fillStyle = 'rgba(10,8,16,.55)';
+        if (dx === 1) x.fillRect(px + TS - 3, py, 1, TS); if (dx === -1) x.fillRect(px + 2, py, 1, TS);
+        if (dy === 1) x.fillRect(px, py + TS - 3, TS, 1); if (dy === -1) x.fillRect(px, py + 2, TS, 1);
+        x.fillStyle = col;
+        if (dx === 1) x.fillRect(px + TS - 2, py, 2, TS); if (dx === -1) x.fillRect(px, py, 2, TS);
+        if (dy === 1) x.fillRect(px, py + TS - 2, TS, 2); if (dy === -1) x.fillRect(px, py, TS, 2);
+      } else {
+        x.fillStyle = hexA(col, 0.7);
+        for (let k = 0; k < TS; k += 4) {
+          if (dx === 1) x.fillRect(px + TS - 1, py + k, 1, 2); if (dx === -1) x.fillRect(px, py + k, 1, 2);
+          if (dy === 1) x.fillRect(px + k, py + TS - 1, 2, 1); if (dy === -1) x.fillRect(px + k, py, 2, 1);
+        }
+      }
     }
   }
   return c;
@@ -150,7 +216,17 @@ export function drawTowns(ctx, state, time) {
     const r = townRef(state, t);
     const w = r[3], hh = r[4];
     const px = t.cx * TS + 8 - w / 2, py = t.cy * TS + 14 - hh;
+    ctx.fillStyle = 'rgba(0,0,0,.28)';
+    ctx.beginPath(); ctx.ellipse(t.cx * TS + 8, t.cy * TS + 13, w * 0.46, 5, 0, 0, Math.PI * 2); ctx.fill();
     drawSpriteRef(ctx, r, px, py);
+    if (t.owner >= 0) {
+      const col = state.kingdoms[t.owner].color;
+      const fx = Math.round(px + w - 6), fy = Math.round(py + 2);
+      const wave = Math.floor(time * 4 + t.id) % 2;
+      ctx.fillStyle = '#1b1420'; ctx.fillRect(fx, fy, 1, 14);
+      ctx.fillStyle = '#0b0a10'; ctx.fillRect(fx + 1, fy, 8, 6);
+      ctx.fillStyle = col; ctx.fillRect(fx + 1, fy + 1, 7, 4 - wave); if (wave) ctx.fillRect(fx + 1, fy + 4, 5, 1);
+    }
   }
 }
 
@@ -164,12 +240,17 @@ export function drawHeroes(ctx, state, time) {
   for (const [tid, list] of by) {
     const t = state.territories[tid];
     list.slice(0, 4).forEach((h, i) => {
-      const x = t.cx * TS + 8 + 26 + (i % 2) * 14, y = t.cy * TS + 8 + Math.floor(i / 2) * 12 - 6;
+      const x = t.cx * TS + 8 + 30 + (i % 2) * 14, y = t.cy * TS + 8 + Math.floor(i / 2) * 12 - 6;
       const col = state.kingdoms[h.kingdom].color;
-      ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(x - 6, y - 1, 12, 3);
-      ctx.fillStyle = col; ctx.fillRect(x - 7, y - 19, 2, 8); ctx.fillRect(x - 5, y - 19, 4, 3);
+      ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.beginPath(); ctx.ellipse(x, y, 6, 2, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#1b1420'; ctx.fillRect(x - 7, y - 20, 1, 10);
+      ctx.fillStyle = col; ctx.fillRect(x - 6, y - 20, 5, 3);
       drawHero(ctx, h.fid, h.gender, 3, 'walk', time * 3 + i, x, y, false);
     });
+    if (list.length > 4) {
+      ctx.fillStyle = '#0b0a10'; ctx.fillRect(t.cx * TS + 54, t.cy * TS - 4, 13, 8);
+      ctx.fillStyle = '#ffd25a'; ctx.font = '7px monospace'; ctx.fillText('+' + (list.length - 4), t.cx * TS + 55, t.cy * TS + 2);
+    }
   }
 }
 
@@ -180,26 +261,19 @@ export function drawOrders(ctx, state, kid, time) {
     const a = state.territories[h.loc], b = state.territories[h.order.target];
     const x1 = a.cx * TS + 8, y1 = a.cy * TS + 4, x2 = b.cx * TS + 8, y2 = b.cy * TS + 4;
     const atk = h.order.type === 'attack';
-    ctx.strokeStyle = atk ? '#ff4a3a' : '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([4, 3]); ctx.lineDashOffset = -time * 12;
-    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    // curved arc for readability
+    const mx = (x1 + x2) / 2, my = (y1 + y2) / 2 - Math.hypot(x2 - x1, y2 - y1) * 0.18;
+    ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(10,8,16,.6)';
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.quadraticCurveTo(mx, my, x2, y2); ctx.stroke();
+    ctx.strokeStyle = atk ? '#ff4a3a' : '#ffffff'; ctx.lineWidth = 2;
+    ctx.setLineDash([5, 3]); ctx.lineDashOffset = -time * 14;
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.quadraticCurveTo(mx, my, x2, y2); ctx.stroke();
     ctx.setLineDash([]);
-    const ang = Math.atan2(y2 - y1, x2 - x1);
+    const ang = Math.atan2(y2 - my, x2 - mx);
     ctx.fillStyle = ctx.strokeStyle;
-    ctx.beginPath(); ctx.moveTo(x2, y2); ctx.lineTo(x2 - Math.cos(ang - 0.5) * 8, y2 - Math.sin(ang - 0.5) * 8); ctx.lineTo(x2 - Math.cos(ang + 0.5) * 8, y2 - Math.sin(ang + 0.5) * 8); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(x2, y2); ctx.lineTo(x2 - Math.cos(ang - 0.5) * 9, y2 - Math.sin(ang - 0.5) * 9); ctx.lineTo(x2 - Math.cos(ang + 0.5) * 9, y2 - Math.sin(ang + 0.5) * 9); ctx.fill();
   }
 }
 
-export function drawRoads(ctx, state) {
-  ctx.strokeStyle = 'rgba(60,40,20,.55)';
-  ctx.lineWidth = 2;
-  ctx.setLineDash([3, 4]);
-  ctx.beginPath();
-  for (const t of state.territories) for (const n of t.nb) {
-    if (n < t.id) continue;
-    const u = state.territories[n];
-    ctx.moveTo(t.cx * TS + 8, t.cy * TS + 8); ctx.lineTo(u.cx * TS + 8, u.cy * TS + 8);
-  }
-  ctx.stroke(); ctx.setLineDash([]);
-}
+// roads are baked into the terrain now; kept for API compatibility
+export function drawRoads() {}
