@@ -13,6 +13,9 @@ import {
 } from '../game/world.js';
 import { endTurn } from '../game/turn.js';
 import { scoutsLeft, scoutableLands } from '../game/intel.js';
+import { raidableHere } from '../game/trade.js';
+import { besiegeTargets } from '../game/siege.js';
+import { weatherAt, WEATHER } from '../game/weather.js';
 import { neutralActions, sitesIn, SITES, plunderYield } from '../game/neutral.js';
 import { seasonOf, yearOf, SEASON_FOOD, childrenOf, wedOptions, MARRY_LEVEL, childNames } from '../game/family.js';
 import { runAI } from '../game/ai.js';
@@ -165,7 +168,7 @@ registerScene('campaign', {
         for (const id of S.target.heroes) act({ type: 'order', hero: id, order: { type: S.target.kind, target: tid } });
         const nm = S.state.territories[tid].name;
         sfx(S.target.kind === 'attack' ? 'horn' : 'march');
-        toast(S.target.kind === 'attack' ? `Attack ordered on ${nm}` : S.target.kind === 'spy' ? `Spies sent to ${nm}` : `Marching to ${nm}`);
+        toast(S.target.kind === 'attack' ? `Attack ordered on ${nm}` : S.target.kind === 'besiege' ? `Siege laid to ${nm}` : S.target.kind === 'spy' ? `Spies sent to ${nm}` : `Marching to ${nm}`);
         S.target = null; refreshUI();
       } else if (tid != null) {
         toast(S.target.kind === 'move' ? 'Not reachable this season — pick a glowing land' : 'Pick one of the glowing lands', 'gold');
@@ -296,7 +299,7 @@ export function refreshUI() {
     ui.side.innerHTML = '';
     ui.side.style.bottom = 'auto';
     ui.side.append(h('div', { class: 'panel' },
-      h('h3', {}, S.target.kind === 'attack' ? 'Choose where to attack' : S.target.kind === 'spy' ? 'Choose where to spy' : 'Choose where to march'),
+      h('h3', {}, S.target.kind === 'attack' ? 'Choose where to attack' : S.target.kind === 'besiege' ? 'Choose a walled town to besiege' : S.target.kind === 'spy' ? 'Choose where to spy' : 'Choose where to march'),
       h('div', { class: 'muted' }, 'Tap a highlighted territory.'),
       btn('Cancel', () => { S.target = null; refreshUI(); }, 'small')));
     return;
@@ -325,6 +328,8 @@ function territoryPanel(tid) {
     !owner ? h('div', { class: 'muted', style: { fontSize: '13px' } }, 'Free folk who answer to no crown. Take it by force, plunder it, or send a hero to protect it until it chooses to join you.') : null,
     h('div', { class: 'muted' }, `${BIOMES[t.biome].name} · ${stars}${t.ruined ? ' · ruined' : ''} · +${territoryIncome(t)}g · 🌾${territoryFood(t)}`),
     (t.fx || []).length ? h('div', { class: 'row wrap' }, t.fx.map((f) => chip(`${(EVENT_INFO[f.kind] || {}).name || f.kind} (${f.turns})`, 'bad'))) : null,
+    weatherAt(st, t) ? chip(`${WEATHER[weatherAt(st, t)].icon} ${WEATHER[weatherAt(st, t)].name}: ${WEATHER[weatherAt(st, t)].desc}`, 'blue') : null,
+    t.siege ? chip(`Under siege by ${st.kingdoms[t.siege.kid].name.split(' of ').pop()} (${t.siege.turns}/3)`, 'bad') : null,
   );
   const sites = sitesIn(st, tid);
   if (sites.length) {
@@ -414,8 +419,11 @@ function heroBlock(x) {
   const actions = h('div', { class: 'row wrap', style: { gap: '4px', margin: '2px 0 8px' } },
     targets.length ? btn(is('attack') ? `Attack → ${st.territories[x.order.target].name}` : k.landless ? 'Rise up' : 'Attack', () => (k.landless ? o({ type: 'attack', target: targets[0] }) : startTarget([x.id], 'attack')), 'danger small' + (is('attack') || picking('attack') ? ' sel' : '')) : null,
     moves.length ? btn(is('move') ? `Move → ${st.territories[x.order.target].name}` : 'Move', () => startTarget([x.id], 'move'), 'small' + (is('move') || picking('move') ? ' sel' : '')) : null,
+    besiegeTargets(st, x).length ? btn(is('besiege') ? `Besiege → ${st.territories[x.order.target].name}` : 'Besiege', () => startTarget([x.id], 'besiege'), 'small' + (is('besiege') || picking('besiege') ? ' sel' : '')) : null,
     btn(need ? `Rest & train${price ? ' ' + price + 'g' : ''}` : 'Rest & train', () => o({ type: 'rest' }), 'small good' + (is('rest') ? ' sel' : '')),
     x.order ? btn('Clear', () => o(null), 'small') : null);
+  const raid = raidableHere(st, x);
+  const raidBtn = raid ? btn(is('raid') ? 'Raid caravan ✓' : 'Raid caravan', () => (is('raid') ? o(null) : confirm('Raid the caravan?', `Rob the traders at ${st.territories[x.loc].name}. It is an act of war against ${(st.kingdoms[st.territories[x.loc].owner] || {}).name || 'its owner'}.`, 'Raid', 'Cancel', 'danger').then((ok) => ok && o({ type: 'raid' }))), 'small danger' + (is('raid') ? ' sel' : '')) : null;
   const foes = skirmishTargets(st, x);
   const fightRow = foes.length ? h('div', { class: 'row wrap', style: { gap: '4px', margin: '-4px 0 8px' } }, foes.map((fk) => {
     const F = st.kingdoms[fk], on = x.order && x.order.type === 'skirmish' && x.order.target === fk, war = atWar(st, k.id, fk);
@@ -429,12 +437,12 @@ function heroBlock(x) {
     const label = a.label + (a.risk != null && a.risk < 1 ? ` · ${Math.round(a.risk * 100)}%` : '');
     return btn(label, () => { o(on ? null : order); if (!on) { sfx('click'); toast(a.desc); } }, 'small ' + (a.type === 'plunder' ? 'danger' : a.type === 'protect' ? 'good' : '') + (on ? ' sel' : ''));
   })) : null;
-  return h('div', {}, card, actions, fightRow, wildRow);
+  return h('div', {}, card, actions, raidBtn ? h('div', { class: 'row wrap', style: { gap: '4px', margin: '-4px 0 8px' } }, raidBtn) : null, fightRow, wildRow);
 }
 
 function startTarget(ids, kind) {
   const st = S.state, x = hero(st, ids[0]);
-  const valid = kind === 'attack' ? validTargets(st, x) : kind === 'spy' ? validSpyTargets(st, x) : validMoves(st, x);
+  const valid = kind === 'attack' ? validTargets(st, x) : kind === 'besiege' ? besiegeTargets(st, x) : kind === 'spy' ? validSpyTargets(st, x) : validMoves(st, x);
   if (!valid.length) return toast('Nowhere to go from here');
   S.target = { heroes: ids, kind, valid };
   refreshUI();
@@ -597,6 +605,7 @@ function realmSheet() {
         h('div', { class: 'muted', style: { fontSize: '13px' } }, k.landless ? 'You have no land. Wander, hire wanderers and raise an uprising to seize a territory. The war is lost only when your last hero falls.' : TIERS[tierIndex(k)].desc),
         statRow('Lands', `${eco.lands}`), statRow('Heroes / troops', `${kingdomHeroes(st, k.id, true).length} / ${eco.soldiers}`),
         statRow('Gold per turn', `${sign(eco.gold)}${eco.tributeOut ? ` (−${eco.tributeOut} tribute)` : ''}${eco.tributeIn ? ` (+${eco.tributeIn} tribute)` : ''}`),
+        eco.trade ? statRow('Trade caravans', `+${eco.trade}g from friendly borders`) : null,
         statRow('Food per turn', `${sign(eco.food)}  (grown ${eco.foodMade}, eaten ${eco.foodEaten})`),
         statRow('Season', `${seasonOf(st.turn)}, year ${yearOf(st.turn)} · harvest ×${SEASON_FOOD[seasonOf(st.turn)]}`),
         h('div', { class: 'row' }, h('span', { style: { width: '90px' } }, 'Morale'), h('div', { class: 'grow' }, bar(k.morale / 100, 'mor')), h('b', {}, Math.round(k.morale))),

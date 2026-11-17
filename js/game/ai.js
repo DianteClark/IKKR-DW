@@ -4,6 +4,8 @@ import { squadCap, squadPower, developCost, temper } from './rules.js';
 import { aiWildsOrder } from './neutral.js';
 import { atWar } from './diplomacy.js';
 import { scoutLand } from './intel.js';
+import { raidableHere } from './trade.js';
+import { canBesiege } from './siege.js';
 import { skirmishTargets, heroesAt } from './world.js';
 
 function frontierDistance(state, kid) {
@@ -48,6 +50,8 @@ export function aiOrders(state, kid) {
       if (ours > theirs * 1.3) { for (const x of mine) { setOrder(state, x.id, { type: 'skirmish', target: foe }); free.delete(x); } break; }
     }
   }
+  // warlike realms and raiders rob caravans passing through
+  for (const h of [...free]) if ((raider || k.temper === 'warlike') && rng() < 0.35 && raidableHere(state, h)) { setOrder(state, h.id, { type: 'raid' }); free.delete(h); }
   // the wilds: keep guarding hamlets, explore sites, court wanderers, plunder if you're a raider
   for (const h of [...free]) {
     if (h.order && h.order.type === 'protect' && state.territories[h.loc].owner < 0) { free.delete(h); continue; }
@@ -78,7 +82,10 @@ export function aiOrders(state, kid) {
     }
     let attackers = group;
     if (loc === k.capital && group.length > 1 && !raider) attackers = group.slice(1);
-    if (best != null && bestScore * aggression > 1.25) {
+    const walled = best != null && state.territories[best].level >= 2 && !raider && canBesiege(state, group[0], best);
+    if (walled && bestScore * aggression > 0.7 && (bestScore * aggression <= 1.25 || k.temper === 'cautious' || k.temper === 'trader') && k.temper !== 'warlike') {
+      for (const h of attackers) { setOrder(state, h.id, { type: 'besiege', target: best }); free.delete(h); }
+    } else if (best != null && bestScore * aggression > 1.25) {
       for (const h of attackers) { setOrder(state, h.id, { type: 'attack', target: best }); free.delete(h); }
     } else if (k.buildings.spies && rng() < 0.3) {
       scoutLand(state, kid, rng.pick(targets));

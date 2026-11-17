@@ -5,6 +5,7 @@ import {
   STRATAGEMS, STRATAGEM_IDS,
 } from './rules.js';
 import { SEASON_FOOD, seasonOf } from './family.js';
+import { tradeIncome } from './trade.js';
 import { kingdomHeroes, kingdomTerritories, totalTroops, log, clamp, rngFor, overlordOf, isSeaLink } from './world.js';
 
 export function economyPreview(state, k) {
@@ -26,7 +27,8 @@ export function economyPreview(state, k) {
     const v = state.kingdoms[t.b];
     if (v && v.alive) tributeIn += Math.round(kingdomTerritories(state, v.id).reduce((s, x) => s + territoryIncome(x), 0) * POLICIES.tax[v.policy.tax].gold * 0.2);
   }
-  return { gold: gold - tributeOut + tributeIn, food: food - eat, foodMade: food, foodEaten: eat, tributeIn, tributeOut, soldiers, lands: lands.length,
+  const trade = k.landless ? 0 : tradeIncome(state, k.id);
+  return { gold: gold - tributeOut + tributeIn + trade, trade, food: food - eat, foodMade: food, foodEaten: eat, tributeIn, tributeOut, soldiers, lands: lands.length,
     morale: tax.morale + rat.morale, stability: tax.stability || 0 };
 }
 

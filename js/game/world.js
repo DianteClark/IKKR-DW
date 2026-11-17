@@ -10,6 +10,9 @@ import { randomBanner } from '../engine/banner.js';
 import { initNeutral, applyNeutralOrders, validNeutralOrder } from './neutral.js';
 import { actOfWar } from './diplomacy.js';
 import { onBattle } from './stories.js';
+import { raidableHere, resolveRaid } from './trade.js';
+import { weatherAtId } from './weather.js';
+import { applySieges, canBesiege } from './siege.js';
 import { makeItem, SLOTS } from './items.js';
 import {
   squadCap, recruitCost, squadPower, garrisonPower, unitLevel, HIRE_COST, EVOLVE_XP, LEVEL_XP, MAX_LEVEL,
@@ -288,7 +291,8 @@ export function canSail(state, h) {
   const k = state.kingdoms[h.kingdom];
   return !!(k.landless || (k.buildings && k.buildings.harbour) || unitClass(h.ufid || h.fid, h.unit) === 'flying');
 }
-const reach = (state, h, from) => state.territories[from].nb.filter((n) => !isSeaLink(state, from, n) || canSail(state, h));
+const stormy = (state, a, b) => weatherAtId(state, a) === 'storm' || weatherAtId(state, b) === 'storm';
+const reach = (state, h, from) => state.territories[from].nb.filter((n) => !isSeaLink(state, from, n) || (canSail(state, h) && !stormy(state, from, n)));
 export function validTargets(state, h) {
   const k = state.kingdoms[h.kingdom];
   const t = state.territories[h.loc];
@@ -301,7 +305,7 @@ export function validMoves(state, h) {
   if (k.landless) return t.nb; // wanderers go anywhere
   const safe = (n) => { const o = state.territories[n].owner; return o < 0 || o === h.kingdom || friendly(state, h.kingdom, o); };
   const one = reach(state, h, t.id).filter(safe);
-  if (unitClass(h.ufid || h.fid, h.unit) !== 'mounted') return one;
+  if (unitClass(h.ufid || h.fid, h.unit) !== 'mounted' || weatherAtId(state, t.id) === 'blizzard') return one;
   // riders cover two lands in a season through safe ground
   const two = new Set(one);
   for (const n of one) for (const m of reach(state, h, n)) if (m !== t.id && safe(m)) two.add(m);
@@ -346,6 +350,8 @@ export function setOrder(state, heroId, order) {
   if (order && order.type === 'attack' && !validTargets(state, h).includes(order.target)) return false;
   if (order && order.type === 'move' && !validMoves(state, h).includes(order.target)) return false;
   if (order && (order.type === 'spy' || order.type === 'drill')) return false; // retired orders
+  if (order && order.type === 'raid' && !raidableHere(state, h)) return false;
+  if (order && order.type === 'besiege' && !canBesiege(state, h, order.target)) return false;
   if (order && order.type === 'skirmish' && !skirmishTargets(state, h).includes(order.target)) return false;
   if (order && ['plunder', 'protect', 'explore', 'court'].includes(order.type) && !validNeutralOrder(state, h, order)) return false;
   h.order = order;
@@ -561,6 +567,7 @@ export function applyBattle(state, b, result) {
   const extra = Object.keys(result.heroes || {}).map(Number).filter((id) => !b.attackers.includes(id) && !b.defenders.includes(id) && !report.defected.includes(id));
   for (const id of extra) { const h = hero(state, id); if (!h || h.status !== 'active') continue; const withAtt = friendly(state, b.att, h.kingdom); settle([id], withAtt ? attWon : !attWon); }
   const shift = (k, m, s) => { if (k) { k.morale = clamp(k.morale + m); k.stability = clamp(k.stability + s); } };
+  if (weatherAtId(state, b.tid) === 'blizzard') shift(attK, -4, 0); // marching into a blizzard
   shift(attK, attWon ? 6 : -6, attWon ? 0 : -2);
   shift(defK, attWon ? -8 : 5, attWon ? -5 : 1);
   if (defK) { defK.rel[b.att] = (defK.rel[b.att] || 0) - 25; attK.rel[b.def] = (attK.rel[b.def] || 0) - 10; }
@@ -744,13 +751,15 @@ function checkVictory(state) {
 export function applyOrders(state) {
   const rng = rngFor(state, 4242);
   const results = [];
+  applySieges(state, rngFor(state, 4545), results);
   applyNeutralOrders(state, rngFor(state, 4343), results);
   for (const h of state.heroes) {
     if (h.status !== 'active' || !h.order) continue;
-    if (h.order.type === 'protect') continue;
+    if (h.order.type === 'protect' || h.order.type === 'besiege') continue;
     const k = state.kingdoms[h.kingdom];
     const o = h.order;
-    if (o.type === 'move' && validMoves(state, h).includes(o.target)) h.loc = o.target;
+    if (o.type === 'raid') resolveRaid(state, h, results);
+    else if (o.type === 'move' && validMoves(state, h).includes(o.target)) h.loc = o.target;
     else if (o.type === 'rest' || o.type === 'drill') { // old saves may still hold 'drill': it is part of resting now
       h.hp = Math.min(100, h.hp + 45);
       const pr = gainTroopXp(h, k.buildings.pits ? 2 : 1, rng);

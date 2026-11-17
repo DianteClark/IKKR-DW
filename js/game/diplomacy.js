@@ -278,3 +278,14 @@ export function offerPeace(state, from, to, gold = 0) {
   if (s > 0.5 && state.kingdoms[from].gold >= gold) { state.kingdoms[from].gold -= gold; state.kingdoms[to].gold += gold; makePeace(state, from, to); return 'accepted'; }
   return 'refused';
 }
+
+// wars wind down: dead realms drop out, and AI realms tire of long wars (by temperament)
+export function warTick(state, rng) {
+  state.wars = (state.wars || []).filter((w) => state.kingdoms[w.a].alive && state.kingdoms[w.b].alive);
+  for (const w of [...state.wars]) {
+    if (isHumanKingdom(state, w.a) || isHumanKingdom(state, w.b)) continue;
+    const age = state.turn - w.since;
+    const p = (age - 6) * 0.03 + (temper(state.kingdoms[w.a]).peace + temper(state.kingdoms[w.b]).peace) * 0.2;
+    if (age > 6 && rng() < p) makePeace(state, w.a, w.b);
+  }
+}

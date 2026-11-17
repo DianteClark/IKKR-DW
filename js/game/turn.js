@@ -6,6 +6,8 @@ import { familyTick } from './family.js';
 import { neutralTick } from './neutral.js';
 import { storyTick } from './stories.js';
 import { choiceTick } from './choices.js';
+import { weatherTick } from './weather.js';
+import { warTick } from './diplomacy.js';
 import { worldEvents, vagabondTick, decayMarks } from './events.js';
 import { diplomacyTick } from './diplomacy.js';
 import { TIERS, tierIndex } from './rules.js';
@@ -38,6 +40,7 @@ export function endTurn(state) {
   choiceTick(state, rng);
   const events = worldEvents(state, rng);
   diplomacyTick(state, rng, notes);
+  warTick(state, rng);
   // realms with land but no heroes raise a champion; AI realms grow
   for (const k of state.kingdoms) {
     if (!k.alive || k.landless) continue;
@@ -57,6 +60,7 @@ export function endTurn(state) {
   checkKingdoms(state);
   tidy(state);
   state.turn++;
+  weatherTick(state, rng, notes);
   notes.push(...(state.newsQueue || [])); state.newsQueue = [];
   state.events = events;
   return { events, notes };

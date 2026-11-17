@@ -86,7 +86,7 @@ export function unitCard(fid, ui, stage = 1, statsObj = {}, opts = {}) {
 export function orderLabel(state, o) {
   if (!o) return '';
   const t = o.target != null && state.territories[o.target] ? state.territories[o.target].name : '';
-  return ({ attack: '⚔ ' + t, move: '→ ' + t, rest: 'Rest & train', drill: 'Rest & train', recruit: 'Recruit', spy: 'Spy ' + t, lend: 'Lent', plunder: 'Plunder', protect: 'Protect hamlet', explore: 'Explore site', court: 'Courting', skirmish: '⚔ Heroes' })[o.type] || o.type;
+  return ({ attack: '⚔ ' + t, move: '→ ' + t, rest: 'Rest & train', drill: 'Rest & train', recruit: 'Recruit', spy: 'Spy ' + t, lend: 'Lent', plunder: 'Plunder', protect: 'Protect hamlet', explore: 'Explore site', court: 'Courting', skirmish: '⚔ Heroes', raid: 'Raid caravan', besiege: 'Besiege ' + t })[o.type] || o.type;
 }
 
 export function factionBadge(fid, scale = 1) {

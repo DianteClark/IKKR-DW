@@ -125,7 +125,7 @@ export function squadPower(hero, items, morale = 60) {
   p += 18 + hero.level * 6;
   return p;
 }
-export function garrisonPower(terr) { return 25 + terr.level * 30 + (terr.owner < 0 ? (terr.militia || 0) * 10 : 0); }
+export function garrisonPower(terr) { return (25 + terr.level * 30 + (terr.owner < 0 ? (terr.militia || 0) * 10 : 0)) * (terr.siege ? Math.max(0.4, 1 - 0.18 * terr.siege.turns) : 1); }
 
 // ---------------- formations ----------------
 export const FORMATIONS = {
@@ -226,7 +226,7 @@ export const EDICTS = {
 };
 
 export const FOOD = { grass: 30, marsh: 22, dirt: 18, sand: 10, ice: 10, christmas: 12, deepmarsh: 16, lava: 8, cave: 12, dungeon: 10 };
-export function territoryFood(t) { return (FOOD[t.biome] || 15) + t.level * 6 - (t.ruined ? 8 : 0) - (t.blight ? 12 : 0); }
+export function territoryFood(t) { return (FOOD[t.biome] || 15) + t.level * 6 - (t.ruined ? 8 : 0) - (t.blight ? 12 : 0) - (t.weather && t.weather.kind === 'drought' ? 10 : 0); }
 export const INCOME_BASE = 60;
 export function territoryIncome(t) { return INCOME_BASE + t.level * 30 - (t.ruined ? 30 : 0) - (t.blight ? 20 : 0); }
 export function developCost(t) { return 250 * (t.level + 1); }
