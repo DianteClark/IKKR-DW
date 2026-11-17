@@ -1,5 +1,6 @@
+import { prefs, setPref, buzz } from '../engine/prefs.js';
 import { makeRng } from '../engine/rng.js';
-import { registerScene, go, game } from '../main.js';
+import { registerScene, go, game, install } from '../main.js';
 import { ctx, canvas, screen } from '../engine/view.js';
 import { h, btn, mount, modal, toggle } from '../engine/ui.js';
 import { img } from '../engine/assets.js';
@@ -124,6 +125,7 @@ registerScene('title', {
         btn('Multiplayer', () => { sfx('open'); go('lobby'); }),
         h('div', { class: 'menu-mini' },
           btn('How to play', () => { sfx('open'); go('howto'); }, 'small wide'),
+          install.standalone ? null : btn('Install on your phone', installFlow, 'small wide good'),
           btn('Hall of Fame', () => { sfx('open'); go('fame'); }, 'small'), btn('Banner', () => { sfx('open'); go('banner'); }, 'small'),
           btn('Settings', settings, 'small'), btn('Credits', credits, 'small'))),
     ));
@@ -133,10 +135,22 @@ registerScene('title', {
   render() { renderScene(); },
 });
 
+function installFlow() {
+  if (install.prompt) { install.prompt.prompt(); install.prompt.userChoice.finally(() => { install.prompt = null; }); return; }
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  modal('Install Dynasty Wars', h('div', { class: 'col' },
+    ios ? h('div', {}, 'In Safari, tap the Share button, then "Add to Home Screen".') : h('div', {}, 'Open your browser menu (⋮) and choose "Install app" or "Add to Home screen".'),
+    h('div', { class: 'muted small-text' }, 'It opens full-screen like an app, keeps your saves, and plays without signal once loaded.')),
+  [['OK', null, 'primary']], { dismiss: true });
+}
 function settings() {
   modal('Settings', h('div', { class: 'col' },
     toggle('Sound & music', !isMuted(), (on) => { setMuted(!on); if (on) { music.stop(); music.start('title'); sfx('click'); } }),
-    h('div', { class: 'muted small-text' }, 'All sounds are generated live — no downloads.')),
+    h('div', { class: 'muted small-text' }, 'All sounds are generated live — no downloads.'),
+    toggle('Low effects (older phones)', prefs.lowFx, (on) => setPref('lowFx', on)),
+    h('div', { class: 'muted small-text' }, 'Turns off smoke, birds, falling snow, water glints and battle clutter for a smoother game.'),
+    toggle('Vibration', prefs.haptics, (on) => { setPref('haptics', on); if (on) buzz('hit'); }),
+    h('div', { class: 'muted small-text' }, 'Short buzzes on big moments (Android; iPhones don\'t allow it for web games).')),
   [['Done', null, 'primary']], { dismiss: true });
 }
 

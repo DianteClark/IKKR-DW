@@ -23,6 +23,7 @@ import { BIOMES, BIOME_IDS, TREES, FACTIONS, FACTION_IDS, drawHero, drawUnit, dr
 import { paintLandWater, paintRiver, drawBlobs, drawLandmark, preloadLandmarks, ROAD_SHEET, FENCE_SHEET, maskAt, at4, hash2, LANDMARKS } from '../maps/paint.js';
 import { makeNoise } from '../engine/rng.js';
 import { drawBanner } from '../engine/banner.js';
+import { prefs } from '../engine/prefs.js';
 
 export const TS = 16;
 const FIELD_SHEET = 'assets/has2020/Landscape Objects/FieldSpriteSheet.png';
@@ -637,7 +638,7 @@ export function drawAnimated(ctx, T, time, view) {
   const v = view || { x: 0, y: 0, w: T.W * TS, h: T.H * TS };
   const inV = (px, py, m = 48) => px > v.x - m && py > v.y - m && px < v.x + v.w + m && py < v.y + v.h + m;
   const C = CHUNK * TS;
-  if (v.w < 2600) {
+  if (v.w < 2600 && !prefs.lowFx) {
     for (let cy = Math.max(0, Math.floor(v.y / C)); cy <= Math.floor((v.y + v.h) / C); cy++) for (let cx = Math.max(0, Math.floor(v.x / C)); cx <= Math.floor((v.x + v.w) / C); cx++) {
       for (const [sx, sy, ph] of P.sparkles.get(cy * 1000 + cx) || []) {
         if (!inV(sx, sy, 4)) continue;
@@ -844,7 +845,7 @@ function smoke(ctx, x, y, time, seed) {
 export function drawTowns(ctx, state, time, view) {
   const st = img(STRUCT), walls = img(WALLS);
   const v = view;
-  const far = !!(v && v.w > 1500); // zoomed far out: skip shadows and smoke, the detail is invisible anyway
+  const far = !!(v && v.w > 1500) || prefs.lowFx; // zoomed far out (or low effects): skip shadows and smoke, the detail is invisible anyway
   for (const t of state.territories) {
     const ax = t.cx * TS + 8, ay = t.cy * TS + 14;
     if (v && (ax < v.x - 80 || ay < v.y - 40 || ax > v.x + v.w + 80 || ay > v.y + v.h + 90)) continue;
@@ -1068,7 +1069,7 @@ export function drawSeason(ctx, T, season, time, view) {
   const v = view || { x: 0, y: 0, w: T.W * TS, h: T.H * TS };
   const tint = { Winter: 'rgba(225,236,255,.16)', Autumn: 'rgba(255,160,70,.07)', Spring: 'rgba(255,230,240,.04)', Summer: 'rgba(255,240,180,.035)' }[season];
   if (tint) { ctx.fillStyle = tint; ctx.fillRect(v.x, v.y, v.w, v.h); }
-  const n = season === 'Winter' ? 90 : season === 'Autumn' ? 22 : season === 'Spring' ? 18 : 0;
+  const n = prefs.lowFx ? 0 : season === 'Winter' ? 90 : season === 'Autumn' ? 22 : season === 'Spring' ? 18 : 0;
   for (let i = 0; i < n; i++) {
     const h = hashI(i, 4321);
     const sp = 0.5 + ((h >>> 4) % 100) / 100;

@@ -157,7 +157,7 @@ registerScene('campaign', {
     drawSeason(ctx, S.T, seasonOf(st.turn), game.time, view);
     // names in screen space
     ctx.setTransform(screen.dpr, 0, 0, screen.dpr, 0, 0);
-    ctx.font = '600 12px Pixelify, MiKroll, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.font = '800 12px Nunito, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     if (cam.zoom >= 0.75) for (const t of st.territories) {
       const p = cam.toScreen(t.cx * TS + 8, t.cy * TS + 18);
       if (p.x < -60 || p.y < -20 || p.x > screen.w + 60 || p.y > screen.h + 20) continue;

@@ -51,7 +51,7 @@ export function renderRealmCard(state, T, kid) {
   for (const w of words) { const t2 = line ? line + ' ' + w : w; if (x.measureText(t2).width > 470 && line) { lines.push(line); line = w; } else line = t2; }
   lines.push(line);
   for (const l of lines.slice(0, 3)) { x.fillStyle = '#0a0710'; x.fillText(l, tx + 3, ly + 3); x.fillStyle = '#ffd86b'; x.fillText(l, tx, ly); ly += 60; }
-  x.fillStyle = '#e8dfc8'; x.font = '600 24px Pixelify, monospace';
+  x.fillStyle = '#e8dfc8'; x.font = '700 24px Nunito, sans-serif';
   x.fillText(`${k.landless ? 'Landless' : TIERS[tierIndex(k)].name} of ${FACTIONS[k.fid].race}`, tx, ly + 6);
   // stats row
   const stats = [[lands.length, lands.length === 1 ? 'land' : 'lands'], [heroes.length, heroes.length === 1 ? 'hero' : 'heroes'], [totalTroops(state, kid), 'soldiers'], [k.gold, 'gold']];
@@ -60,12 +60,12 @@ export function renderRealmCard(state, T, kid) {
     x.fillStyle = 'rgba(20,14,30,.8)'; x.fillRect(px, OUT_H - 120, 150, 70);
     x.strokeStyle = '#b8894a'; x.lineWidth = 3; x.strokeRect(px + 1.5, OUT_H - 118.5, 147, 67);
     x.fillStyle = '#ffd86b'; x.font = '700 32px Pixelify, monospace'; x.fillText(String(v), px + 14, OUT_H - 80);
-    x.fillStyle = '#c9c0ae'; x.font = '600 18px Pixelify, monospace'; x.fillText(l, px + 14, OUT_H - 58);
+    x.fillStyle = '#c9c0ae'; x.font = '700 18px Nunito, sans-serif'; x.fillText(l, px + 14, OUT_H - 58);
     px += 166;
   }
   // ruler + footer flourish
   const ruler = state.heroes.find((x2) => x2.id === k.ruler);
-  if (ruler) { x.fillStyle = '#e8dfc8'; x.font = '600 20px Pixelify, monospace'; x.fillText(`Ruled by ${ruler.name}`, tx, ly + 40); }
+  if (ruler) { x.fillStyle = '#e8dfc8'; x.font = '700 20px Nunito, sans-serif'; x.fillText(`Ruled by ${ruler.name}`, tx, ly + 40); }
   x.fillStyle = 'rgba(255,216,107,.85)'; x.font = '700 18px Silkscreen, monospace';
   x.textAlign = 'right'; x.fillText('DYNASTY WARS', OUT_W - 34, OUT_H - 30); x.textAlign = 'left';
   x.strokeStyle = '#b8894a'; x.lineWidth = 6; x.strokeRect(3, 3, OUT_W - 6, OUT_H - 6);

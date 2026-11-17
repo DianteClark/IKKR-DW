@@ -6,6 +6,9 @@
 @font-face { font-family: "Pixelify"; src: url("../assets/fonts/pixelify-sans-latin-500-normal.woff2") format("woff2"); font-weight: 500; font-display: swap; }
 @font-face { font-family: "Pixelify"; src: url("../assets/fonts/pixelify-sans-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-display: swap; }
 @font-face { font-family: "Pixelify"; src: url("../assets/fonts/pixelify-sans-latin-700-normal.woff2") format("woff2"); font-weight: 700; font-display: swap; }
+@font-face { font-family: "Nunito"; src: url("../assets/fonts/nunito-latin-500-normal.woff2") format("woff2"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "Nunito"; src: url("../assets/fonts/nunito-latin-700-normal.woff2") format("woff2"); font-weight: 600 700; font-display: swap; }
+@font-face { font-family: "Nunito"; src: url("../assets/fonts/nunito-latin-800-normal.woff2") format("woff2"); font-weight: 800; font-display: swap; }
 @font-face { font-family: "MiKroll"; src: url("../assets/has2020/UI/Separate/Font/MiKrollFantasy.ttf") format("truetype"); font-display: block; }
 
 :root {
@@ -33,7 +36,7 @@
 html, body {
   margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
   background: var(--bg); color: var(--ink);
-  font-family: "Pixelify", "MiKroll", system-ui, sans-serif; font-weight: 500;
+  font-family: "Nunito", system-ui, sans-serif; font-weight: 600; letter-spacing: .1px;
   font-size: 16px; line-height: 1.25; letter-spacing: .2px;
   user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
   touch-action: none; overscroll-behavior: none;
@@ -410,3 +413,8 @@ body.side-open #toasts { left: calc(26vw + 6px); max-width: 48vw; }
 .howto-line { background: rgba(255,255,255,.04); border-left: 3px solid var(--gold); padding: 6px 10px; border-radius: 2px; line-height: 1.35; }
 .stat-legend { font-size: 12px; color: #c9bfa8; line-height: 1.35; }
 .stat-legend b { color: var(--gold); }
+
+/* clean type: Nunito for all reading and buttons; the pixel fonts stay for the logo, titles and banners */
+h1, h2, h3 { font-family: "Pixelify", "Nunito", sans-serif; letter-spacing: .5px; }
+.btn, .chip, .tag, .tabs .tab, .seg button { font-family: "Nunito", system-ui, sans-serif; font-weight: 800; }
+.muted, .small-text, .howto-line, .stat-legend { font-weight: 600; }

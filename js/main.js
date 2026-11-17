@@ -44,7 +44,7 @@ async function boot() {
   attachGestures(canvas, () => game.scene);
   const bootEl = document.getElementById('boot');
   const list = [...allArt(), ...SPELLS.map((s) => s.src)];
-  await document.fonts.load('16px MiKroll').catch(() => {});
+  await Promise.all(['16px MiKroll', '800 16px Nunito', '600 16px Nunito', '700 16px Pixelify'].map((f) => document.fonts.load(f).catch(() => {})));
   await loadAll(list, (p) => { bootEl.textContent = `Loading art… ${Math.round(p * 100)}%`; });
   bootEl.classList.add('hidden');
   // scenes register themselves on import
@@ -76,5 +76,11 @@ async function stayAwake() {
 }
 document.addEventListener('pointerdown', stayAwake);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') stayAwake(); });
+
+// offline play
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+// "Add to home screen": Android gives us an event; iPhone needs instructions
+export const install = { prompt: null, standalone: matchMedia('(display-mode: standalone)').matches || navigator.standalone === true };
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); install.prompt = e; });
 
 boot();
