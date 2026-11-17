@@ -386,3 +386,8 @@ body.side-open #toasts { left: calc(26vw + 6px); max-width: 48vw; }
 .eco-line { display: flex; gap: 8px; font-size: 14px; padding: 1px 0; }
 .eco-sec.on { box-shadow: 0 0 0 2px var(--gold); }
 .topbar .chip.tap { cursor: pointer; }
+.bc-row { padding: 5px 8px; gap: 8px; align-items: center; }
+.bc-row .seg { flex: none; }
+.bc-row { min-height: 0; padding: 2px 8px; border-width: 6px; }
+.bc-row .seg button { min-height: 30px; padding: 3px 10px; font-size: 14px; }
+.sumcard { min-height: 0; border-width: 6px; }

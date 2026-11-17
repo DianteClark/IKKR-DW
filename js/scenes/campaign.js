@@ -860,9 +860,41 @@ export function resolveTurn() {
   const human = (b) => isHumanKingdom(st, b.att) || isHumanKingdom(st, st.territories[b.tid].owner);
   S.queue.sort((a, b) => human(b) - human(a));
   S.reports = [];
+  S.choices = null;
   if (net.role === 'host') { net.send({ t: 'resolving' }); net.broadcastState(); }
   refreshUI();
+  // several of my battles this season: one compact chooser instead of a modal per battle
+  if (net.role === 'single') {
+    const myKid = myK().id;
+    const mine = S.queue.filter((b) => b.att === myKid || st.territories[b.tid].owner === myKid || (b.skirmish && b.foe === myKid));
+    if (mine.length >= 2) return battleChooser(mine);
+  }
   nextBattle();
+}
+
+const bKey = (b) => `${b.att}:${b.tid}:${b.skirmish ? 's' : ''}`;
+function battleChooser(list) {
+  const st = S.state, k = myK();
+  const choice = {};
+  let mm;
+  const rows = () => list.map((b0) => {
+    const b = prepareBattle(st, JSON.parse(JSON.stringify(b0)));
+    if (!b) return null;
+    const key = bKey(b0);
+    if (!choice[key]) choice[key] = 'auto';
+    const t = st.territories[b.tid], mineAtt = b.att === k.id;
+    const foe = mineAtt ? (b.def >= 0 ? st.kingdoms[b.def].name : 'the free folk') : st.kingdoms[b.att].name;
+    const p = battleOdds(st, b, mineAtt ? hasIntel(st, k.id, b.tid) : true), my = mineAtt ? p : 1 - p;
+    return h('div', { class: 'card bc-row' },
+      h('div', { class: 'col grow', style: { gap: '1px', minWidth: 0 } },
+        h('b', { class: 'ellipsis' }, `${mineAtt ? (b.skirmish ? 'Ambush' : 'Attack') : 'Defend'} ${t.name}`),
+        h('span', { class: 'muted ellipsis', style: { fontSize: '12px' } }, `vs ${foe} · ${Math.round(my * 100)}% to win`)),
+      segmented([{ value: 'auto', label: 'Auto' }, { value: 'fight', label: 'Fight' }], choice[key], (v) => { choice[key] = v; sfx('click'); }));
+  }).filter(Boolean);
+  const body = h('div', { class: 'col' }, h('div', { class: 'muted', style: { fontSize: '13px' } }, 'Choose which battles to command yourself. The rest are settled by your generals.'), rows(),
+    h('div', { class: 'row' }, btn('All auto', () => { for (const k2 in choice) choice[k2] = 'auto'; mm.box.querySelector('.body').replaceChildren(body); }, 'tiny'), btn('Fight all', () => { for (const k2 in choice) choice[k2] = 'fight'; go2(); }, 'tiny')));
+  const go2 = () => { S.choices = choice; mm.close(); nextBattle(); };
+  mm = modal(`${list.length} battles this season`, body, [['Begin', () => { S.choices = choice; nextBattle(); }, 'primary']], { width: '620px' });
 }
 
 function nextBattle() {
@@ -873,6 +905,9 @@ function nextBattle() {
     const humanAtt = isHumanKingdom(st, b.att), humanDef = isHumanKingdom(st, b.def);
     if (!humanAtt && !humanDef) { S.reports.push(applyBattle(st, b, autoResolve(st, b))); continue; }
     S.current = b;
+    const pick = S.choices && S.choices[bKey(b)];
+    if (pick === 'auto') { S.reports.push(applyBattle(st, b, autoResolve(st, b))); S.current = null; continue; }
+    if (pick === 'fight') { startBattle(b); return; }
     askFight(b, humanAtt, humanDef);
     return;
   }
