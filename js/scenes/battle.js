@@ -183,7 +183,7 @@ function fitCamera() {
 // ---------- render state ----------
 function updateRender(dt) {
   if (B.pick && (B.pick.t -= dt) <= 0) B.pick = null;
-  if (B.duel && (B.duel.age += dt) >= B.duel.life) B.duel = null;
+  if (B.duel) { const D = B.duel; D.age += dt; if (D.age > 0.7 && D.age < D.life - 0.5 && (D.clashT = (D.clashT || 0) - dt) <= 0) { D.clashT = 0.55 + Math.random() * 0.35; sfx('duelClash'); } if (D.age >= D.life) B.duel = null; }
   const since = B.client && B.snapAt ? Math.min(0.15, (performance.now() - B.snapAt) / 1000) : 0;
   for (const s of B.sim.squads) {
     let r = B.render.get(s.id);
@@ -244,11 +244,11 @@ function consumeEvents() {
       r.dmg = (r.dmg || 0) + e.d;
       J.hit(r.x * TS + (Math.random() - 0.5) * 10, r.y * TS - 4, '#fff');
       if (e.d >= 14 && (B._bigHit || 0) < game.time) { B._bigHit = game.time + 0.6; B.freeze = Math.max(B.freeze, 0.06); J.sparks(r.x * TS, r.y * TS - 6, '#ffd86b'); J.shake(2, 0.15); }
-      sfx('hit');
+      sfx(e.d >= 14 ? 'heavy' : 'hit');
     } else if (e.k === 'shot') {
       const a = B.render.get(e.from), b = B.render.get(e.to); if (!a || !b) continue;
       for (let i = 0; i < 3; i++) B.fx.push({ k: 'arrow', x1: a.x * TS + (i - 1) * 4, y1: a.y * TS - 6 + i * 3, x2: b.x * TS + (i - 1) * 5, y2: b.y * TS - 4, age: -i * 0.06, life: 0.4 });
-      sfx('arrow');
+      if (Math.random() < 0.3) sfx('volley', { n: 3 + Math.floor(Math.random() * 3) }); else sfx('arrow');
     } else if (e.k === 'spell') {
       B.fx.push({ k: 'spell', spell: SPELL[e.spell], x: e.x * TS, y: e.y * TS, age: 0, life: 1.1 });
       J.shockwave(e.x * TS, e.y * TS, '#ffd86b'); J.shake(4, 0.35); sfx('spell');
@@ -256,7 +256,8 @@ function consumeEvents() {
     } else if (e.k === 'capture') {
       const p = sim.field.posts[e.post];
       B.fx.push({ k: 'flash', x: p.x * TS, y: p.y * TS, age: 0, life: 0.8, side: e.side });
-      J.confetti(p.x * TS, p.y * TS - 20); sfx(mineSide(e.side) || (!B.side && e.side === 'att') ? 'capture' : 'lost');
+      J.confetti(p.x * TS, p.y * TS - 20);
+      { const good = mineSide(e.side) || (!B.side && e.side === 'att'); sfx(p.main ? (good ? 'fanfare' : 'mainLost') : good ? 'capture' : 'lost'); }
       B.fx.push({ k: 'flag', x: p.x * TS + 10, y: p.y * TS - 8, age: 0, life: 2.4, col: B.colors[e.side] });
       if (p.main) { B.slow = 1.6; J.shake(6, 0.6); J.shockwave(p.x * TS, p.y * TS, '#ffd86b'); }
       if (B.side) banner(p.main ? (e.side === B.side ? 'MAIN POST TAKEN' : 'MAIN POST LOST') : e.side === B.side ? 'Post captured' : 'Post lost', e.side === B.side ? 'good' : 'bad');
@@ -265,14 +266,15 @@ function consumeEvents() {
     } else if (e.k === 'rout') {
       const s = sq(e.id), r = B.render.get(e.id);
       if (r) { J.floatText(r.x * TS, r.y * TS - 30, 'ROUTED!', mineSide(s && s.side) ? '#ff6a5a' : '#8fd06b'); B.fx.push({ k: 'whiteflag', x: r.x * TS + 8, y: r.y * TS - 10, age: 0, life: 2 }); }
+      sfx('rout');
       if (s && mineSide(s.side)) toast(`${s.name}'s squad is routing!`, 'bad');
     } else if (e.k === 'flank') {
-      J.floatText(e.x * TS, e.y * TS - 24, e.rear ? 'REAR ATTACK!' : 'FLANKED!', '#ffb347');
+      J.floatText(e.x * TS, e.y * TS - 24, e.rear ? 'REAR ATTACK!' : 'FLANKED!', '#ffb347'); sfx('flank');
     } else if (e.k === 'charge') {
       const s = sq(e.id);
       if (e.broken) { J.floatText(e.x * TS, e.y * TS - 26, 'BROKEN ON PIKES!', '#ff6a5a'); J.sparks(e.x * TS, e.y * TS - 6, '#ff9a7a'); }
       else { J.floatText(e.x * TS, e.y * TS - 26, 'CHARGE!', '#ffd86b'); J.shockwave(e.x * TS, e.y * TS, '#ffd86b'); J.shake(4, 0.3); B.freeze = Math.max(B.freeze, 0.08); }
-      sfx(e.broken ? 'hit' : 'clash');
+      sfx(e.broken ? 'heavy' : 'charge');
       if (s && mineSide(s.side) && e.broken) toast(`${s.name}'s charge broke on enemy pikes`, 'bad');
     } else if (e.k === 'reserve') {
       const s = sq(e.id); J.shockwave(e.x * TS, e.y * TS, '#8fd06b'); sfx('horn');
@@ -308,7 +310,7 @@ function consumeEvents() {
       const a = sq(e.a), b = sq(e.b);
       B.duel = { a: e.a, b: e.b, age: 0, life: 3.6 };
       B.slow = Math.max(B.slow, 1.1); // heroes meet: a breath of slow motion
-      sfx('clash'); J.shake(3, 0.25);
+      sfx('duel'); J.shake(3, 0.25);
       banner(e.challenge ? 'CHALLENGE!' : 'DUEL!', mineSide(a && a.side) || mineSide(b && b.side) ? '' : 'blue', `${a ? a.name : '?'} vs ${b ? b.name : '?'}`);
     } else if (e.k === 'duelEnd') {
       if (B.duel) B.duel.life = Math.min(B.duel.life, B.duel.age + 0.4);
@@ -322,11 +324,11 @@ function consumeEvents() {
     } else if (e.k === 'gateHit') {
       if ((B._gateT || 0) < game.time) { B._gateT = game.time + 0.45; J.sparks(e.x * TS, e.y * TS, '#ffd86b'); J.shake(1.5, 0.12); sfx('hit'); }
     } else if (e.k === 'gateBroken') {
-      J.shockwave(e.x * TS, e.y * TS, '#ffb347'); J.shake(7, 0.6); B.freeze = Math.max(B.freeze, 0.15); sfx('quake');
+      J.shockwave(e.x * TS, e.y * TS, '#ffb347'); J.shake(7, 0.6); B.freeze = Math.max(B.freeze, 0.15); sfx('gate');
       for (let i = 0; i < 8; i++) J.smoke(e.x * TS + (Math.random() - 0.5) * 30, e.y * TS + (Math.random() - 0.5) * 20);
       banner('THE GATE FALLS!', B.side === 'att' ? 'good' : B.side === 'def' ? 'bad' : '', 'The way into the keep is open');
     } else if (e.k === 'ladder') {
-      const s = sq(e.id); J.dust(e.x * TS, e.y * TS); sfx('march');
+      const s = sq(e.id); J.dust(e.x * TS, e.y * TS); sfx('ladder');
       if (s && B.side && s.side !== B.side) toast('Ladders on the walls! Shoot the climbers', 'bad');
     } else if (e.k === 'ladderFail') {
       const s = sq(e.id); if (s && mineSide(s.side)) toast(`${s.name} can't reach that stretch of wall`, 'bad');
