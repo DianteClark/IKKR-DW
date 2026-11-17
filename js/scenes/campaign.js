@@ -25,7 +25,8 @@ import { SLOTS, SLOT_NAMES, itemStatText, rarityColor } from '../game/items.js';
 import { economyPreview, edictCost, canEdict, promotionStatus, loadoutOptions, loadoutSlots } from '../game/kingdom.js';
 import { alliesOf, vassalsOf, opinion, realmPower, dominant, willingness, atWar, warsOf } from '../game/diplomacy.js';
 import { EVENT_INFO } from '../game/events.js';
-import { captureScene, decisionScene } from '../game/dialogue.js';
+import { captureScene, decisionScene, nemesisLine } from '../game/dialogue.js';
+import { questText, nemesisPairs } from '../game/stories.js';
 import { renderTerrain, drawTerrain, drawOverlay, drawSites, drawTowns, drawHeroes, drawOrders, drawAnimated, drawSeason, captureFx, renderMinimap, updateMinimap, hitTest, drawLandOutline, drawGuards, setSeason, TS } from '../campaign/mapview.js';
 import { bannerEl } from '../engine/banner.js';
 import { portrait, unitIcon, itemIcon, heroCard, orderLabel, kingdomBadge, unitCard } from '../campaign/widgets.js';
@@ -520,7 +521,13 @@ export function heroModal(id) {
       const parents = (x.parents || []).map((p) => hero(st, p)).filter(Boolean);
       const opts = editable && !sp ? wedOptions(st, x) : [];
       const expecting = x.expecting ? x : sp && sp.expecting ? sp : null;
+      const nem = x.nemesis != null ? hero(st, x.nemesis) : null;
       content = h('div', { class: 'col' },
+        h('b', {}, 'Story'),
+        h('div', { class: 'card col', style: { alignItems: 'stretch', gap: '3px', padding: '6px 8px' } },
+          h('span', {}, x.quest ? '⚑ ' + questText(st, x) : h('span', { class: 'muted' }, 'No vow sworn yet. Life on the march will give them one.')),
+          nem ? h('span', { class: 'bad' }, `Nemesis: ${nem.name}${nem.status !== 'active' ? ` (${nem.status})` : ''} — fights harder against them`) : null,
+          x.deeds ? h('span', { class: 'gold' }, `Vows fulfilled: ${x.deeds}`) : null),
         h('div', { class: 'muted', style: { fontSize: '13px' } }, `Married heroes may have a child a year later. Heirs train in a parent's squad and become heroes at Elite. Marry from level ${MARRY_LEVEL}.`),
         parents.length ? h('div', { class: 'row wrap' }, h('b', {}, 'Parents:'), parents.map((p) => h('span', { class: 'chip tap', onClick: () => { m.close(); heroModal(p.id); } }, p.name))) : null,
         h('div', { class: 'row wrap' }, h('b', {}, 'Spouse:'), sp ? h('span', { class: 'chip good tap', onClick: () => { m.close(); heroModal(sp.id); } }, sp.name + (sp.status !== 'active' ? ` (${sp.status})` : '')) : h('span', { class: 'muted' }, x.widowed ? 'Widowed' : 'Unmarried')),
@@ -546,7 +553,7 @@ export function heroModal(id) {
         h('div', { class: 'muted', style: { fontSize: '13px' } }, 'Lent heroes fight in your ally\'s battles and gain experience — but a disloyal hero may decide to stay with them.'));
     }
     const body = h('div', { class: 'col' }, head, rolePick,
-      tabs([{ id: 'squad', label: 'Squad' }, { id: 'unit', label: 'Unit type' }, { id: 'gear', label: 'Gear' }, { id: 'family', label: 'Family' }, { id: 'more', label: 'Tactics' }], (id) => { tab = id; render(); }, tab), content);
+      tabs([{ id: 'squad', label: 'Squad' }, { id: 'unit', label: 'Unit type' }, { id: 'gear', label: 'Gear' }, { id: 'family', label: 'Story' }, { id: 'more', label: 'Tactics' }], (id) => { tab = id; render(); }, tab), content);
     if (m) m.box.querySelector('.body').replaceChildren(body); else m = sheet(x.name, body, [], { side: 'right' });
   };
   render();
@@ -822,7 +829,8 @@ function preBattle(b, choose) {
   const body = h('div', { class: 'col' },
     h('div', { class: 'muted' }, `${A.name} attacks ${t.name}${D ? `, held by ${D.name}` : ''}.${b.siege ? ' The town is walled: a siege.' : ''}${b.landless ? ' An uprising!' : ''}`),
     oddsBar(myP, { left: 'You', right: enemyK ? enemyK.name.split(' of ').pop() : 'Guard' }, intel),
-    !intel ? h('div', { class: 'muted', style: { fontSize: '13px' } }, 'Unscouted: enemy heroes, formations and stratagems are unknown. Send a spy first for exact odds.') : null,
+    ...nemesisPairs(st, b).slice(0, 2).map(([a, f]) => { const x = hero(st, a), y = hero(st, f); return h('div', { class: 'row', style: { gap: '8px' } }, portrait(x, 1.6), h('div', { class: 'card', style: { flex: 1, padding: '4px 8px' } }, h('b', {}, x.name.split(' ')[0] + ': '), `“${nemesisLine(x, y, 'challenger', st.turn)}”`), portrait(y, 1.6)); }),
+    !intel ? h('div', { class: 'muted', style: { fontSize: '13px' } }, 'Unscouted: enemy heroes, formations and stratagems are unknown. Scout the land first (Spy Network) for exact odds.') : null,
     h('div', { class: 'row wrap', style: { gap: '10px' } },
       h('div', { class: 'col', style: { gap: '4px' } }, h('b', {}, 'Your heroes'), h('div', { class: 'row wrap' }, mine.map((x) => portrait(x, 2)))),
       h('div', { class: 'col', style: { gap: '4px' } }, h('b', {}, 'Enemy'), h('div', { class: 'row wrap' }, intel ? theirs.map((x) => portrait(x, 2)) : theirs.length ? [chip(`${theirs.length} hero${theirs.length > 1 ? 'es' : ''}`)] : [chip('Town guard')]),

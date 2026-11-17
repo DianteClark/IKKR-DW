@@ -9,6 +9,7 @@ import { namesFor } from '../data/givennames.js';
 import { randomBanner } from '../engine/banner.js';
 import { initNeutral, applyNeutralOrders, validNeutralOrder } from './neutral.js';
 import { actOfWar } from './diplomacy.js';
+import { onBattle } from './stories.js';
 import { makeItem, SLOTS } from './items.js';
 import {
   squadCap, recruitCost, squadPower, garrisonPower, unitLevel, HIRE_COST, EVOLVE_XP, LEVEL_XP, MAX_LEVEL,
@@ -63,7 +64,7 @@ export function makeHero(state, rng, fid, kingdom, loc, opts = {}) {
     fid, ufid: opts.ufid || fid, gender, portrait: portraitFor(fid, gender, rng()), kingdom, origin: kingdom, loc, unit,
     atk: rng.int(1, 4) + boost, def: rng.int(1, 4) + boost, lead: rng.int(7, 9) + (opts.ruler ? 1 : 0), int: rng.int(1, 4) + boost,
     level: 1, xp: 0, morale: 60, hp: 100, loyalty: rng.int(55, 95), trait: opts.trait || rng.pick(TRAITS), ambition: rng.int(10, 90),
-    gear: {}, status: opts.status || 'active', captor: -1, formation: rng.pick(['wedge', 'line', 'square']),
+    homeTid: loc, gear: {}, status: opts.status || 'active', captor: -1, formation: rng.pick(['wedge', 'line', 'square']),
     spell: rng.pick(DMG_SPELLS), order: null, troops: [], secret: -1, lentTo: -1, lentTurns: 0,
   };
   for (let i = 0; i < (opts.level || 0); i++) levelUp(hero, rng);
@@ -586,6 +587,7 @@ export function applyBattle(state, b, result) {
     }
     log(state, `${attK.name} ${attWon ? 'routed' : 'was driven off by'} ${defK.name}'s heroes at ${t.name}.`, -1, 'skirmish');
     report.skirmish = true;
+    onBattle(state, b, report);
     for (const h of state.heroes) delete h._defeated;
     checkKingdoms(state);
     return report;
@@ -612,6 +614,7 @@ export function applyBattle(state, b, result) {
     if (defK) { const it = giveItem(state, rng, b.def, Math.min(3, Math.floor(state.turn / 10))); report.loot = it.id; }
     log(state, `${defK ? defK.name : 'The defenders'} held ${t.name} against ${attK.name}.`, -1, 'defense');
   }
+  onBattle(state, b, report);
   for (const h of state.heroes) delete h._defeated;
   checkKingdoms(state);
   return report;

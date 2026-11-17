@@ -70,3 +70,12 @@ export function decisionScene(ruler, captive, decision, outcome, seed = 0) {
   else out.push({ hero: captive, text: line(decision, captive, seed) });
   return out;
 }
+
+// nemeses trade words when they meet again
+const NEMESIS = {
+  challenger: ['We meet again, {foe}. This time you fall.', '{foe}! I have waited seasons for this.', 'You took everything from me, {foe}. Today I take it back.', 'Remember me, {foe}? I remember you.'],
+  victor: ['Back for another beating, {foe}?', 'I spared you once, {foe}. Not twice.', '{foe}... still breathing? Let us fix that.', 'Run home, {foe}. It worked last time.'],
+};
+export function nemesisLine(hero, foe, role = 'challenger', seed = 0) {
+  return pick(NEMESIS[role], seed + (hero ? hero.id : 0)).replace('{foe}', foe ? foe.name.split(' ')[0] : 'you');
+}

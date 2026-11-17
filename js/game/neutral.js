@@ -119,6 +119,7 @@ export function applyNeutralOrders(state, rng, results) {
       gainHeroXp(h, 1, rng);
       if (t.protect.turns >= PROTECT_TURNS) {
         claimLand(state, t, k.id);
+        if (h.quest && h.quest.kind === 'protect' && h.quest.tid === t.id) h.quest.done = true;
         const militia = Math.min(squadCap(h, k) - h.troops.length, t.militia || 3);
         for (let i = 0; i < militia; i++) h.troops.push(newSoldier(rng));
         note(k.id, `${t.name} asked to join ${k.name} after ${h.name} kept it safe. ${militia > 0 ? militia + ' militia joined the squad.' : ''}`);
@@ -165,7 +166,8 @@ function resolveSite(state, rng, h, s, note) {
     gainTroopXp(x, won ? 2 : 1, rng); gainHeroXp(x, won ? 3 : 1, rng);
   }
   if (!won) { note(k.id, `${h.name} was driven back from the ${S.name.toLowerCase()} at ${state.territories[s.tid].name}.`); return; }
-  s.status = s.kind === 'mine' ? 'claimed' : 'cleared'; s.since = state.turn; s.owner = k.id;
+  s.status = s.kind === 'mine' ? 'claimed' : 'cleared'; s.since = state.turn; s.owner = k.id; s.by = h.id;
+  for (const x of party.length ? party : [h]) if (x.quest && x.quest.kind === 'relic' && x.quest.site === s.id) x.quest.done = true;
   const bits = [];
   if (s.kind === 'ruin') { const it = giveItem(state, rng, k.id, rng.int(1, 2)); k.gold += 80; bits.push(`found ${it.name}`, '+80g'); }
   if (s.kind === 'lair') { const it = giveItem(state, rng, k.id, rng.int(1, 3)); bits.push(`slew the beasts and took ${it.name}`); for (const t of state.territories) if (t.owner < 0 && state.territories[s.tid].nb.includes(t.id)) t.favor[k.id] = (t.favor[k.id] || 0) + 15; }

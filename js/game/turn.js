@@ -4,6 +4,7 @@ import { rngFor, kingdomHeroes, makeHero, decideCaptive, isHumanKingdom, checkKi
 import { economyTick, aiDevelop, autoPromote } from './kingdom.js';
 import { familyTick } from './family.js';
 import { neutralTick } from './neutral.js';
+import { storyTick } from './stories.js';
 import { worldEvents, vagabondTick, decayMarks } from './events.js';
 import { diplomacyTick } from './diplomacy.js';
 import { TIERS, tierIndex } from './rules.js';
@@ -32,6 +33,7 @@ export function endTurn(state) {
   vagabondTick(state, rng, notes);
   familyTick(state, rng, notes);
   neutralTick(state, rng, notes);
+  storyTick(state, rng);
   const events = worldEvents(state, rng);
   diplomacyTick(state, rng, notes);
   // realms with land but no heroes raise a champion; AI realms grow
@@ -53,6 +55,7 @@ export function endTurn(state) {
   checkKingdoms(state);
   tidy(state);
   state.turn++;
+  notes.push(...(state.newsQueue || [])); state.newsQueue = [];
   state.events = events;
   return { events, notes };
 }
