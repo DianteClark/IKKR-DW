@@ -1,3 +1,4 @@
+import { seasonOf, monthOf } from './family.js';
 // Events with choices: every few seasons a player's realm faces a decision with real consequences.
 // The choice waits in state.choices (host-authoritative in two-player games) and is settled by the 'choose' action.
 import { kingdomHeroes, kingdomTerritories, makeHero, log, clamp, isHumanKingdom, giveItem, hero, rngFor, joinKingdom } from './world.js';
@@ -64,7 +65,7 @@ export const EVENTS = [
       { label: 'Accept the match', hint: 'A new hero joins as their spouse', run: (s, k, rng, c) => { const h = hero(s, c.hero); if (!h || h.spouse > 0) return 'The match fell through.'; const nh = makeHero(s, rng, k.fid, k.id, h.loc, { gender: h.gender === 'f' ? 'm' : 'f', level: Math.max(1, h.level - 1), troops: 3 }); nh.spouse = h.id; h.spouse = nh.id; nh.loyalty = 85; return `${h.name} wed ${nh.name}, who joins your realm!`; } },
       { label: 'Decline politely', hint: '', run: () => 'The house takes no offence.' },
     ] },
-  { id: 'harvestfeast', title: 'Harvest festival', when: (s) => (s.turn - 1) % 4 === 2,
+  { id: 'harvestfeast', title: 'Harvest festival', when: (s) => seasonOf(s.turn) === 'Autumn' && monthOf(s.turn) === 2,
     text: () => 'The harvest is in. The people ask for a feast.',
     options: [
       { label: 'Hold a feast (−40 food)', hint: '+morale, +stability', run: (s, k) => { k.food -= 40; k.morale = clamp(k.morale + 10); k.stability = clamp(k.stability + 4); return 'The feast is remembered for years.'; } },
@@ -98,13 +99,13 @@ export const EVENTS = [
     text: () => 'Guards caught a spy in your camp.',
     options: [
       { label: 'Interrogate', hint: 'Reveal a neighbour', run: (s, k, rng) => { const nb = [...new Set(lands(s, k).flatMap((t) => t.nb))].filter((n) => s.territories[n].owner !== k.id); if (!nb.length) return 'They knew nothing.'; const t = rng.pick(nb); k.intel[t] = { turn: s.turn + 2 }; return `The spy gave up the defences of ${s.territories[t].name}.`; } },
-      { label: 'Turn them (50g)', hint: '+1 scout this and next season', run: (s, k) => { k.gold -= 50; k.scouted = { turn: s.turn + 1, n: -1 }; return 'The spy now works for you.'; } },
+      { label: 'Turn them (50g)', hint: '+1 scout this and next month', run: (s, k) => { k.gold -= 50; k.scouted = { turn: s.turn + 1, n: -1 }; return 'The spy now works for you.'; } },
       { label: 'Execute', hint: '+stability', run: (s, k) => { k.stability = clamp(k.stability + 3); return 'Justice is swift.'; } },
     ] },
   { id: 'youths', title: 'Eager youths', when: (s, k) => heroes(s, k).length > 0,
     text: () => 'Young farmhands want to join your army instead of working the fields.',
     options: [
-      { label: 'Let them enlist', hint: 'Recruits, −food next season', run: (s, k, rng) => { const n = fill(s, k, 5, rng); k.food -= 20; return `${n} youths joined your squads.`; } },
+      { label: 'Let them enlist', hint: 'Recruits, −food next month', run: (s, k, rng) => { const n = fill(s, k, 5, rng); k.food -= 20; return `${n} youths joined your squads.`; } },
       { label: 'Send them home', hint: '+food', run: (s, k) => { k.food += 25; return 'The fields are well tended this year.'; } },
     ] },
 ];

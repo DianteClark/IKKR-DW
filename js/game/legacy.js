@@ -41,7 +41,7 @@ export const ACHIEVEMENTS = [
   { id: 'warband', name: 'Wanderer', desc: 'Lose all land and rise again.', test: (s, k) => k.wasLandless && !k.landless },
   { id: 'vassals', name: 'Overlord', desc: 'Hold three vassals.', test: (s, k) => s.treaties.filter((t) => t.type === 'vassal' && t.a === k.id).length >= 3, unlock: 'tree' },
   { id: 'allies', name: 'Diplomat', desc: 'Have two allies at once.', test: (s, k) => s.treaties.filter((t) => t.type === 'alliance' && (t.a === k.id || t.b === k.id)).length >= 2 },
-  { id: 'trade', name: 'Merchant Prince', desc: 'Earn 60g a season from trade.', test: (s, k, x) => (x.trade || 0) >= 60 },
+  { id: 'trade', name: 'Merchant Prince', desc: 'Earn 60g a month from trade.', test: (s, k, x) => (x.trade || 0) >= 60 },
   { id: 'siege', name: 'Patience', desc: 'Take a town by siege.', test: (s, k) => s.log.some((l) => /surrendered to/.test(l.text) && l.text.includes(k.name)) },
   { id: 'rich', name: 'Treasury', desc: 'Hoard 3000 gold.', test: (s, k) => k.gold >= 3000, unlock: 'coins' },
   { id: 'army', name: 'Host', desc: 'Command 150 soldiers.', test: (s, k) => s.heroes.filter((h) => h.kingdom === k.id && h.status === 'active').reduce((n, h) => n + h.troops.length, 0) >= 150 },

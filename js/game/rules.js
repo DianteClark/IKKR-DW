@@ -28,7 +28,7 @@ const UNIT_CLASS_STR = {
 export const CLASS_INFO = {
   foot: { name: 'Infantry', building: null, perk: 'Sturdy and cheap.' },
   ranged: { name: 'Ranged', building: null, perk: 'Shoots from range.' },
-  mounted: { name: 'Mounted', building: 'stables', perk: 'Rides two lands per season through safe ground.' },
+  mounted: { name: 'Mounted', building: 'stables', perk: 'Rides two lands per month through safe ground.' },
   flying: { name: 'Flying', building: 'aerie', perk: 'Crosses sea lanes without ships.' },
   caster: { name: 'Caster', building: 'magetower', perk: 'Wields battle magic.' },
   beast: { name: 'Beast', building: 'beastpit', perk: 'Huge and hard-hitting.' },
@@ -203,11 +203,11 @@ export const PROMOTE = [
 ];
 export const BUILDINGS = {
   pits: { name: 'Training Pits', cost: 500, tier: 1, desc: '+3 command for every hero; resting heroes train twice as hard.' },
-  spies: { name: 'Spy Network', cost: 300, tier: 1, desc: 'Scout two lands each season (more with Scout heroes) to reveal armies and exact odds.' },
+  spies: { name: 'Spy Network', cost: 300, tier: 1, desc: 'Scout two lands each month (more with Scout heroes) to reveal armies and exact odds.' },
   academy: { name: 'War Academy', cost: 600, tier: 1, desc: '+2 command points for stratagems; heroes learn faster.' },
   granary: { name: 'Granaries', cost: 350, tier: 1, desc: '+25% food and protection from famine.' },
   council: { name: 'War Council', cost: 900, tier: 2, desc: 'Bring a 4th stratagem into battle.' },
-  stables: { name: 'Stables', cost: 300, tier: 0, desc: 'Heroes may lead mounted troops, who ride two lands per season.' },
+  stables: { name: 'Stables', cost: 300, tier: 0, desc: 'Heroes may lead mounted troops, who ride two lands per month.' },
   harbour: { name: 'Harbour', cost: 250, tier: 0, desc: 'Ships carry your heroes across sea lanes.' },
   beastpit: { name: 'Beast Pit', cost: 500, tier: 1, desc: 'Heroes may lead great beasts and monsters.' },
   magetower: { name: 'Mage Tower', cost: 600, tier: 1, desc: 'Heroes may lead casters and spellblades.' },

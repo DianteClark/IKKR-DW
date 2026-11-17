@@ -1,5 +1,5 @@
-// Scouting: a Spy Network gives a realm a few reveals each season (Scout-calling heroes add one each).
-// Scouting a land reveals its defenders and the exact battle odds until the end of next season.
+// Scouting: a Spy Network gives a realm a few reveals each month (Scout-calling heroes add one each).
+// Scouting a land reveals its defenders and the exact battle odds until the end of next month.
 import { kingdomHeroes, log } from './world.js';
 
 export function scoutsPerSeason(state, k) {

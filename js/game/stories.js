@@ -38,7 +38,7 @@ function finish(state, h, rng) {
   news(state, h.kingdom, 'heir', `${h.name} fulfilled their vow and earned a title! (+${STAT[q.kind] === 'lead' ? 1 : 2} ${STAT[q.kind].toUpperCase()}, loyalty up)`);
 }
 
-// called every season
+// called every month
 export function storyTick(state, rng) {
   for (const h of state.heroes) {
     if (h.status !== 'active' || h.kingdom < 0) continue;

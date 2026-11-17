@@ -1,5 +1,5 @@
 // Siege blockade: heroes next to an enemy walled town (level >= 2, or any town of a kingdom or empire) can besiege it instead of storming it.
-// Each season of siege the town starves (owner loses food, morale and garrison strength). After three seasons the
+// Each month of siege the town starves (owner loses food, morale and garrison strength). After three months the
 // town may surrender (it changes hands without a battle) or the besiegers storm the weakened walls.
 import { hero, heroesAt, friendly, log, validTargets, isHumanKingdom, clamp } from './world.js';
 import { squadPower } from './rules.js';
@@ -13,7 +13,7 @@ export function canBesiege(state, h, tid) {
 }
 export function besiegeTargets(state, h) { return validTargets(state, h).filter((tid) => canBesiege(state, h, tid)); }
 
-// run before other orders each season; returns nothing, pushes notes into results
+// run before other orders each month; returns nothing, pushes notes into results
 export function applySieges(state, rng, results) {
   const by = new Map(); // tid -> besieging heroes
   for (const h of state.heroes) {
@@ -40,7 +40,7 @@ export function applySieges(state, rng, results) {
       t.owner = kid; t.siege = null;
       for (const h of list) { h.loc = tid; h.order = null; }
       log(state, `${t.name} surrendered to ${state.kingdoms[kid].name} after a long siege.`, -1, 'conquest');
-      note(`${t.name} surrendered after ${SIEGE_TURNS} seasons of siege!`);
+      note(`${t.name} surrendered after ${SIEGE_TURNS} months of siege!`);
     } else {
       // the walls are weak now: storm them
       for (const h of list) h.order = { type: 'attack', target: tid };

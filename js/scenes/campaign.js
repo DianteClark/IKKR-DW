@@ -17,7 +17,7 @@ import { raidableHere } from '../game/trade.js';
 import { besiegeTargets } from '../game/siege.js';
 import { weatherAt, WEATHER } from '../game/weather.js';
 import { neutralActions, sitesIn, SITES, plunderYield } from '../game/neutral.js';
-import { seasonOf, yearOf, SEASON_FOOD, childrenOf, wedOptions, MARRY_LEVEL, childNames } from '../game/family.js';
+import { dateOf, shortDate, seasonOf, yearOf, SEASON_FOOD, childrenOf, wedOptions, MARRY_LEVEL, childNames } from '../game/family.js';
 import { runAI } from '../game/ai.js';
 import { applyAction } from '../game/actions.js';
 import {
@@ -99,7 +99,7 @@ registerScene('campaign', {
     else {
       persist();
       if (net.role === 'single' && S.state.turn === 1 && !S.state.introShown) intro();
-      else { banner(`${seasonOf(S.state.turn)}, Year ${yearOf(S.state.turn)}`, 'blue', myK().name); setTimeout(showChoice, 1200); }
+      else { banner(cap1(dateOf(S.state.turn)), 'blue', myK().name); setTimeout(showChoice, 1200); }
     }
   },
   exit() { net.onState = null; document.body.classList.remove('side-open'); },
@@ -181,7 +181,7 @@ registerScene('campaign', {
         toast(S.target.kind === 'attack' ? `Attack ordered on ${nm}` : S.target.kind === 'besiege' ? `Siege laid to ${nm}` : S.target.kind === 'spy' ? `Spies sent to ${nm}` : `Marching to ${nm}`);
         S.target = null; refreshUI();
       } else if (tid != null) {
-        toast(S.target.kind === 'move' ? 'Not reachable this season — pick a glowing land' : 'Pick one of the glowing lands', 'gold');
+        toast(S.target.kind === 'move' ? 'Not reachable this month — pick a glowing land' : 'Pick one of the glowing lands', 'gold');
       } else { S.target = null; refreshUI(); }
       return;
     }
@@ -290,7 +290,7 @@ export function refreshUI() {
     h('span', { class: 'chip tap', title: 'Food', onClick: () => economySheet('food') }, `🌾${Math.round(k.food)} `, h('small', { class: eco.food >= 0 ? 'good' : 'bad' }, sign(eco.food))),
     h('span', { class: 'chip tap ' + (k.morale < 35 ? 'bad' : ''), title: 'Morale', onClick: () => economySheet('morale') }, `☺${Math.round(k.morale)}`),
     h('span', { class: 'chip tap ' + (k.stability < 30 ? 'bad' : ''), title: 'Stability', onClick: () => economySheet('stability') }, `⚖${Math.round(k.stability)}`),
-    h('span', { class: 'chip muted', title: `${seasonOf(st.turn)}, year ${yearOf(st.turn)}` }, `${seasonOf(st.turn).slice(0, 3)} Y${yearOf(st.turn)}`),
+    h('span', { class: 'chip muted', title: cap1(dateOf(st.turn)) }, shortDate(st.turn)),
     h('span', { class: 'grow' }),
     btn('☰', menu, 'small'),
     btn(waiting ? waiting : idle ? `End Turn (${idle})` : 'End Turn', endTurnPressed, 'primary small'),
@@ -440,7 +440,7 @@ function heroBlock(x) {
     btn(need ? `Rest & train${price ? ' ' + price + 'g' : ''}` : 'Rest & train', () => o({ type: 'rest' }), 'small good' + (is('rest') ? ' sel' : '')),
     x.order ? btn('Clear', () => o(null), 'small') : null);
   const raid = raidableHere(st, x);
-  const raidBtn = raid ? btn(is('raid') ? 'Raid caravan ✓' : 'Raid caravan', () => (is('raid') ? o(null) : confirm('Raid the caravan?', `Rob the traders at ${st.territories[x.loc].name}. It is an act of war against ${(st.kingdoms[st.territories[x.loc].owner] || {}).name || 'its owner'}.`, 'Raid', 'Cancel', 'danger').then((ok) => ok && o({ type: 'raid' }))), 'small danger' + (is('raid') ? ' sel' : '')) : null;
+  const raidBtn = raid ? btn(is('raid') ? 'Raid caravan ✓' : 'Raid caravan', () => (is('raid') ? o(null) : confirm('Raid the caravan?', `Ambush the traders on the road between ${st.territories[raid[0]].name} and ${st.territories[raid[1]].name}. It is an act of war against ${[...new Set([st.territories[raid[0]].owner, st.territories[raid[1]].owner])].map((o) => (st.kingdoms[o] || {}).name).filter(Boolean).join(' and ')}.`, 'Raid', 'Cancel', 'danger').then((ok) => ok && o({ type: 'raid' }))), 'small danger' + (is('raid') ? ' sel' : '')) : null;
   const foes = skirmishTargets(st, x);
   const fightRow = foes.length ? h('div', { class: 'row wrap', style: { gap: '4px', margin: '-4px 0 8px' } }, foes.map((fk) => {
     const F = st.kingdoms[fk], on = x.order && x.order.type === 'skirmish' && x.order.target === fk, war = atWar(st, k.id, fk);
@@ -518,7 +518,7 @@ export function heroModal(id) {
       const byRace = {};
       for (const o of opts) (byRace[o.fid] = byRace[o.fid] || []).push(o);
       content = h('div', { class: 'col' },
-        h('div', { class: 'muted', style: { fontSize: '13px' } }, `Mounted ride two lands a season, flyers cross the sea, casters and beasts hit hard — each needs its building. Any troops your realm can raise. ${TIERS[tierIndex(k)].name}s can field up to tier ${TIERS[tierIndex(k)].maxUnitLevel + 1}. Win land or recruit heroes of other races to unlock theirs. Changing type disbands the squad.`),
+        h('div', { class: 'muted', style: { fontSize: '13px' } }, `Mounted ride two lands a month, flyers cross the sea, casters and beasts hit hard — each needs its building. Any troops your realm can raise. ${TIERS[tierIndex(k)].name}s can field up to tier ${TIERS[tierIndex(k)].maxUnitLevel + 1}. Win land or recruit heroes of other races to unlock theirs. Changing type disbands the squad.`),
         Object.entries(byRace).map(([fid, list]) => h('div', { class: 'col', style: { gap: '4px' } },
           h('b', {}, FACTIONS[fid].race + (fid === x.fid ? ' · race match' : '')),
           h('div', { class: 'row wrap', style: { gap: '6px' } }, list.map((o) => {
@@ -554,10 +554,10 @@ export function heroModal(id) {
           h('span', {}, x.quest ? '⚑ ' + questText(st, x) : h('span', { class: 'muted' }, 'No vow sworn yet. Life on the march will give them one.')),
           nem ? h('span', { class: 'bad' }, `Nemesis: ${nem.name}${nem.status !== 'active' ? ` (${nem.status})` : ''} — fights harder against them`) : null,
           x.deeds ? h('span', { class: 'gold' }, `Vows fulfilled: ${x.deeds}`) : null),
-        h('div', { class: 'muted', style: { fontSize: '13px' } }, `Married heroes may have a child a year later. Heirs train in a parent's squad and become heroes at Elite. Marry from level ${MARRY_LEVEL}.`),
+        h('div', { class: 'muted', style: { fontSize: '13px' } }, `Married heroes may have a child nine months later. Heirs train in a parent's squad and become heroes at Elite. Marry from level ${MARRY_LEVEL}.`),
         parents.length ? h('div', { class: 'row wrap' }, h('b', {}, 'Parents:'), parents.map((p) => h('span', { class: 'chip tap', onClick: () => { m.close(); heroModal(p.id); } }, p.name))) : null,
         h('div', { class: 'row wrap' }, h('b', {}, 'Spouse:'), sp ? h('span', { class: 'chip good tap', onClick: () => { m.close(); heroModal(sp.id); } }, sp.name + (sp.status !== 'active' ? ` (${sp.status})` : '')) : h('span', { class: 'muted' }, x.widowed ? 'Widowed' : 'Unmarried')),
-        expecting ? h('div', { class: 'chip gold' }, `Expecting a child in ${seasonOf(expecting.expecting + 4)} of year ${yearOf(expecting.expecting + 4)}`) : null,
+        expecting ? h('div', { class: 'chip gold' }, `A child is due in ${dateOf(expecting.expecting + 9)}`) : null,
         h('b', {}, `Children (${kids.length})`),
         kids.length ? h('div', { class: 'col', style: { gap: '4px' } }, kids.map((c) => c.hero
           ? h('div', { class: 'card tap', onClick: () => { m.close(); heroModal(c.hero.id); } }, portrait(c.hero, 2), h('span', { class: 'grow' }, `${c.hero.name} · hero, Lv ${c.hero.level}`))
@@ -681,7 +681,7 @@ function renderGoals() {
         G === next ? h('small', { class: 'muted' }, G.how) : null)))));
 }
 
-// ---------- economy breakdown: why each number moves this season ----------
+// ---------- economy breakdown: why each number moves this month ----------
 function economySheet(focusOn = 'gold') {
   const st = S.state, k = myK(), e = economyPreview(st, k);
   const line = (label, val, cls = '') => h('div', { class: 'eco-line' }, h('span', { class: 'grow' }, label), h('b', { class: cls }, val));
@@ -692,7 +692,7 @@ function economySheet(focusOn = 'gold') {
   const tax = POLICIES.tax[k.policy.tax], rat = POLICIES.rations[k.policy.rations];
   const driftM = (55 - k.morale) * 0.08, driftS = (55 - k.stability) * 0.06;
   const section = (id, title, total, lines) => h('div', { class: 'card col eco-sec' + (focusOn === id ? ' on' : ''), style: { alignItems: 'stretch', gap: '2px' } },
-    h('div', { class: 'row' }, h('b', { class: 'grow' }, title), h('b', { class: total >= 0 ? 'good' : 'bad' }, sgn(total) + ' / season')), ...lines);
+    h('div', { class: 'row' }, h('b', { class: 'grow' }, title), h('b', { class: total >= 0 ? 'good' : 'bad' }, sgn(total) + ' / month')), ...lines);
   const body = h('div', { class: 'col' },
     section('gold', 'Gold', e.gold + mines * 35, [
       line(`${lands.length} land${lands.length === 1 ? '' : 's'}`, `+${e.landGold}`),
@@ -725,7 +725,7 @@ function economySheet(focusOn = 'gold') {
       h('div', { class: 'muted', style: { fontSize: '12px' } }, k.stability < 22 ? 'Danger: below 22 the people may revolt.' : 'Below 22 revolts break out; below 10 the ruler can be overthrown.'),
     ]),
     btn('Taxes, rations and edicts…', () => { mm.close(); realmSheet(); }, 'small'));
-  const mm = sheet('Your economy this season', body, [], { side: 'right' });
+  const mm = sheet('Your economy this month', body, [], { side: 'right' });
 }
 
 // ---------- realm management ----------
@@ -744,7 +744,7 @@ function realmSheet() {
         statRow('Gold per turn', `${sign(eco.gold)}${eco.tributeOut ? ` (−${eco.tributeOut} tribute)` : ''}${eco.tributeIn ? ` (+${eco.tributeIn} tribute)` : ''}`),
         eco.trade ? statRow('Trade caravans', `+${eco.trade}g from friendly borders`) : null,
         statRow('Food per turn', `${sign(eco.food)}  (grown ${eco.foodMade}, eaten ${eco.foodEaten})`),
-        statRow('Season', `${seasonOf(st.turn)}, year ${yearOf(st.turn)} · harvest ×${SEASON_FOOD[seasonOf(st.turn)]}`),
+        statRow('Date', `${cap1(dateOf(st.turn))} · harvest ×${SEASON_FOOD[seasonOf(st.turn)]}`),
         h('div', { class: 'row' }, h('span', { style: { width: '90px' } }, 'Morale'), h('div', { class: 'grow' }, bar(k.morale / 100, 'mor')), h('b', {}, Math.round(k.morale))),
         h('div', { class: 'row' }, h('span', { style: { width: '90px' } }, 'Stability'), h('div', { class: 'grow' }, bar(k.stability / 100)), h('b', {}, Math.round(k.stability))),
         k.stability < 30 ? h('div', { class: 'bad', style: { fontSize: '13px' } }, 'Low stability breeds revolts. Very low stability and morale can overthrow you!') : null,
@@ -841,14 +841,14 @@ function diplomacySheet(focusKid) {
 
 function chronicle() {
   const st = S.state;
-  const body = h('div', { class: 'log' }, [...st.log].reverse().slice(0, 150).map((l) => h('div', { class: l.kind || '' }, h('span', { class: 'muted' }, `${seasonOf(l.turn).slice(0, 3)} Y${yearOf(l.turn)} `), l.text)));
+  const body = h('div', { class: 'log' }, [...st.log].reverse().slice(0, 150).map((l) => h('div', { class: l.kind || '' }, h('span', { class: 'muted' }, `${shortDate(l.turn)} `), l.text)));
   sheet('Chronicle', body, [], { side: 'right' });
 }
 
 function menu() {
   modal('Menu', h('div', { class: 'col' },
-    h('div', { class: 'row wrap' }, h('span', { class: 'chip gold' }, `Campaign ${prettyCode(S.state.cid)}`), h('span', { class: 'chip' }, `Seed ${S.state.seed}`), h('span', { class: 'chip' }, `${seasonOf(S.state.turn)}, year ${yearOf(S.state.turn)}`)),
-    net.role === 'single' ? h('div', { class: 'muted' }, 'Your campaign saves automatically every season. Find it under Continue.') : h('div', { class: 'muted' }, `Two-player · ${net.role === 'host' ? 'You are hosting' : 'Connected to host'}. Both of you keep a copy of this campaign — either of you can host it again from Continue.`)),
+    h('div', { class: 'row wrap' }, h('span', { class: 'chip gold' }, `Campaign ${prettyCode(S.state.cid)}`), h('span', { class: 'chip' }, `Seed ${S.state.seed}`), h('span', { class: 'chip' }, cap1(dateOf(S.state.turn)))),
+    net.role === 'single' ? h('div', { class: 'muted' }, 'Your campaign saves automatically every month. Find it under Continue.') : h('div', { class: 'muted' }, `Two-player · ${net.role === 'host' ? 'You are hosting' : 'Connected to host'}. Both of you keep a copy of this campaign — either of you can host it again from Continue.`)),
   [['Share my realm', () => { setTimeout(() => shareRealm(S.state, S.T, myK().id), 50); }], ...(goalState(S.state, myK().id).hidden ? [['Show goals', () => { act({ type: 'hideGoals', hidden: false }); }]] : []), ['Resume'], ['Quit to title', () => { if (net.role !== 'single') net.close(); go('title'); }, 'danger']], { dismiss: true });
 }
 
@@ -860,9 +860,9 @@ function intro() {
     h('div', {}, '• Tap a land, then give each hero an order: attack, move, rest & train, or act in the wilds.'),
     h('div', {}, '• Follow the Goals chip at the top-left: it teaches the game as you play.'),
     h('div', {}, '• Gather 5 heroes and your village becomes a kingdom. Grow it into an empire.'),
-    h('div', {}, '• Tap gold, food, morale or stability to see why they change each season.'),
+    h('div', {}, '• Tap gold, food, morale or stability to see why they change each month.'),
     h('div', {}, '• Attacking another realm is an act of war. You lose only when your last hero falls.'),
-  ), [['To war!', () => { sfx('horn'); banner('Spring, Year 1', 'blue', k.name); }, 'primary']]);
+  ), [['To war!', () => { sfx('horn'); banner('Early spring, year 1', 'blue', k.name); }, 'primary']]);
 }
 
 // ---------- captives ----------
@@ -942,7 +942,7 @@ export function resolveTurn() {
   S.choices = null;
   if (net.role === 'host') { net.send({ t: 'resolving' }); net.broadcastState(); }
   refreshUI();
-  // several of my battles this season: one compact chooser instead of a modal per battle
+  // several of my battles this month: one compact chooser instead of a modal per battle
   if (net.role === 'single') {
     const myKid = myK().id;
     const mine = S.queue.filter((b) => b.att === myKid || st.territories[b.tid].owner === myKid || (b.skirmish && b.foe === myKid));
@@ -973,7 +973,7 @@ function battleChooser(list) {
   const body = h('div', { class: 'col' }, h('div', { class: 'muted', style: { fontSize: '13px' } }, 'Choose which battles to command yourself. The rest are settled by your generals.'), rows(),
     h('div', { class: 'row' }, btn('All auto', () => { for (const k2 in choice) choice[k2] = 'auto'; mkeepScroll(m.box.querySelector('.body'), body); }, 'tiny'), btn('Fight all', () => { for (const k2 in choice) choice[k2] = 'fight'; go2(); }, 'tiny')));
   const go2 = () => { S.choices = choice; mm.close(); nextBattle(); };
-  mm = modal(`${list.length} battles this season`, body, [['Begin', () => { S.choices = choice; nextBattle(); }, 'primary']], { width: '620px' });
+  mm = modal(`${list.length} battles this month`, body, [['Begin', () => { S.choices = choice; nextBattle(); }, 'primary']], { width: '620px' });
 }
 
 function nextBattle() {
@@ -1093,7 +1093,7 @@ export function showTurnSummary(prevTurn, reports, summary = { events: [], notes
   };
   let mm;
   const after = () => {
-    banner(`${seasonOf(st.turn)}, Year ${yearOf(st.turn)}`, bad ? 'bad' : 'blue', k.landless ? 'Your warband wanders' : k.name);
+    banner(cap1(dateOf(st.turn)), bad ? 'bad' : 'blue', k.landless ? 'Your warband wanders' : k.name);
     if (captivesOf(st, myKid).length && (reports || []).some((r) => r.captured.length)) showCaptives();
     else if (st.proposals.some((p) => p.to === myKid)) diplomacySheet();
     nameBirths();
@@ -1146,7 +1146,7 @@ export function showTurnSummary(prevTurn, reports, summary = { events: [], notes
   const restBox = h('div', { class: 'col', style: { gap: '4px', display: 'none' } }, rest);
   const restBtn = rest.length ? btn(`Across the land (${rest.length}) ▾`, () => { open = !open; restBox.style.display = open ? '' : 'none'; restBtn.textContent = `Across the land (${rest.length}) ${open ? '▴' : '▾'}`; }, 'small ghost') : null;
   const all = [...cards, ...myEvents];
-  mm = modal(`${seasonOf(prevTurn)} of year ${yearOf(prevTurn)} ends`, h('div', { class: 'col' },
+  mm = modal(`${cap1(dateOf(prevTurn))} ends`, h('div', { class: 'col' },
     all.length ? all : h('div', { class: 'muted' }, 'A quiet season in your realm.'),
     restBtn, restBox,
   ), [['Continue', () => after(), 'primary']], { width: '680px' });
@@ -1210,3 +1210,5 @@ function gameOver() {
   modal(win ? 'Victory!' : 'Defeat', h('div', {}, win ? (o.type === 'alliance' ? 'You and your allies rule every realm. The dynasty is yours.' : 'Every realm bows to you. The dynasty is yours.') : o.type === 'alliance' && o.members.includes(myKid) ? 'Your alliance rules the land — but you followed others into it, and the crown went to them.' : 'Your cause is lost.'),
     [['Title screen', () => { if (net.role !== 'single') net.close(); go('title'); }, 'primary']]);
 }
+
+function cap1(t) { return t ? t[0].toUpperCase() + t.slice(1) : ''; }

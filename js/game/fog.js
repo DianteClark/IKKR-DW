@@ -1,5 +1,5 @@
 // Fog of war (campaign map, players only). A realm sees its own lands and their neighbours, the lands its heroes
-// stand in and their neighbours, its allies' lands, and anything scouted this season. The AI is not affected.
+// stand in and their neighbours, its allies' lands, and anything scouted this month. The AI is not affected.
 import { friendly, kingdomHeroes } from './world.js';
 
 export const fogOn = (state) => !!state.fog;

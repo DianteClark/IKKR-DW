@@ -2,7 +2,7 @@
 import { registerScene, go } from '../main.js';
 import { h, btn, mount, clearUI, modal, toast, confirm, chip } from '../engine/ui.js';
 import { listCampaigns, deleteCampaign, exportCampaign, importCampaign, prettyCode } from '../game/save.js';
-import { seasonOf, yearOf } from '../game/family.js';
+import { seasonOf, yearOf, shortDate } from '../game/family.js';
 import { FACTIONS } from '../data/art.js';
 import { sfx, music } from '../engine/audio.js';
 import { hostResume } from './lobby.js';
@@ -21,7 +21,7 @@ async function render() {
         h('b', { class: 'grow ellipsis' }, m.realm),
         chip(two ? 'Two-player' : 'Solo', two ? 'blue' : '')),
       h('div', { class: 'row wrap', style: { gap: '4px' } },
-        chip(`${seasonOf(m.turn)}, Y${yearOf(m.turn)}`),
+        chip(shortDate(m.turn)),
         chip(SIZE_NAMES[m.size] || m.size),
         chip(`${m.lands} lands`),
         chip(`Code ${prettyCode(m.cid)}`, 'gold'),
@@ -46,7 +46,7 @@ async function render() {
   mount(h('div', { class: 'screen fade-in' },
     h('div', { class: 'panel col grow', style: { minHeight: 0 } },
       h('div', { class: 'row' }, btn('‹ Back', () => { sfx('close'); go('title'); }, 'small'), h('h2', { class: 'grow', style: { margin: 0 } }, 'Continue'), btn('Import backup', importFlow, 'small')),
-      list.length ? null : h('div', { class: 'muted' }, 'No saved campaigns yet. Every campaign saves itself each season.'),
+      list.length ? null : h('div', { class: 'muted' }, 'No saved campaigns yet. Every campaign saves itself each month.'),
       h('div', { class: 'scroll grow', style: { minHeight: 0 } },
         h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' } }, cards)),
       h('div', { class: 'muted', style: { fontSize: '12px' } }, 'Two-player campaigns are saved on both phones. Either player taps Host & resume; the other opens Multiplayer and joins with the room code. Each phone holds a private seat key, so nobody can take the other\'s realm.'))));

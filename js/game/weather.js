@@ -1,5 +1,5 @@
-// Weather: each season a few regions get weather that matters.
-//   storm    — sea lanes from these lands are closed this season
+// Weather: each month a few regions get weather that matters.
+//   storm    — sea lanes from these lands are closed this month
 //   blizzard — mounted troops lose their two-land ride; attacking into it costs the attacker morale
 //   drought  — harvests in these lands fail (−food)
 //   fog      — scouting fails here
@@ -7,7 +7,7 @@ import { log, isHumanKingdom } from './world.js';
 import { seasonOf } from './family.js';
 
 export const WEATHER = {
-  storm: { name: 'Storm', icon: '⛈', desc: 'Sea lanes closed this season.' },
+  storm: { name: 'Storm', icon: '⛈', desc: 'Sea lanes closed this month.' },
   blizzard: { name: 'Blizzard', icon: '❄', desc: 'Riders slowed; attacking here costs morale.' },
   drought: { name: 'Drought', icon: '☀', desc: 'Harvest fails: −10 food from this land.' },
   fog: { name: 'Fog', icon: '☁', desc: 'Scouts see nothing here.' },

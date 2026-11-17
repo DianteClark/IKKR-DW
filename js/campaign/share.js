@@ -3,7 +3,7 @@ import { renderRegion, drawTowns, drawSites, drawGuards, drawAnimated, TS } from
 import { kingdomHeroes, kingdomTerritories, totalTroops } from '../game/world.js';
 import { TIERS, tierIndex } from '../game/rules.js';
 import { FACTIONS } from '../data/art.js';
-import { seasonOf, yearOf } from '../game/family.js';
+import { seasonOf, yearOf, dateOf } from '../game/family.js';
 import { bannerCanvas, BANNER_W, BANNER_H } from '../engine/banner.js';
 import { h, btn, modal, toast } from '../engine/ui.js';
 import { sfx } from '../engine/audio.js';
@@ -44,7 +44,7 @@ export function renderRealmCard(state, T, kid) {
   const tx = 54 + BANNER_W * bs + 34;
   x.textBaseline = 'alphabetic';
   x.fillStyle = '#c9a25a'; x.font = '700 22px Silkscreen, Pixelify, monospace';
-  x.fillText(`${seasonOf(state.turn).toUpperCase()} · YEAR ${yearOf(state.turn)}`, tx, 118);
+  x.fillText(dateOf(state.turn).toUpperCase(), tx, 118);
   x.font = '700 54px Pixelify, MiKroll, monospace';
   const name = k.landless ? `The Warband` : k.name;
   const words = name.split(' '); let line = '', ly = 182; const lines = [];

@@ -22,8 +22,8 @@ export function endTurn(state) {
   for (const h of state.heroes) {
     if (h.status !== 'active') continue;
     h.hp = Math.min(100, h.hp + 10);
-    if (h.order && h.order.type !== 'attack') h.order = null;
-    if (h.order && h.order.type === 'attack') h.order = null;
+    // standing orders (guarding a hamlet, a siege) carry on month after month until changed
+    if (h.order && !['protect', 'besiege'].includes(h.order.type)) h.order = null;
   }
   // AI decides the fate of its prisoners
   for (const h of state.heroes) {

@@ -1,5 +1,5 @@
 // Trade caravans: wherever a realm's land borders a friendly realm (ally, vassal or overlord) a trade road runs,
-// paying both sides each season. Caravans walk those roads on the map. A hero standing on a trade land of two
+// paying both sides each month. Caravans walk those roads on the map. A hero standing on a trade land of two
 // other realms can raid the caravan for gold — an act of war against the land's owner.
 import { friendly, log, hero } from './world.js';
 import { actOfWar } from './diplomacy.js';
@@ -32,16 +32,19 @@ export function tradeIncome(state, kid) {
 // can this hero raid a caravan where they stand?
 export function raidableHere(state, h) {
   if (!h || h.status !== 'active') return null;
-  const r = tradeRoutes(state).find(([a, b]) => (a === h.loc || b === h.loc) && ![state.territories[a].owner, state.territories[b].owner].some((o) => o === h.kingdom || friendly(state, h.kingdom, o)));
+  // caravans can be ambushed where they pass, or from the land right beside their road
+  const near = new Set([h.loc, ...state.territories[h.loc].nb]);
+  const r = tradeRoutes(state).find(([a, b]) => (near.has(a) || near.has(b)) && ![state.territories[a].owner, state.territories[b].owner].some((o) => o === h.kingdom || friendly(state, h.kingdom, o)));
   return r || null;
 }
 export function resolveRaid(state, h, results) {
   const r = raidableHere(state, h);
   if (!r) return;
-  const t = state.territories[h.loc], victim = t.owner;
+  const ta = state.territories[r[0]], tb = state.territories[r[1]];
+  const t = ta.id === h.loc || ta.nb.includes(h.loc) ? ta : tb, victim = t.owner;
   const gold = 60 + Math.round(h.level * 8);
   state.kingdoms[h.kingdom].gold += gold;
-  t.raided = state.turn; state.territories[r[0] === h.loc ? r[1] : r[0]].raided = state.turn;
+  ta.raided = state.turn; tb.raided = state.turn;
   results.push({ kid: h.kingdom, text: `${h.name} raided a caravan at ${t.name}: +${gold}g.` });
   log(state, `${h.name} raided a caravan at ${t.name}.`, -1, 'war');
   if (victim >= 0) actOfWar(state, h.kingdom, victim, `a caravan raid at ${t.name}`);

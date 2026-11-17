@@ -51,7 +51,12 @@ export function aiOrders(state, kid) {
     }
   }
   // warlike realms and raiders rob caravans passing through
-  for (const h of [...free]) if ((raider || k.temper === 'warlike') && rng() < 0.35 && raidableHere(state, h)) { setOrder(state, h.id, { type: 'raid' }); free.delete(h); }
+  for (const h of [...free]) {
+    const r = raidableHere(state, h); if (!r) continue;
+    const victims = [state.territories[r[0]].owner, state.territories[r[1]].owner];
+    const keen = raider ? 0.6 : k.temper === 'warlike' ? 0.45 : victims.some((v) => atWar(state, kid, v)) ? 0.5 : k.temper === 'treacherous' ? 0.15 : 0;
+    if (rng() < keen) { setOrder(state, h.id, { type: 'raid' }); free.delete(h); }
+  }
   // the wilds: keep guarding hamlets, explore sites, court wanderers, plunder if you're a raider
   for (const h of [...free]) {
     if (h.order && h.order.type === 'protect' && state.territories[h.loc].owner < 0) { free.delete(h); continue; }
@@ -83,7 +88,9 @@ export function aiOrders(state, kid) {
     let attackers = group;
     if (loc === k.capital && group.length > 1 && !raider) attackers = group.slice(1);
     const walled = best != null && state.territories[best].level >= 2 && !raider && canBesiege(state, group[0], best);
-    if (walled && bestScore * aggression > 0.7 && (bestScore * aggression <= 1.25 || k.temper === 'cautious' || k.temper === 'trader') && k.temper !== 'warlike') {
+    const sc = bestScore * aggression;
+    // walls ahead: patient realms starve them out; even bold ones besiege a town they can't yet storm
+    if (walled && sc > 0.55 && (sc <= 1.5 || ['cautious', 'trader', 'zealous'].includes(k.temper)) && !(k.temper === 'warlike' && sc > 1.1)) {
       for (const h of attackers) { setOrder(state, h.id, { type: 'besiege', target: best }); free.delete(h); }
     } else if (best != null && bestScore * aggression > 1.25) {
       for (const h of attackers) { setOrder(state, h.id, { type: 'attack', target: best }); free.delete(h); }

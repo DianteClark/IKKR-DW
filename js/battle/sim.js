@@ -37,7 +37,9 @@ export function createBattle(setup) {
     },
     kids: { att: setup.attKid ?? -1, def: setup.defKid ?? -1 },
     rng, lastAction: 0, duel: null, duelCd: 20, duelled: [],
-    nextEvent: 55 + rng() * 60, eventsLeft: field.eventSpots && field.eventSpots.length ? 2 : 1, fog: 0,
+    nextEvent: 55 + rng() * 60, eventsLeft: field.eventSpots && field.eventSpots.length ? 2 : 1, fog: setup.weather === 'fog' ? 9999 : 0,
+    // campaign weather carries into the fight: fog shortens sight, blizzards slow and chill, storms ruin archery and douse fires, droughts feed them
+    weather: setup.weather || null,
     reveal: { att: 0, def: 0 }, trapsSeen: { att: 0, def: 0 },
     nemesis: Array.isArray(setup.nemesis) ? setup.nemesis.filter((p) => Array.isArray(p) && p.length === 2) : [], nemesisMet: [], nemesisResult: [],
     ladders: [],
@@ -334,7 +336,7 @@ export function useStratagem(sim, side, id, target) {
     sq.morale -= 25;
     for (const s of sim.squads) if (s.side === side && alive(s) && dist(s, sq) < 6) s.morale = Math.min(100, s.morale + 8);
   }
-  if (id === 'fire') sim.fires.push({ x: sq.x, y: sq.y, t: 8, r: 2.2, pow: 3.2 * (sim.field.underground ? 0.35 : 1), side });
+  if (id === 'fire') { const wf = sim.weather === 'storm' ? 0.4 : sim.weather === 'drought' ? 1.5 : sim.weather === 'blizzard' ? 0.7 : 1; sim.fires.push({ x: sq.x, y: sq.y, t: 8 * wf, r: 2.2 * Math.sqrt(wf), pow: 3.2 * (sim.field.underground ? 0.35 : 1), side }); }
   if (id === 'discord') {
     sq.morale -= 35;
     if (sq.traitor === 0 && sq.hero != null && sq.loyalty < 40 && ((sim.tick + sq.id) % 2 === 0)) sq.traitor = sim.t + 0.5;
@@ -409,7 +411,8 @@ export function step(sim) {
     if (sim.tick % 10 === 0) for (const s of S) if (alive(s) && Math.hypot(s.x - f.x, s.y - f.y) < f.r) { hitSquad(sim, s, f.pow * Math.max(3, liveCount(s)) * 0.5, null, true); s.morale -= 2; }
   }
   sim.fires = sim.fires.filter((f) => f.t > 0);
-  if (sim.fog > 0) sim.fog -= DT;
+  if (sim.fog > 0 && sim.weather !== 'fog') sim.fog -= DT;
+  if (sim.weather === 'blizzard' && sim.tick % 40 === 0) for (const s of S) if (alive(s) && s.morale > 40) s.morale -= 0.6; // the cold gnaws at morale
   for (const k of ['att', 'def']) { if (sim.reveal[k] > 0) sim.reveal[k] -= DT; if (sim.trapsSeen[k] > 0) sim.trapsSeen[k] -= DT; }
   if (sim.t >= sim.nextEvent && sim.eventsLeft > 0) {
     sim.eventsLeft--; sim.nextEvent = sim.t + 50 + ((sim.seed + sim.tick) % 40);
@@ -422,7 +425,7 @@ export function step(sim) {
     const f = FORMATIONS[s.formation];
     if (buff(s, 'confused')) { s.state = 'confused'; continue; }
     const ter = TERRAIN[terrainAt(sim.field, s.x, s.y)] || TERRAIN[0];
-    let speed = s.spd * f.spd * 2.1 * (0.75 + 0.25 * s.morale / 100) * (s.reform ? 0.5 : 1) * (buff(s, 'march') ? (s.role === 'scout' ? 1.5 : 1.6) : 1) * ter.spd;
+    let speed = (sim.weather === 'blizzard' ? 0.8 : 1) * s.spd * f.spd * 2.1 * (0.75 + 0.25 * s.morale / 100) * (s.reform ? 0.5 : 1) * (buff(s, 'march') ? (s.role === 'scout' ? 1.5 : 1.6) : 1) * ter.spd;
     if (s.state === 'rout') {
       speed *= 1.15;
       const home = nearestOwnedPost(sim, s);
@@ -467,7 +470,7 @@ export function step(sim) {
       if (s.engaged !== foe.id) contact(sim, s, foe);
       s.engaged = foe.id; s.state = 'fight'; face(s, foe); if (!s.chase) s.forced = false; continue;
     }
-    const range = RANGE * (sim.fog > 0 ? 0.6 : 1) * (ter.range || 1) * (s.side === 'def' && nearWallInside(sim.field, s.x, s.y) ? 1.2 : 1);
+    const range = RANGE * (sim.fog > 0 ? 0.6 : 1) * (sim.weather === 'storm' ? 0.8 : 1) * (ter.range || 1) * (s.side === 'def' && nearWallInside(sim.field, s.x, s.y) ? 1.2 : 1);
     if (s.ranged && foe && fd < range && (s.state !== 'move' || s.chase)) {
       face(s, foe); s.state = 'shoot';
       if (s.shootCd <= 0 && !s.reform) { shoot(sim, s, foe); s.shootCd = 1.1; }
@@ -719,6 +722,7 @@ function shoot(sim, s, foe) {
   const f = FORMATIONS[s.formation], fb = FORMATIONS[foe.formation];
   dmg *= s.atkMul * (f.ranged || 1) * (fb.arrowGuard || 1) * (0.6 + 0.4 * s.morale / 100) * 0.039;
   if (buff(foe, 'smoke')) dmg *= 0.3;
+  if (sim.weather === 'storm') dmg *= 0.75; else if (sim.weather === 'blizzard') dmg *= 0.85;
   const ts = TERRAIN[terrainAt(sim.field, s.x, s.y)], tf = TERRAIN[terrainAt(sim.field, foe.x, foe.y)];
   if (ts && ts.range > 1) dmg *= 1.2;
   if (s.side === 'def' && nearWallInside(sim.field, s.x, s.y)) dmg *= 1.3;
@@ -902,7 +906,7 @@ export function queuePoints(sim, s) {
 // ---------- network snapshot ----------
 export function snapshot(sim) {
   return {
-    t: sim.t, w: sim.winner, r: sim.retreat, fog: sim.fog,
+    t: sim.t, w: sim.winner, r: sim.retreat, fog: Math.min(sim.fog, 600), wx: sim.weather,
     p: sim.field.posts.map((p) => [p.owner, Math.round(p.prog * 100), p.by, p.fort ? p.fort.side : 0]),
     b: sim.field.blocked.slice(),
     f: sim.fires.map((f) => [+f.x.toFixed(1), +f.y.toFixed(1), +f.t.toFixed(1), f.r]),
@@ -918,7 +922,7 @@ export function snapshot(sim) {
   };
 }
 export function applySnapshot(sim, snap) {
-  sim.t = snap.t; sim.winner = snap.w; sim.retreat = snap.r; sim.fog = snap.fog || 0;
+  sim.t = snap.t; sim.winner = snap.w; sim.retreat = snap.r; sim.fog = snap.fog || 0; sim.weather = snap.wx || sim.weather || null;
   snap.p.forEach((q, i) => { const p = sim.field.posts[i]; p.owner = q[0]; p.prog = q[1] / 100; p.by = q[2]; p.fort = q[3] ? { side: q[3], t: 1 } : null; });
   sim.field.blocked = snap.b || [];
   sim.fires = (snap.f || []).map((f) => ({ x: f[0], y: f[1], t: f[2], r: f[3] }));

@@ -1,6 +1,6 @@
-// Seasons, marriages and heirs. One turn is one season; four seasons make a year.
-// Married heroes of the same realm can have a child. The child is born a year (4 seasons) after the news,
-// joins a parent's squad as a named recruit who starts stronger than ordinary soldiers, trains each season,
+// Seasons, marriages and heirs. One turn is one month; three months make a season, twelve a year.
+// Married heroes of the same realm can have a child. The child is born a year (4 months) after the news,
+// joins a parent's squad as a named recruit who starts stronger than ordinary soldiers, trains each month,
 // and when they reach Elite they come of age as a hero with a subtle mix of their parents' strengths.
 import { FACTIONS } from '../data/art.js';
 import { hero, makeHero, log, isHumanKingdom } from './world.js';
@@ -11,12 +11,19 @@ import { namesFor } from '../data/givennames.js';
 
 export const SEASONS = ['Spring', 'Summer', 'Autumn', 'Winter'];
 export const SEASON_ICON = { Spring: '🌱', Summer: '☀', Autumn: '🍂', Winter: '❄' };
-export const seasonOf = (turn) => SEASONS[(Math.max(1, turn) - 1) % 4];
-export const yearOf = (turn) => Math.floor((Math.max(1, turn) - 1) / 4) + 1;
+// one turn is one month: three months to a season, twelve to a year
+export const MONTHS_PER_SEASON = 3;
+export const seasonOf = (turn) => SEASONS[Math.floor((Math.max(1, turn) - 1) / MONTHS_PER_SEASON) % 4];
+export const yearOf = (turn) => Math.floor((Math.max(1, turn) - 1) / (MONTHS_PER_SEASON * 4)) + 1;
+export const monthOf = (turn) => ((Math.max(1, turn) - 1) % MONTHS_PER_SEASON); // 0 early, 1 mid, 2 late
+export const MONTH_NAMES = ['Early', 'Mid', 'Late'];
+export const dateOf = (turn) => `${MONTH_NAMES[monthOf(turn)]} ${seasonOf(turn).toLowerCase()}, year ${yearOf(turn)}`;
+export const shortDate = (turn) => `${seasonOf(turn).slice(0, 3)} ${['I', 'II', 'III'][monthOf(turn)]} · Y${yearOf(turn)}`;
+export const seasonStarts = (turn) => monthOf(turn) === 0;
 // harvests swell in autumn and wither in winter
 export const SEASON_FOOD = { Spring: 1, Summer: 1.1, Autumn: 1.3, Winter: 0.7 };
 export const MARRY_LEVEL = 3;
-const GESTATION = 4;
+const GESTATION = 9; // months
 const MAX_CHILDREN = 3;
 
 export function childrenOf(state, h) {
@@ -150,7 +157,7 @@ export function familyTick(state, rng, notes) {
     if (childrenOf(state, h).length >= MAX_CHILDREN) continue;
     if (rng() < 0.22) {
       h.expecting = state.turn;
-      const text = `${h.name} and ${sp.name} are expecting a child next ${seasonOf(state.turn).toLowerCase()}.`;
+      const text = `${h.name} and ${sp.name} are expecting a child, due in ${seasonOf(state.turn + GESTATION).toLowerCase()} of year ${yearOf(state.turn + GESTATION)}.`;
       log(state, text, h.kingdom, 'family');
       if (isHumanKingdom(state, h.kingdom)) notes.push({ kid: h.kingdom, kind: 'family', text });
     }
@@ -167,7 +174,7 @@ export function familyTick(state, rng, notes) {
       if (k.player >= 0) notes.push({ kid: k.id, kind: 'family', text: `${a.name} and ${b.name} fell in love and were wed.` });
     }
   }
-  // heirs train every season and come of age at Elite
+  // heirs train every month and come of age at Elite
   for (const h of state.heroes) {
     for (const ward of [false, true]) {
       const list = ward ? h.wards : h.troops;
@@ -175,7 +182,7 @@ export function familyTick(state, rng, notes) {
       for (let i = list.length - 1; i >= 0; i--) {
         const s = list[i];
         if (!s.heir) continue;
-        if (s.s < 3 && h.status === 'active') {
+        if (s.s < 3 && h.status === 'active' && state.turn % 2 === 0) {
           s.xp += 1;
           const [rx, ex] = EVOLVE_XP[s.s];
           if (!s.r && s.xp >= rx) s.r = 1;

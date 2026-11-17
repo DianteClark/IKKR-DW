@@ -1,3 +1,4 @@
+import { weatherAtId } from '../game/weather.js';
 import { autumnizeCanvas } from '../campaign/mapview.js';
 import { seasonOf } from '../game/family.js';
 import { registerScene, go, game } from '../main.js';
@@ -86,6 +87,7 @@ registerScene('battle', {
         colors: { att: A.color, def: D ? D.color : '#9aa7b8' }, control: args.control,
         garrison: b.skirmish ? { squads: 0, size: 0 } : { squads: dfd.length ? 1 : 2 + Math.min(2, t.level), size: dfd.length ? 4 + t.level * 2 : 6 + t.level * 3 },
         skirmish: !!b.skirmish,
+        weather: weatherAtId(st, b.tid),
         nemesis: Array.isArray(b.nemesis) ? b.nemesis : [], // [[attackerHeroId, defenderHeroId], …] from the campaign's grudges
         intel: hasIntel(st, A.id, b.tid),
         land: landInfo(st, b.tid),
@@ -974,7 +976,8 @@ function strengthRow(side) {
 }
 function terrainLine() {
   const t = B.sim.field.template;
-  return ({ river: 'A river cuts the field: cross at bridges and fords.', lake: 'A lake sits in the middle.', forest: 'Thick woods give cover from arrows.', pass: 'High ground: hills slow troops but favour defenders and archers.', islands: 'Islands linked by bridges.', coast: 'The sea guards one flank.', ruins: 'Old ruins dot the field.', dungeon: 'Underground halls; beware traps.' })[t] || '';
+  const wx = ({ fog: 'Thick fog: archers see less.', blizzard: 'Blizzard: troops march slowly and morale wanes.', storm: 'Storm: arrows fly short and fires sputter.', drought: 'Drought: fire spreads fast.' })[B.sim.weather] || '';
+  return (wx + ' ' + (({ river: 'A river cuts the field: cross at bridges and fords.', lake: 'A lake sits in the middle.', forest: 'Thick woods give cover from arrows.', pass: 'High ground: hills slow troops but favour defenders and archers.', islands: 'Islands linked by bridges.', coast: 'The sea guards one flank.', ruins: 'Old ruins dot the field.', dungeon: 'Underground halls; beware traps.' })[t] || '')).trim();
 }
 function allyLine(side) {
   if (!side) return null;

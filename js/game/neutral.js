@@ -12,7 +12,7 @@ export const SITES = {
   lair: { name: 'Monster Lair', verb: 'Clear', desc: 'Beasts that raid the nearby lands until someone puts an end to them.', power: [70, 170] },
   camp: { name: 'Bandit Camp', verb: 'Raid', desc: 'Cutthroats with stolen gold — and sometimes a captive worth freeing.', power: [45, 120] },
   shrine: { name: 'Shrine', verb: 'Pray', desc: 'A hero who prays here is blessed with lasting strength.', power: [0, 0] },
-  mine: { name: 'Mine', verb: 'Claim', desc: 'Held by squatters. Once claimed it pays gold every season.', power: [35, 90] },
+  mine: { name: 'Mine', verb: 'Claim', desc: 'Held by squatters. Once claimed it pays gold every month.', power: [35, 90] },
   grove: { name: 'Sacred Grove', verb: 'Rest', desc: 'Heals a squad completely and lifts their spirits.', power: [0, 0] },
 };
 export const SITE_IDS = Object.keys(SITES);
@@ -60,7 +60,7 @@ export function neutralActions(state, h) {
   if (!h || h.status !== 'active') return out;
   if (t.owner < 0) {
     out.push({ type: 'plunder', label: 'Plunder', desc: `Take ~${plunderYield(t).gold}g and ${plunderYield(t).food} food. The free folk will hate you.` });
-    out.push({ type: 'protect', label: 'Protect', desc: `Stand guard ${PROTECT_TURNS} seasons; the hamlet joins your realm peacefully.` });
+    out.push({ type: 'protect', label: 'Protect', desc: `Stand guard ${PROTECT_TURNS} months; the hamlet joins your realm peacefully.` });
   }
   for (const s of sitesIn(state, t.id)) {
     if (s.status !== 'active' && !(s.kind === 'shrine' || s.kind === 'grove')) continue;
@@ -172,7 +172,7 @@ function resolveSite(state, rng, h, s, note) {
   if (s.kind === 'ruin') { const it = giveItem(state, rng, k.id, rng.int(1, 2)); k.gold += 80; bits.push(`found ${it.name}`, '+80g'); }
   if (s.kind === 'lair') { const it = giveItem(state, rng, k.id, rng.int(1, 3)); bits.push(`slew the beasts and took ${it.name}`); for (const t of state.territories) if (t.owner < 0 && state.territories[s.tid].nb.includes(t.id)) t.favor[k.id] = (t.favor[k.id] || 0) + 15; }
   if (s.kind === 'camp') { k.gold += 140; k.food += 40; bits.push('recovered 140g and 40 food'); }
-  if (s.kind === 'mine') bits.push('claimed the mine (+35g every season)');
+  if (s.kind === 'mine') bits.push('claimed the mine (+35g every month)');
   if (guard && guard.status === 'vagabond') {
     if (rng() < 0.6) { guard.hidden = false; joinKingdom(state, guard, k.id, 60); guard.loc = h.loc; bits.push(`${guard.name}, who was hiding there, joined ${k.name}`); }
     else { guard.hidden = false; bits.push(`${guard.name} fled into the wilds`); }
