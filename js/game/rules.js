@@ -236,3 +236,14 @@ export const PROMOTE_ELITE_COST = 300;
 // legacy names still used by some UI code
 export const RANKS = [['Recruit', 'Seasoned'], ['Veteran', 'Hardened'], ['Elite', 'Elite']];
 export const RANK_XP = [EVOLVE_XP[1], EVOLVE_XP[2]];
+
+// AI ruler temperaments
+export const TEMPERS = {
+  warlike: { name: 'Warlike', desc: 'Quick to attack, slow to make peace.', aggr: 1.25, ally: -0.1, betray: 1, peace: -0.2, trade: 0.8 },
+  trader: { name: 'Trader', desc: 'Prefers trade and alliances; fights when cornered.', aggr: 0.85, ally: 0.15, betray: 0.6, peace: 0.2, trade: 1.5 },
+  cautious: { name: 'Cautious', desc: 'Strikes only with overwhelming odds; keeps its word.', aggr: 0.75, ally: 0.05, betray: 0.4, peace: 0.15, trade: 1 },
+  treacherous: { name: 'Treacherous', desc: 'Allies readily and betrays when it pays.', aggr: 1.05, ally: 0.1, betray: 2.6, peace: 0, trade: 1 },
+  zealous: { name: 'Zealous', desc: 'Holds grudges forever and hates its rivals.', aggr: 1.1, ally: -0.15, betray: 0.8, peace: -0.3, trade: 0.9 },
+};
+export const TEMPER_IDS = Object.keys(TEMPERS);
+export const temper = (k) => TEMPERS[(k && k.temper) || 'cautious'] || TEMPERS.cautious;

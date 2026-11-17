@@ -19,7 +19,7 @@ import { runAI } from '../game/ai.js';
 import { applyAction } from '../game/actions.js';
 import {
   squadCap, developCost, territoryIncome, territoryFood, heroTotals, unitName, FORMATIONS, FORMATION_IDS, HIRE_COST, isRanged, LEVEL_XP,
-  soldierStats, soldierTitle, unitLevel, TIERS, tierIndex, BUILDINGS, POLICIES, EDICTS, STRATAGEMS, PROMOTE_ELITE_COST, commandPool, recruitCost, CLASS_INFO, ROLES, ROLE_LEVEL, canLead,
+  soldierStats, soldierTitle, unitLevel, TIERS, tierIndex, BUILDINGS, POLICIES, EDICTS, STRATAGEMS, PROMOTE_ELITE_COST, commandPool, recruitCost, CLASS_INFO, ROLES, ROLE_LEVEL, canLead, TEMPERS,
 } from '../game/rules.js';
 import { SLOTS, SLOT_NAMES, itemStatText, rarityColor } from '../game/items.js';
 import { economyPreview, edictCost, canEdict, promotionStatus, loadoutOptions, loadoutSlots } from '../game/kingdom.js';
@@ -676,6 +676,7 @@ function diplomacySheet(focusKid) {
         const wl = t ? null : willingness(st, o.id, k.id, 'alliance');
         return h('div', { class: 'card col', style: { alignItems: 'stretch', borderColor: o.id === focusKid ? '#ffd86b' : undefined } },
           h('div', { class: 'row wrap', style: { gap: '6px' } }, kingdomBadge(o, { race: true }), war ? chip('At war', 'bad') : relationChip(k.id, o.id), o.kind !== 'realm' ? chip(o.kind === 'bandit' ? 'Bandits' : o.kind === 'monster' ? 'Monsters' : 'Rebels', 'bad') : null, o.player >= 0 ? chip('Player', 'blue') : null),
+          o.temper ? h('div', { style: { fontSize: '12px' } }, h('span', { class: 'gold' }, TEMPERS[o.temper].name), h('span', { class: 'muted' }, ' · ' + TEMPERS[o.temper].desc)) : null,
           h('div', { class: 'muted', style: { fontSize: '13px' } }, `${kingdomTerritories(st, o.id).length} lands · strength ${pw > 1.5 ? 'far stronger' : pw > 1.1 ? 'stronger' : pw > 0.8 ? 'even' : pw > 0.5 ? 'weaker' : 'far weaker'} · opinion ${Math.round(op)}${wl != null ? ` · ${wl > 0.5 ? 'open to an alliance' : wl > 0.3 ? 'unsure' : 'unwilling'}` : ''}`),
           acts.length ? h('div', { class: 'row wrap' }, acts) : null);
       }));

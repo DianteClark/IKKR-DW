@@ -12,7 +12,7 @@ import { actOfWar } from './diplomacy.js';
 import { makeItem, SLOTS } from './items.js';
 import {
   squadCap, recruitCost, squadPower, garrisonPower, unitLevel, HIRE_COST, EVOLVE_XP, LEVEL_XP, MAX_LEVEL,
-  newSoldier, TIERS, tierIndex, PROMOTE_ELITE_COST, STRATAGEMS, STRATAGEM_IDS, unitClass, CLASS_INFO, ROLE_LEVEL, ROLES, canLead,
+  newSoldier, TIERS, tierIndex, PROMOTE_ELITE_COST, STRATAGEMS, STRATAGEM_IDS, unitClass, CLASS_INFO, ROLE_LEVEL, ROLES, canLead, TEMPER_IDS,
 } from './rules.js';
 
 export const SIZES = {
@@ -97,6 +97,7 @@ export function newKingdom(state, rng, { fid, cap, player = -1, name, kind = 're
     buildings: {}, policy: { tax: 'normal', rations: 'normal' }, edictTurn: -1,
     troopRaces: [fid], alive: true, landless: false, player, ruler: -1, capital: cap, items: [], rel: {}, intel: {}, loadout: [],
     banner: banner || randomBanner(rng, color),
+    temper: player >= 0 ? null : TEMPER_IDS[Math.floor(rng() * TEMPER_IDS.length)],
   };
   state.kingdoms.push(k);
   if (cap != null && cap >= 0) state.territories[cap].owner = k.id;
@@ -221,6 +222,8 @@ export function createWorld(seed, players, opts = {}) {
 // older saves: give every hero a face that matches their gender
 export function fixPortraits(state) {
   for (const h of state.heroes) if (!portraitFits(h.fid, h.gender, h.portrait)) h.portrait = (h.portrait % 20) + (h.gender === 'f' ? 20 : 0);
+  // older saves: AI realms get a temperament
+  for (const k of state.kingdoms) if (k.player < 0 && !k.temper) k.temper = TEMPER_IDS[(k.id * 7 + state.seed) % TEMPER_IDS.length];
   // older saves: every realm gets a banner
   for (const k of state.kingdoms) if (!k.banner) k.banner = randomBanner(makeRng((state.seed ^ (k.id * 7919)) >>> 0), k.color);
 }

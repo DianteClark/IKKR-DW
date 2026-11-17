@@ -1,6 +1,6 @@
 // Orders for computer-run kingdoms.
 import { kingdomHeroes, kingdomTerritories, setOrder, restPrice, rngFor, powerAt, friendly, validTargets, DIFFICULTY } from './world.js';
-import { squadCap, squadPower, developCost } from './rules.js';
+import { squadCap, squadPower, developCost, temper } from './rules.js';
 import { aiWildsOrder } from './neutral.js';
 import { atWar } from './diplomacy.js';
 import { scoutLand } from './intel.js';
@@ -27,7 +27,7 @@ export function aiOrders(state, kid) {
   const items = state.items;
   const diff = DIFFICULTY[state.difficulty] || DIFFICULTY.normal;
   const raider = k.kind === 'bandit' || k.kind === 'monster';
-  const aggression = Math.min(1.4, 0.85 + state.turn * 0.02) * (0.85 + rng() * 0.3) * diff.aggr * (raider ? 1.25 : 1);
+  const aggression = Math.min(1.4, 0.85 + state.turn * 0.02) * (0.85 + rng() * 0.3) * diff.aggr * (raider ? 1.25 : temper(k).aggr);
 
   const owned = kingdomTerritories(state, kid);
   const dev = owned.filter((t) => t.level < 3).sort((a, b) => a.level - b.level)[0];
@@ -66,7 +66,7 @@ export function aiOrders(state, kid) {
       const war = ownerK && atWar(state, kid, ownerK.id);
       if (ownerK && ownerK.player >= 0 && state.turn < diff.grace && !war) continue; // grace period for new players (unless they started a war)
       const ratio = ours / Math.max(1, powerAt(state, n));
-      const grudge = ownerK ? Math.max(0, -(k.rel[ownerK.id] || 0)) / 200 : 0;
+      const grudge = ownerK ? Math.max(0, -(k.rel[ownerK.id] || 0)) / (k.temper === 'zealous' ? 100 : 200) : 0;
       const bias = (ownerK && ownerK.player >= 0 ? 0.92 : 1) * (1 + t.level * 0.05) * (1 + grudge) * (ownerK && (ownerK.kind === 'bandit' || ownerK.kind === 'monster') ? 1.1 : 1);
       // free hamlets are poor prizes early on: most realms court or guard them before conquering them
       const wild = !ownerK ? Math.min(1, 0.3 + state.turn * 0.004) : 1;

@@ -2,7 +2,7 @@
 import {
   treaty, allied, friendly, overlordOf, kingdomHeroes, kingdomTerritories, log, clamp, hero, joinKingdom, isHumanKingdom, rngFor,
 } from './world.js';
-import { squadPower, tierIndex } from './rules.js';
+import { squadPower, tierIndex, temper } from './rules.js';
 
 export const opinion = (state, a, b) => (state.kingdoms[a].rel[b] || 0);
 function bump(state, a, b, v) { const k = state.kingdoms[a]; k.rel[b] = clamp((k.rel[b] || 0) + v, -100, 100); }
@@ -33,6 +33,7 @@ export function willingness(state, to, from, type) {
   const dom = dominant(state);
   let s = 0.35 + op * 0.5;
   if (type === 'alliance') {
+    s += temper(K).ally;
     if (dom >= 0 && dom !== from && dom !== to) s += 0.3;      // band together against the giant
     if (dom === from) s -= 0.35;
     const commonFoes = Object.keys(K.rel).filter((x) => K.rel[x] < -30 && (state.kingdoms[from].rel[x] || 0) < -30).length;
@@ -46,7 +47,7 @@ export function willingness(state, to, from, type) {
     s = (ratio - 2.2) / 3 + op * 0.3 + (borders(state, from, to) ? 0.15 : -0.3);
     if (K.kind === 'bandit') s -= 0.2;
   } else if (type === 'truce') {
-    s = 0.4 + op * 0.4 + (pFrom > pTo ? 0.2 : 0);
+    s = 0.4 + op * 0.4 + (pFrom > pTo ? 0.2 : 0) + temper(K).peace;
   }
   return s;
 }
@@ -199,8 +200,8 @@ export function diplomacyTick(state, rng, notes) {
       if (k.player >= 0 || !state.treaties.includes(t)) continue;
       const age = state.turn - t.since;
       const op = k.rel[o.id] || 0;
-      if (age > 12 && op < 45 && rng() < 0.25) { breakTreaty(state, k.id, o.id); notes.push({ kid: o.id, kind: 'betrayal', text: `${k.name} ended its alliance with ${o.name}.` }); }
-      else if (borders(state, k.id, o.id) && realmPower(state, k.id) > realmPower(state, o.id) * 1.8 && op < 20 && rng() < 0.08) { breakTreaty(state, k.id, o.id); notes.push({ kid: o.id, kind: 'betrayal', text: `${k.name} betrayed its alliance with ${o.name}!` }); }
+      if (age > 12 && op < 45 && rng() < 0.25 * temper(k).betray) { breakTreaty(state, k.id, o.id); notes.push({ kid: o.id, kind: 'betrayal', text: `${k.name} ended its alliance with ${o.name}.` }); }
+      else if (borders(state, k.id, o.id) && realmPower(state, k.id) > realmPower(state, o.id) * 1.8 && op < 20 && rng() < 0.08 * temper(k).betray) { breakTreaty(state, k.id, o.id); notes.push({ kid: o.id, kind: 'betrayal', text: `${k.name} betrayed its alliance with ${o.name}!` }); }
     }
   }
   // AI diplomacy
@@ -273,7 +274,7 @@ export function offerPeace(state, from, to, gold = 0) {
   if (isHumanKingdom(state, to)) { state.proposals.push({ id: state.nextId++, from, to, type: 'peace', gold: -gold, turn: state.turn }); return 'pending'; }
   const w = (state.wars || []).find((x) => (x.a === from && x.b === to) || (x.a === to && x.b === from));
   const pT = realmPower(state, to), pF = realmPower(state, from);
-  const s = 0.35 + opinion(state, to, from) / 200 + (pF > pT ? 0.25 : -0.1) + Math.min(0.3, (state.turn - w.since) * 0.03) + gold / Math.max(200, state.kingdoms[to].gold + 200);
+  const s = 0.35 + temper(state.kingdoms[to]).peace + opinion(state, to, from) / 200 + (pF > pT ? 0.25 : -0.1) + Math.min(0.3, (state.turn - w.since) * 0.03) + gold / Math.max(200, state.kingdoms[to].gold + 200);
   if (s > 0.5 && state.kingdoms[from].gold >= gold) { state.kingdoms[from].gold -= gold; state.kingdoms[to].gold += gold; makePeace(state, from, to); return 'accepted'; }
   return 'refused';
 }
