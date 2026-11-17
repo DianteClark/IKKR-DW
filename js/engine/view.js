@@ -71,7 +71,7 @@ export function attachGestures(el, getHandler) {
   const dist = () => { const [a, b] = [...pts.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
   const mid = () => { const [a, b] = [...pts.values()]; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; };
   el.addEventListener('pointerdown', (e) => {
-    el.setPointerCapture(e.pointerId);
+    try { el.setPointerCapture(e.pointerId); } catch {}
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pts.size === 1) { moved = false; downAt = performance.now(); startX = e.clientX; startY = e.clientY; }
     if (pts.size === 2) { pinchD = dist(); lastMid = mid(); moved = true; }

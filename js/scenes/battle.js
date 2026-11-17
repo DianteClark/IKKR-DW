@@ -14,7 +14,7 @@ import { net } from '../net/net.js';
 
 const cam = new Camera();
 const B = { sim: null, ground: null, side: null, sel: null, acc: 0, render: new Map(), fx: [], seenEv: 0, paused: false, speed: 1, ended: false, started: false, colors: null, ctl: null, battle: null, state: null };
-window.__dw = Object.assign(window.__dw || {}, { B, sendCmd: (c) => send(c) });
+window.__dw = Object.assign(window.__dw || {}, { B, cam, sendCmd: (c) => send(c) });
 const SPELL_BY_ID = Object.fromEntries(SPELLS.map((s) => [s.id, s]));
 
 // args: { state, battle, control:{att,def}, me } — host/single; client gets { client:true, setup }
@@ -41,7 +41,10 @@ registerScene('battle', {
     if (B.client) B.state = args.state || null;
     B.me = args.me ?? 0;
     B.side = setup.control.att === B.me ? 'att' : setup.control.def === B.me ? 'def' : null;
-    B.colors = setup.colors;
+    B.colors = { ...setup.colors };
+    const rgb = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
+    const [a, d] = [rgb(B.colors.att), rgb(B.colors.def)];
+    if (Math.hypot(a[0] - d[0], a[1] - d[1], a[2] - d[2]) < 130) B.colors.def = a[2] > 150 ? '#f5c630' : '#3a7bf0';
     B.sim = createBattle({ ...setup, items: B.state ? B.state.items : (args.items || {}) });
     B.sim.ai = { att: setup.control.att === 'ai', def: setup.control.def === 'ai' };
     B.ground = renderGround(B.sim.field);

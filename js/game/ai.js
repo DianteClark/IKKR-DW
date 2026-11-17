@@ -49,8 +49,8 @@ export function aiOrders(state, kid) {
       const ratio = ours / Math.max(1, powerAt(state, n));
       const owner = state.territories[n].owner;
       const ownerK = owner >= 0 ? state.kingdoms[owner] : null;
-      if (ownerK && ownerK.player >= 0 && state.turn < 5) continue; // grace period for new players
-      const bias = (ownerK && ownerK.player >= 0 ? 1.05 : 1) * (1 + state.territories[n].level * 0.05);
+      if (ownerK && ownerK.player >= 0 && state.turn < 8) continue; // grace period for new players
+      const bias = (ownerK && ownerK.player >= 0 ? 0.92 : 1) * (1 + state.territories[n].level * 0.05);
       const score = ratio * bias;
       if (score > bestScore) { bestScore = score; best = n; }
     }

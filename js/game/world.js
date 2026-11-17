@@ -104,7 +104,7 @@ export function createWorld(seed, players, opts = {}) {
   }
   let colorI = 0;
   const mkKingdom = (fid, cap, player) => {
-    const k = { id: state.kingdoms.length, name: kingdomName(rng, terrs[cap].name), fid, color: KINGDOM_COLORS[colorI++ % KINGDOM_COLORS.length], gold: player >= 0 ? 600 : 500, alive: true, player, ruler: -1, capital: cap, items: [] };
+    const k = { id: state.kingdoms.length, name: kingdomName(rng, terrs[cap].name), fid, color: KINGDOM_COLORS[colorI++ % KINGDOM_COLORS.length], gold: player >= 0 ? 800 : 500, alive: true, player, ruler: -1, capital: cap, items: [] };
     state.kingdoms.push(k);
     terrs[cap].owner = k.id;
     return k;
@@ -112,7 +112,7 @@ export function createWorld(seed, players, opts = {}) {
   players.forEach((p, i) => {
     const k = mkKingdom(p.fid, starts[i], i);
     k.name = p.name || k.name;
-    terrs[starts[i]].level = 1;
+    terrs[starts[i]].level = 2;
     state.players.push({ kingdom: k.id });
   });
   for (let i = starts.length; i < capitals.length; i++) {
@@ -457,7 +457,7 @@ export function checkKingdoms(state) {
   if (owners.size === 1) {
     const w = [...owners][0];
     state.over = { winner: w };
-  } else if (!alivePlayers.length) state.over = { winner: -1 };
+  } else if (state.players.length && !alivePlayers.length) state.over = { winner: -1 };
 }
 
 // ---------- end of turn ----------
