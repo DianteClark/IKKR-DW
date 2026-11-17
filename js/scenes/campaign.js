@@ -27,6 +27,7 @@ import { alliesOf, vassalsOf, opinion, realmPower, dominant, willingness, atWar,
 import { EVENT_INFO } from '../game/events.js';
 import { captureScene, decisionScene, nemesisLine } from '../game/dialogue.js';
 import { questText, nemesisPairs } from '../game/stories.js';
+import { pendingChoice } from '../game/choices.js';
 import { renderTerrain, drawTerrain, drawOverlay, drawSites, drawTowns, drawHeroes, drawOrders, drawAnimated, drawSeason, captureFx, renderMinimap, updateMinimap, hitTest, drawLandOutline, drawGuards, setSeason, TS } from '../campaign/mapview.js';
 import { bannerEl } from '../engine/banner.js';
 import { portrait, unitIcon, itemIcon, heroCard, orderLabel, kingdomBadge, unitCard } from '../campaign/widgets.js';
@@ -90,7 +91,7 @@ registerScene('campaign', {
     else {
       persist();
       if (net.role === 'single' && S.state.turn === 1 && !S.state.introShown) intro();
-      else banner(`${seasonOf(S.state.turn)}, Year ${yearOf(S.state.turn)}`, 'blue', myK().name);
+      else { banner(`${seasonOf(S.state.turn)}, Year ${yearOf(S.state.turn)}`, 'blue', myK().name); setTimeout(showChoice, 1200); }
     }
   },
   exit() { net.onState = null; },
@@ -923,7 +924,24 @@ export function showTurnSummary(prevTurn, reports, summary = { events: [], notes
     if (captivesOf(st, myKid).length && (reports || []).some((r) => r.captured.length)) showCaptives();
     else if (st.proposals.some((p) => p.to === myKid)) diplomacySheet();
     nameBirths();
+    setTimeout(showChoice, 400);
   }, 'primary']], { width: '680px' });
+}
+
+// a decision for your realm (events with choices)
+export function showChoice() {
+  const st = S.state, k = myK();
+  const c = pendingChoice(st, k.id);
+  if (!c || document.querySelector('.modal')) return;
+  sfx('alert');
+  const body = h('div', { class: 'col' },
+    h('div', {}, c.text),
+    h('div', { class: 'col', style: { gap: '6px' } }, c.opts.map((o, i) => h('div', { class: 'card tap', style: { padding: '6px 10px', justifyContent: 'space-between' }, onClick: () => {
+      mm.close();
+      const r = act({ type: 'choose', opt: i });
+      sfx('click'); if (typeof r === 'string') toast(r, 'gold'); refreshUI();
+    } }, h('b', {}, o.label), o.hint ? h('span', { class: 'muted', style: { fontSize: '12px' } }, o.hint) : null))));
+  const mm = modal(c.title, body, [['Decide later']], { width: '600px' });
 }
 
 // a child was born in your realm: boy or girl, then a name

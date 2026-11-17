@@ -5,6 +5,7 @@ import { economyTick, aiDevelop, autoPromote } from './kingdom.js';
 import { familyTick } from './family.js';
 import { neutralTick } from './neutral.js';
 import { storyTick } from './stories.js';
+import { choiceTick } from './choices.js';
 import { worldEvents, vagabondTick, decayMarks } from './events.js';
 import { diplomacyTick } from './diplomacy.js';
 import { TIERS, tierIndex } from './rules.js';
@@ -34,6 +35,7 @@ export function endTurn(state) {
   familyTick(state, rng, notes);
   neutralTick(state, rng, notes);
   storyTick(state, rng);
+  choiceTick(state, rng);
   const events = worldEvents(state, rng);
   diplomacyTick(state, rng, notes);
   // realms with land but no heroes raise a champion; AI realms grow
