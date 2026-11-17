@@ -70,7 +70,10 @@ export function aiOrders(state, kid) {
       const bias = (ownerK && ownerK.player >= 0 ? 0.92 : 1) * (1 + t.level * 0.05) * (1 + grudge) * (ownerK && (ownerK.kind === 'bandit' || ownerK.kind === 'monster') ? 1.1 : 1);
       // free hamlets are poor prizes early on: most realms court or guard them before conquering them
       const wild = !ownerK ? Math.min(1, 0.3 + state.turn * 0.004) : 1;
-      const score = ratio * bias * wild * (war ? 1.6 : 1);
+      // after the grace period, realms grow bold against a player only gradually
+      const since = state.turn - diff.grace;
+      const wary = ownerK && ownerK.player >= 0 && !war ? 1 + (diff.wary - 1) * Math.max(0, 1 - since / diff.ramp) : 1;
+      const score = ratio * bias * wild * (war ? 1.6 : 1) / wary;
       if (score > bestScore) { bestScore = score; best = n; }
     }
     let attackers = group;

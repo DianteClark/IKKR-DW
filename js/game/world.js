@@ -22,7 +22,12 @@ export const SIZES = {
   huge: { territories: 150, kingdoms: 40, label: 'Huge' },
   enormous: { territories: 300, kingdoms: 72, label: 'Enormous' },
 };
-export const DIFFICULTY = { easy: { aggr: 0.8, bonus: 0.85, grace: 20 }, normal: { aggr: 1, bonus: 1, grace: 12 }, hard: { aggr: 1.2, bonus: 1.2, grace: 7 } };
+// keys stay easy/normal/hard for old saves; shown as Story / Normal / Brutal
+export const DIFFICULTY = {
+  easy: { label: 'Story', aggr: 0.75, bonus: 0.8, grace: 24, wary: 2.0, ramp: 16 },
+  normal: { label: 'Normal', aggr: 1, bonus: 1, grace: 16, wary: 1.6, ramp: 10 },
+  hard: { label: 'Brutal', aggr: 1.25, bonus: 1.2, grace: 7, wary: 1.0, ramp: 1 },
+};
 export const TRAITS = ['loyal', 'proud', 'cunning', 'honorable', 'greedy', 'fierce', 'calm', 'ambitious'];
 
 const DMG_SPELLS = SPELLS.filter((s) => s.kind === 'damage').map((s) => s.id);

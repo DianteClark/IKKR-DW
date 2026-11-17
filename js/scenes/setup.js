@@ -54,7 +54,7 @@ export function newGameOptions(onDone, onBack, opts = {}) {
       h('div', { class: 'scroll grow col', style: { minHeight: 0 } },
         h('h3', {}, 'World size'), cards,
         h('h3', {}, 'Rival difficulty'),
-        h('div', { class: 'row wrap' }, segmented([{ value: 'easy', label: 'Easy' }, { value: 'normal', label: 'Normal' }, { value: 'hard', label: 'Hard' }], difficulty, (v) => (difficulty = v)),
+        h('div', { class: 'row wrap' }, segmented([{ value: 'easy', label: 'Story' }, { value: 'normal', label: 'Normal' }, { value: 'hard', label: 'Brutal' }], difficulty, (v) => (difficulty = v)),
           h('span', { class: 'muted small-text' }, 'Affects how bold and well-funded rival realms are.')))));
 }
 
