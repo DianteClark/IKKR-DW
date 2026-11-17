@@ -4,24 +4,26 @@ A mobile-first browser strategy game: conquer a world of rival kingdoms with her
 
 **Play:** https://dianteclark.github.io/IKKR-DW/
 
-- **Campaign:** four world sizes (24 to 100 lands, including an island archipelago crossed by ship), every HAS biome, rivers, roads, farms and landmarks. Many kingdoms of 10 races, with several of the same race competing.
-- **Realm management:** realm-wide gold, food, morale and stability. Set taxes and rations, issue one edict per turn, and grow from Village to Kingdom to Empire to unlock troop tiers, buildings (Training Pits, Spy Network, War Academy, Granaries, War Council) and stratagems.
-- **Living world:** earthquakes, wildfires, plague, floods, harvests, gold strikes, famine, bandit tribes, monster outbreaks, civil uprisings, and revolutions that can overthrow a ruler.
-- **Diplomacy:** alliances (player-to-player too), vassals who submit out of fear, coalitions against whoever dominates, and lending heroes to allies. Disloyal heroes may defect or secretly turn on you in battle.
-- **Heroes and troops:** any troop type your realm can raise, with bonuses when a hero leads their own race or fights beside kin. Squads grow from 5 to about 40 as heroes level. Soldiers evolve from Recruit to Veteran to a named Elite, who can be raised to hero.
-- **Battles:** real time, seen from above, on handcrafted-style battlefields (plains, river crossings, mountain passes, forests, lakes, coasts, ruins, walled sieges, dungeon halls). Formations counter each other and take time to change. Bring up to 3–4 stratagems per battle (Ambush, Fire Attack, Rockslide, Sow Discord…). Routes can flood, collapse or burn mid-battle. Before each battle you see the odds, which are exact only if you spied first.
-- **Prisoners:** recruit, release or execute, with dialogue. You lose only when your last hero falls; a landless warband can rise up and take land again.
-- **Two players:** peer-to-peer campaigns with room codes (PeerJS). Win alone or as an alliance, but only if you proposed most of your own alliances.
-- **Sound:** generated retro sound effects and music.
+- **World:** five sizes, from Small (24 lands) to Enormous (320 lands: two continents of 70+ lands, archipelagos joined by bridges and sea lanes). Hand-crafted-looking maps from every HAS biome: dense forests, mountain ranges along frontiers, rivers that rise in the mountains, roads between settlements, smooth realm borders, seasons on the map, a minimap and heroes walking the roads.
+- **From village to empire:** most realms start as a one-land village with 3 heroes; a few great kingdoms start with 5. Settlements grow from huts to houses to walled towns to castles. Gather 5 heroes and your village becomes a kingdom.
+- **The wilds:** about a third of the world starts free. Claim hamlets by force, plunder them, or protect them until they join you. Explore ruins, clear monster lairs and bandit camps, pray at shrines, claim mines, rest in groves, and court wanderers hiding in the wilds.
+- **Seasons and dynasties:** each turn is a season. Heroes marry, children are born a year later, train in a parent's squad and come of age as heroes with a blend of their parents' strengths.
+- **Realm management:** gold, food (harvests change with the season), morale and stability; taxes, rations, edicts; buildings including Stables (mounted troops ride two lands a season), Aerie (flyers cross the sea), Mage Tower, Beast Pit and Harbour (sea lanes).
+- **Heroes and troops:** any troop your realm can raise, with race bonuses. Squads grow from 5 to about 45. Soldiers evolve into named Elites. At level 5 a hero picks a calling: Commander, Duelist, Strategist or Scout.
+- **Living world:** quakes, wildfires, plague, floods, harvests, famine, bandits, monster outbreaks, raids from wild lairs, revolts and overthrows.
+- **Diplomacy:** alliances (player-to-player too), vassals, coalitions, lending heroes, defection and battlefield treachery.
+- **Battles:** real time from above. Orders are always obeyed; tap or drag to command, select all or box-select, see each route. Formations, stratagems, hero duels, collapsing roads and floods, sieges and island battles.
+- **Saves:** every campaign has a campaign code and saves each season. Back up and import campaigns. Two-player campaigns are saved on both phones with private seat keys; either player can host the resume.
+- **Two players:** peer-to-peer campaigns with room codes (PeerJS).
 
 Built for phones in landscape. Plain JavaScript + canvas, no build step: open `index.html` through any static server.
 
 ## How to play
-- **Campaign:** tap your town, then give each hero an order: Attack a neighbour, Move, Rest (heal + morale), Drill (morale + troop XP) or Recruit (refill the squad with fresh stage-1 soldiers). Develop towns for more income. Hire wandering heroes found in your lands. End the turn when ready.
-- **Battles:** tap a squad, then tap a post to march there or an enemy squad to attack it. Change formation from the bar at the bottom. ★ appears on a hero when their special is charged. Attackers win by taking the main post; defenders win by routing the attackers or holding out until the timer ends.
+- **Campaign:** tap a land, then give each hero an order: Attack, Move, Rest (heal and recruit), Drill, Spy, or in the wilds Plunder, Protect, Explore a site or Court a wanderer. Develop towns, build, hire wanderers. End the turn when ready.
+- **Battles:** tap a squad (or All, or Box and drag), then tap a base to march there or an enemy squad to attack it; or drag from a squad to where it should go. Change formation from the bar at the bottom. ★ appears on a hero when their special is charged. Attackers win by taking the main post; defenders win by routing the attackers or holding out until the timer ends.
 - **Formations:** Wedge beats Line, Line beats Square, Square beats Wedge. Loose is fast and takes less damage from arrows.
 - **Prisoners:** recruit, release (they wander, may join others or start an uprising) or execute.
-- **Multiplayer:** one player taps Multiplayer → Host and shares the 5-letter code; the other enters it and taps Join. Both pick a people and 2–3 heroes. Each player taps End Turn; the host's device runs the AI and the battles. Needs an internet connection (PeerJS broker).
+- **Multiplayer:** one player taps Multiplayer → Host and shares the 5-letter code; the other enters it and taps Join. Both pick a people and 3 heroes. To resume, either player opens Continue → Host & resume; the other joins with the room code. Each player taps End Turn; the host's device runs the AI and the battles. Needs an internet connection (PeerJS broker).
 
 ## Project layout
 - `js/game/` campaign rules, world generation, AI, items, save

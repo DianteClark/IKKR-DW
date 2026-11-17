@@ -19,7 +19,7 @@ export const SIZES = {
   huge: { territories: 150, kingdoms: 40, label: 'Huge' },
   enormous: { territories: 300, kingdoms: 72, label: 'Enormous' },
 };
-export const DIFFICULTY = { easy: { aggr: 0.8, bonus: 0.85, grace: 12 }, normal: { aggr: 1, bonus: 1, grace: 8 }, hard: { aggr: 1.2, bonus: 1.2, grace: 5 } };
+export const DIFFICULTY = { easy: { aggr: 0.8, bonus: 0.85, grace: 20 }, normal: { aggr: 1, bonus: 1, grace: 12 }, hard: { aggr: 1.2, bonus: 1.2, grace: 7 } };
 export const TRAITS = ['loyal', 'proud', 'cunning', 'honorable', 'greedy', 'fierce', 'calm', 'ambitious'];
 
 const DMG_SPELLS = SPELLS.filter((s) => s.kind === 'damage').map((s) => s.id);
