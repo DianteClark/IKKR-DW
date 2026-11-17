@@ -26,6 +26,56 @@ const BY_BIOME = {
   lava: ['pass', 'plains', 'ruins'],
 };
 
+// the battlefield follows the land where the battle is fought: its water, woods and heights
+function pickTemplate(rng, biome, land) {
+  const fits = BY_BIOME[biome] || ['plains'];
+  if (!land) return rng.pick(fits);
+  const want = [];
+  if (land.island) want.push('islands');
+  if (land.river) want.push('river');
+  if (land.lake) want.push('lake');
+  if (land.coast && fits.includes('coast')) want.push('coast');
+  if (land.mtn > 0.16) want.push('pass');
+  if (land.forest > 0.28 && BIOMES[biome] && BIOMES[biome].tree) want.push('forest');
+  if (land.sites && land.sites.includes('ruin')) want.push('ruins');
+  const ok = want.filter((t) => t === 'coast' || t === 'pass' || t === 'forest' || t === 'ruins' || fits.includes(t) || t === 'river' || t === 'lake');
+  if (ok.length && rng() < 0.85) return ok[0];
+  return fits.includes('plains') ? 'plains' : rng.pick(fits);
+}
+
+// ---------------- battlefield terrain ----------------
+// codes: 0 open, 1 forest, 2 hills, 3 water, 4 ford, 5 mud, 6 wall, 7 bridge
+export const TERRAIN = [
+  { name: 'Open ground', spd: 1 },
+  { name: 'Forest', spd: 0.72, cover: 0.6, tip: 'slow · cover from arrows' },
+  { name: 'Hills', spd: 0.62, def: 1.25, range: 1.25, tip: 'slow · +defence · archers shoot farther' },
+  { name: 'Water', spd: 0.35 },
+  { name: 'Ford', spd: 0.6, tip: 'shallow crossing · slow' },
+  { name: 'Mud', spd: 0.78, tip: 'boggy ground · slow' },
+  { name: 'Wall', spd: 1 },
+  { name: 'Bridge', spd: 1, tip: 'a narrow crossing' },
+];
+export function terrainAt(F, x, y) {
+  const G = F._grid; if (!G || !G.terr) return 0;
+  const cx = Math.floor(x), cy = Math.floor(y);
+  if (cx < 0 || cy < 0 || cx >= F.W || cy >= F.H) return 0;
+  return G.terr[cy * F.W + cx];
+}
+export function passable(F, x, y) { const t = terrainAt(F, x, y); return t !== 3 && t !== 6; }
+// closest point on an open road to (x, y)
+export function nearestRoadPoint(F, x, y) {
+  let best = null;
+  F.edges.forEach(([a, b], ei) => {
+    if (F.blocked && F.blocked.includes(ei)) return;
+    const A = F.posts[a], Bp = F.posts[b];
+    const dx = Bp.x - A.x, dy = Bp.y - A.y, L = dx * dx + dy * dy || 1;
+    const t = Math.max(0, Math.min(1, ((x - A.x) * dx + (y - A.y) * dy) / L));
+    const px = A.x + dx * t, py = A.y + dy * t, d = Math.hypot(px - x, py - y);
+    if (!best || d < best.d) best = { edge: ei, a, b, t, x: px, y: py, d };
+  });
+  return best;
+}
+
 const segDist = (px, py, ax, ay, bx, by) => {
   const dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy || 1;
   const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / L));
@@ -37,7 +87,7 @@ export function makeField(seed, biome, nOutposts = 5, opts = {}) {
   const noise = makeNoise(seed ^ 0x99);
   const [W, H] = FIELD_SIZES[opts.size] || FIELD_SIZES.standard;
   const underground = UNDERGROUND.has(biome);
-  let template = opts.template || (underground ? 'dungeon' : rng.pick(BY_BIOME[biome] || ['plains']));
+  let template = opts.template || (underground ? 'dungeon' : pickTemplate(rng, biome, opts.land));
   if (template === 'forest' && !(BIOMES[biome] && BIOMES[biome].tree)) template = 'plains';
   const siege = !!opts.siege && template !== 'dungeon';
   const n = Math.max(3, Math.min(8, nOutposts + (opts.size === 'grand' ? 2 : opts.size === 'skirmish' ? -1 : 0)));
@@ -190,7 +240,8 @@ export function makeField(seed, biome, nOutposts = 5, opts = {}) {
       // void everywhere except rooms/corridors
       if (c > 1.2) voidc[i] = 1;
     } else {
-      if (c > (template === 'islands' ? 1.6 : 2.4) && fv > (template === 'plains' ? 0.56 : 0.6)) feat[i] = 1;
+      const fTh = (template === 'plains' ? 0.56 : 0.6) - (opts.land ? Math.max(-0.08, Math.min(0.14, (opts.land.forest - 0.2) * 0.5)) : 0);
+      if (c > (template === 'islands' ? 1.6 : 2.4) && fv > fTh) feat[i] = 1;
       else if ((c > 3.4 && fv < 0.2 && (y < 4 || y > H - 5 || x > W - 10 || x < 8)) || (c > 3.8 && fv < 0.25)) feat[i] = 2;
     }
   }
@@ -237,7 +288,7 @@ export function makeField(seed, biome, nOutposts = 5, opts = {}) {
     if (wet.length) {
       const i0 = cells.indexOf(wet[0]), i1 = cells.indexOf(wet[wet.length - 1]);
       wet = cells.slice(Math.max(0, i0 - 1), Math.min(cells.length, i1 + 2));
-      const kind = template === 'river' && rng.chance(0.35) ? 'ford' : 'bridge';
+      const kind = template === 'river' && rng.chance(0.45) ? 'ford' : 'bridge';
       if (e[2].kind !== 'gate') e[2].kind = kind;
       crossings.push({ edge: ei, cells: wet, kind, horiz: Math.abs(Bp.x - A.x) >= Math.abs(Bp.y - A.y) });
     } else if (template === 'dungeon') e[2].kind = 'tunnel';
@@ -318,8 +369,29 @@ export function makeField(seed, biome, nOutposts = 5, opts = {}) {
     else if (rng() < 0.01) decor.push({ x, y, d: 'log' });
   }
 
-  return { seed, biome, W, H, posts: P, edges, traps, underground, template, eventSpots, blocked: [], siege,
-    _grid: { water, feat, voidc, wall, corridor, gates, crossings, props, anim, decor } };
+  // terrain grid: what the units feel matches what is drawn
+  const terr = new Uint8Array(N);
+  const marshy = biome === 'marsh' || biome === 'deepmarsh';
+  for (let i = 0; i < N; i++) {
+    if (wall[i] === 1) terr[i] = 6;
+    else if (water[i]) terr[i] = 3;
+    else if (feat[i] === 1) terr[i] = 1;
+    else if (feat[i] === 2) terr[i] = 2;
+    else if (marshy && corridor[i] > 1.2) {
+      const x = i % W, y = (i / W) | 0;
+      let wet = false; for (let dy = -2; dy <= 2 && !wet; dy++) for (let dx = -2; dx <= 2; dx++) { const j = (y + dy) * W + x + dx; if (j >= 0 && j < N && water[j]) { wet = true; break; } }
+      if (wet || fNoise(x / 4 + 9, y / 4, 2) > 0.62) terr[i] = 5;
+    }
+  }
+  for (const cr of crossings) for (const i of cr.cells) {
+    const code = cr.kind === 'ford' ? 4 : 7;
+    const x = i % W, y = (i / W) | 0;
+    // a crossing is three cells wide so a squad never gets pinned beside the bridge
+    for (const [dx, dy] of cr.horiz ? [[0, 0], [0, -1], [0, 1]] : [[0, 0], [-1, 0], [1, 0]]) { const j = (y + dy) * W + x + dx; if (j >= 0 && j < N && (terr[j] === 3 || j === i)) terr[j] = code; }
+  }
+  for (const g of gates) terr[g.y * W + g.x] = 0;
+  return { seed, biome, W, H, posts: P, edges, traps, underground, template, eventSpots, blocked: [], siege, land: opts.land || null,
+    _grid: { water, feat, voidc, wall, corridor, gates, crossings, props, anim, decor, terr } };
 }
 
 function connected(n, edges) {
