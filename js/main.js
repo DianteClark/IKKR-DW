@@ -1,0 +1,63 @@
+import { resize, attachGestures, canvas, ctx, screen } from './engine/view.js';
+import { loadAll } from './engine/assets.js';
+import { allArt } from './data/art.js';
+import { SPELLS } from './data/spells.js';
+import { clearUI } from './engine/ui.js';
+
+// Scene manager. A scene has: enter(args), exit(), update(dt), render(), and optional gesture handlers.
+const scenes = {};
+export const game = { scene: null, time: 0 };
+
+export function registerScene(name, scene) { scenes[name] = scene; }
+
+export function go(name, args) {
+  if (game.scene && game.scene.exit) game.scene.exit();
+  clearUI();
+  game.scene = scenes[name];
+  game.sceneName = name;
+  if (game.scene.enter) game.scene.enter(args || {});
+}
+
+function frame(now) {
+  const dt = Math.min(0.05, (now - (frame.last || now)) / 1000);
+  frame.last = now;
+  game.time += dt;
+  const s = game.scene;
+  if (s) {
+    if (s.update) s.update(dt);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#14121c';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    if (s.render) s.render();
+  }
+  requestAnimationFrame(frame);
+}
+
+async function boot() {
+  resize();
+  window.addEventListener('resize', () => { resize(); game.scene && game.scene.onResize && game.scene.onResize(); });
+  attachGestures(canvas, () => game.scene);
+  const bootEl = document.getElementById('boot');
+  const list = [...allArt(), ...SPELLS.map((s) => s.src)];
+  await document.fonts.load('16px MiKroll').catch(() => {});
+  await loadAll(list, (p) => { bootEl.textContent = `Loading art… ${Math.round(p * 100)}%`; });
+  bootEl.classList.add('hidden');
+  // scenes register themselves on import
+  await import('./scenes/title.js');
+  await import('./scenes/setup.js');
+  await import('./scenes/campaign.js');
+  await import('./scenes/battle.js');
+  await import('./scenes/lobby.js');
+  go('title');
+  requestAnimationFrame(frame);
+}
+
+// keep the screen awake / fullscreen on first touch (best effort on mobile)
+document.addEventListener('pointerdown', () => {
+  const d = document.documentElement;
+  if (!document.fullscreenElement && d.requestFullscreen && matchMedia('(pointer:coarse)').matches) {
+    d.requestFullscreen({ navigationUI: 'hide' }).then(() => window.screen.orientation && window.screen.orientation.lock && window.screen.orientation.lock('landscape').catch(() => {})).catch(() => {});
+  }
+}, { once: true });
+
+boot();

@@ -1,0 +1,9 @@
+{
+  "name": "IKKR Dynasty Wars",
+  "short_name": "Dynasty Wars",
+  "start_url": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#14121c",
+  "theme_color": "#14121c"
+}

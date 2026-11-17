@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#14121c">
+<title>IKKR Dynasty Wars</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<canvas id="view"></canvas>
+<div id="ui"></div>
+<div id="rotate">
+  <div class="rotate-card">
+    <div class="rotate-phone"></div>
+    <p>Turn your phone sideways to play</p>
+  </div>
+</div>
+<div id="boot">Loading…</div>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js" defer></script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
