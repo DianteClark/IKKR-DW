@@ -373,7 +373,12 @@ export function generateTerrain(seed, opts) {
   while (fr.length) { const nf = []; for (const j of fr) { const x = j % W, y = (j / W) | 0; for (const [dx, dy] of DIRS4) { const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue; const k = ny * W + nx; if (dist[k] > dist[j] + 1) { dist[k] = dist[j] + 1; nf.push(k); } } } fr = nf; }
   const height = new Float32Array(N);
   const nMeander = makeNoise(seed ^ 0x8888);
-  for (let i = 0; i < N; i++) height[i] = dist[i] * 0.8 + nMtn((i % W) / 9, ((i / W) | 0) / 9, 3) * 6 + nMeander((i % W) / 4, ((i / W) | 0) / 4, 2) * 7;
+  // high ground = far from the sea + the same ridges the mountain ranges follow, so rivers rise in the mountains
+  for (let i = 0; i < N; i++) {
+    const x = i % W, y = (i / W) | 0;
+    const ridge = 1 - Math.abs(2 * nMtn(x / 11, y / 11, 3) - 1);
+    height[i] = dist[i] * 0.8 + ridge * 12 + nMeander(x / 4, y / 4, 2) * 7;
+  }
   const river = new Uint8Array(N);
   const rivers = [];
   const nRivers = cfg.rivers || 3;
@@ -446,7 +451,7 @@ export function generateTerrain(seed, opts) {
       if (!land[k]) return Infinity;
       if (occ[k] === 1) return Infinity;
       if (road[k]) return 0.35;
-      return 1 + (feat[k] === 2 ? 9 : feat[k] === 1 ? 2.5 : 0) + (river[k] ? 5 : 0) + (dist[k] < 2 ? 0.6 : 0);
+      return 1 + (feat[k] === 2 ? 9 : feat[k] === 1 ? 2.5 : 0) + (river[k] ? 18 : 0) + (dist[k] < 2 ? 0.6 : 0);
     }, bb);
     if (path) { for (const k of path) { road[k] = 1; if (feat[k]) feat[k] = 0; if (!occ[k]) occ[k] = 2; } roadPaths.set(Math.min(ta, tb) + ':' + Math.max(ta, tb), path); }
   }
