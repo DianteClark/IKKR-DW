@@ -266,10 +266,10 @@ export function refreshUI() {
     h('span', { class: 'chip row tap', style: { gap: '5px', maxWidth: '26vw', minWidth: 0, flexShrink: 1 }, onClick: realmSheet },
       bannerIcon(k), h('span', { class: 'ellipsis' }, k.landless ? 'Warband of ' + (hero(st, k.ruler) || {}).name : k.name),
       h('span', { class: 'tag gold' }, k.landless ? 'Landless' : TIERS[tierIndex(k)].name)),
-    h('span', { class: 'chip gold', title: 'Gold' }, `${k.gold}g `, h('small', { class: eco.gold >= 0 ? 'good' : 'bad' }, sign(eco.gold))),
-    h('span', { class: 'chip', title: 'Food' }, `🌾${Math.round(k.food)} `, h('small', { class: eco.food >= 0 ? 'good' : 'bad' }, sign(eco.food))),
-    h('span', { class: 'chip ' + (k.morale < 35 ? 'bad' : ''), title: 'Morale' }, `☺${Math.round(k.morale)}`),
-    h('span', { class: 'chip ' + (k.stability < 30 ? 'bad' : ''), title: 'Stability' }, `⚖${Math.round(k.stability)}`),
+    h('span', { class: 'chip gold tap', title: 'Gold', onClick: () => economySheet('gold') }, `${k.gold}g `, h('small', { class: eco.gold >= 0 ? 'good' : 'bad' }, sign(eco.gold))),
+    h('span', { class: 'chip tap', title: 'Food', onClick: () => economySheet('food') }, `🌾${Math.round(k.food)} `, h('small', { class: eco.food >= 0 ? 'good' : 'bad' }, sign(eco.food))),
+    h('span', { class: 'chip tap ' + (k.morale < 35 ? 'bad' : ''), title: 'Morale', onClick: () => economySheet('morale') }, `☺${Math.round(k.morale)}`),
+    h('span', { class: 'chip tap ' + (k.stability < 30 ? 'bad' : ''), title: 'Stability', onClick: () => economySheet('stability') }, `⚖${Math.round(k.stability)}`),
     h('span', { class: 'chip muted', title: `${seasonOf(st.turn)}, year ${yearOf(st.turn)}` }, `${seasonOf(st.turn).slice(0, 3)} Y${yearOf(st.turn)}`),
     h('span', { class: 'grow' }),
     btn('☰', menu, 'small'),
@@ -602,6 +602,53 @@ function heroesList() {
     else mm = sheet(`Your heroes (${all.length}) · ${totalTroops(st, k.id)} troops`, body, [], { side: 'right' });
   };
   render();
+}
+
+// ---------- economy breakdown: why each number moves this season ----------
+function economySheet(focusOn = 'gold') {
+  const st = S.state, k = myK(), e = economyPreview(st, k);
+  const line = (label, val, cls = '') => h('div', { class: 'eco-line' }, h('span', { class: 'grow' }, label), h('b', { class: cls }, val));
+  const sgn = (n) => (n > 0 ? '+' : '') + (Math.round(n * 10) / 10);
+  const pct = (f) => (f >= 1 ? '+' : '') + Math.round((f - 1) * 100) + '%';
+  const mines = (st.sites || []).filter((x) => x.kind === 'mine' && x.status === 'claimed' && x.owner === k.id).length;
+  const lands = kingdomTerritories(st, k.id).sort((a, b) => territoryIncome(b) - territoryIncome(a));
+  const tax = POLICIES.tax[k.policy.tax], rat = POLICIES.rations[k.policy.rations];
+  const driftM = (55 - k.morale) * 0.08, driftS = (55 - k.stability) * 0.06;
+  const section = (id, title, total, lines) => h('div', { class: 'card col eco-sec' + (focusOn === id ? ' on' : ''), style: { alignItems: 'stretch', gap: '2px' } },
+    h('div', { class: 'row' }, h('b', { class: 'grow' }, title), h('b', { class: total >= 0 ? 'good' : 'bad' }, sgn(total) + ' / season')), ...lines);
+  const body = h('div', { class: 'col' },
+    section('gold', 'Gold', e.gold + mines * 35, [
+      line(`${lands.length} land${lands.length === 1 ? '' : 's'}`, `+${e.landGold}`),
+      e.taxGold !== 1 ? line(`${tax.name} taxes`, pct(e.taxGold), e.taxGold > 1 ? 'good' : 'bad') : null,
+      mines ? line(`${mines} claimed mine${mines > 1 ? 's' : ''}`, `+${mines * 35}`, 'good') : null,
+      e.tributeIn ? line('Tribute from vassals', `+${e.tributeIn}`, 'good') : null,
+      e.tributeOut ? line('Tribute to your overlord', `−${e.tributeOut}`, 'bad') : null,
+      lands.length > 1 ? h('div', { class: 'muted', style: { fontSize: '12px' } }, 'Richest: ' + lands.slice(0, 3).map((t) => `${t.name} ${territoryIncome(t)}g`).join(' · ')) : null,
+      e.ruined ? h('div', { class: 'bad', style: { fontSize: '12px' } }, `${e.ruined} sacked land${e.ruined > 1 ? 's' : ''} earn less until rebuilt.`) : null,
+    ]),
+    section('food', 'Food', e.food, [
+      line('Harvest from your lands', `+${e.landFood}`),
+      e.granary ? line('Granaries', '+25%', 'good') : null,
+      e.seasonFood !== 1 ? line(`${e.season} harvest`, pct(e.seasonFood), e.seasonFood >= 1 ? 'good' : 'bad') : null,
+      line(`${e.soldiers} soldiers and ${e.heroCount} heroes eat`, `−${e.foodEaten}`, 'bad'),
+      e.rationFood !== 1 ? line(`${rat.name} rations`, pct(e.rationFood), e.rationFood < 1 ? 'good' : 'bad') : null,
+      k.food + e.food < 0 ? h('div', { class: 'bad', style: { fontSize: '12px' } }, 'Stores will run out: famine makes soldiers desert. Cut rations, rest fewer troops or take farmland.') : null,
+    ]),
+    section('morale', 'Morale', driftM + e.morale - (k.landless ? 1 : 0), [
+      line('Settles toward 55', sgn(driftM)),
+      tax.morale ? line(`${tax.name} taxes`, sgn(tax.morale), tax.morale > 0 ? 'good' : 'bad') : null,
+      rat.morale ? line(`${rat.name} rations`, sgn(rat.morale), rat.morale > 0 ? 'good' : 'bad') : null,
+      k.landless ? line('Wandering without land', '−1', 'bad') : null,
+      h('div', { class: 'muted', style: { fontSize: '12px' } }, 'Victories, festivals and feasts raise it; defeats, famine and plunder lower it. Heroes fight with the realm\'s morale.'),
+    ]),
+    section('stability', 'Stability', driftS + e.stability - e.ruined * 1.5, [
+      line('Settles toward 55', sgn(driftS)),
+      tax.stability ? line(`${tax.name} taxes`, sgn(tax.stability), tax.stability > 0 ? 'good' : 'bad') : null,
+      e.ruined ? line(`${e.ruined} sacked land${e.ruined > 1 ? 's' : ''}`, sgn(-e.ruined * 1.5), 'bad') : null,
+      h('div', { class: 'muted', style: { fontSize: '12px' } }, k.stability < 22 ? 'Danger: below 22 the people may revolt.' : 'Below 22 revolts break out; below 10 the ruler can be overthrown.'),
+    ]),
+    btn('Taxes, rations and edicts…', () => { mm.close(); realmSheet(); }, 'small'));
+  const mm = sheet('Your economy this season', body, [], { side: 'right' });
 }
 
 // ---------- realm management ----------
