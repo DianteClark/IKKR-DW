@@ -119,6 +119,7 @@ export function heroPicker(state, playerIdx, onConfirm, opts = {}) {
     h('div', { class: 'panel col grow', style: { minHeight: 0 } },
       header(opts.title || 'Choose 3 heroes', 3, 3, opts.back, h('div', { class: 'row' }, info, go2)),
       h('div', { class: 'muted small-text' }, `${FACTIONS[k.fid].name} · your village at ${t.name}. The first hero you pick becomes your ruler. Gather 5 heroes and the village becomes a kingdom.`),
+      h('div', { class: 'stat-legend' }, h('b', {}, 'ATK'), ' attack · ', h('b', {}, 'DEF'), ' defence · ', h('b', {}, 'LEAD'), ' squad size · ', h('b', {}, 'INT'), ' stratagems & specials · ', h('b', {}, 'SQD'), ' soldiers now / most they can lead'),
       h('div', { class: 'scroll grow', style: { minHeight: 0, marginTop: '6px' } }, cont)));
 }
 

@@ -402,3 +402,11 @@ body.side-open #toasts { left: calc(26vw + 6px); max-width: 48vw; }
 .recap { gap: 6px; min-width: min(78vw, 420px); }
 .recap-row { gap: 6px; font-size: 14px; align-items: center; }
 .recap-row .swatch { width: 10px; height: 10px; }
+
+/* title: small menu buttons in a tidy grid so labels always fit */
+.menu-mini { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.menu-mini .btn { font-size: 14px; padding-left: 4px; padding-right: 4px; white-space: nowrap; min-width: 0; }
+.menu-mini .wide { grid-column: 1 / -1; }
+.howto-line { background: rgba(255,255,255,.04); border-left: 3px solid var(--gold); padding: 6px 10px; border-radius: 2px; line-height: 1.35; }
+.stat-legend { font-size: 12px; color: #c9bfa8; line-height: 1.35; }
+.stat-legend b { color: var(--gold); }

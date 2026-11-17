@@ -8,7 +8,7 @@ import { clearUI } from './engine/ui.js';
 const scenes = {};
 export const game = { scene: null, time: 0 };
 
-export function registerScene(name, scene) { scenes[name] = scene; }
+export function registerScene(name, scene) { scene.__name = name; scenes[name] = scene; }
 
 export function go(name, args) {
   if (game.scene && game.scene.exit) game.scene.exit();
@@ -55,6 +55,7 @@ async function boot() {
   await import('./scenes/lobby.js');
   await import('./scenes/saves.js');
   await import('./scenes/banner.js');
+  await import('./scenes/howto.js');
   await import('./scenes/fame.js');
   go('title');
   requestAnimationFrame(frame);
@@ -67,5 +68,13 @@ document.addEventListener('pointerdown', () => {
     d.requestFullscreen({ navigationUI: 'hide' }).then(() => window.screen.orientation && window.screen.orientation.lock && window.screen.orientation.lock('landscape').catch(() => {})).catch(() => {});
   }
 }, { once: true });
+
+// keep the screen from sleeping while the game is open (Screen Wake Lock; re-taken whenever we come back)
+let wake = null;
+async function stayAwake() {
+  try { if ('wakeLock' in navigator && document.visibilityState === 'visible' && !wake) { wake = await navigator.wakeLock.request('screen'); wake.addEventListener('release', () => { wake = null; }); } } catch { wake = null; }
+}
+document.addEventListener('pointerdown', stayAwake);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') stayAwake(); });
 
 boot();

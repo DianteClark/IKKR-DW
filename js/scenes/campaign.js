@@ -1,3 +1,7 @@
+import { battlePeerLost } from './battle.js';
+import { howToModal } from './howto.js';
+let mm0 = null;
+const STAT_HELP = { atk: 'ATK: how hard the hero and their squad hit.', def: 'DEF: how much damage the squad shrugs off.', lead: 'LEAD: how many soldiers the hero can command, and how fast they change formation.', int: 'INT: stratagem points in battle and the power of the hero special.' };
 import { registerScene, go, game } from '../main.js';
 import { ctx, screen, Camera } from '../engine/view.js';
 import {
@@ -490,7 +494,7 @@ export function heroModal(id) {
       h('div', { class: 'col grow', style: { gap: '3px' } },
         h('div', { class: 'row wrap', style: { gap: '6px' } }, chip('Lv ' + x.level, 'gold'), chip(x.trait), x.role ? chip(ROLES[x.role].name, 'blue') : null, x.id === k.ruler ? chip('Ruler', 'gold') : null),
         h('div', { class: 'muted' }, `${FACTIONS[x.fid].race} · Loyalty ${x.loyalty}${x.lentTo >= 0 ? ' · lent to ' + st.kingdoms[x.lentTo].name : ''}`),
-        h('div', { class: 'row wrap', style: { gap: '4px' } }, ['atk', 'def', 'lead', 'int'].map((s) => chip(`${s.toUpperCase()} ${t[s]}`))),
+        h('div', { class: 'row wrap', style: { gap: '4px' } }, ['atk', 'def', 'lead', 'int'].map((s) => h('span', { class: 'chip tap', title: STAT_HELP[s], onClick: () => toast(STAT_HELP[s]) }, `${s.toUpperCase()} ${t[s]}`))),
         h('div', { class: 'row' }, h('span', { class: 'muted', style: { width: '52px' } }, 'XP'), h('div', { class: 'grow' }, bar(x.xp / LEVEL_XP(x.level), 'xp'))),
         h('div', { class: 'row' }, h('span', { class: 'muted', style: { width: '52px' } }, 'Health'), h('div', { class: 'grow' }, bar(x.hp / 100)))));
     let content;
@@ -846,7 +850,8 @@ function chronicle() {
 }
 
 function menu() {
-  modal('Menu', h('div', { class: 'col' },
+  mm0 = modal('Menu', h('div', { class: 'col' },
+    h('div', { class: 'row wrap', style: { gap: '6px' } }, btn('How to play', () => { mm0 && mm0.close(); howToModal(); }, 'small'), btn('Hero stats explained', () => { mm0 && mm0.close(); howToModal(3); }, 'small')),
     h('div', { class: 'row wrap' }, h('span', { class: 'chip gold' }, `Campaign ${prettyCode(S.state.cid)}`), h('span', { class: 'chip' }, `Seed ${S.state.seed}`), h('span', { class: 'chip' }, cap1(dateOf(S.state.turn)))),
     net.role === 'single' ? h('div', { class: 'muted' }, 'Your campaign saves automatically every month. Find it under Continue.') : h('div', { class: 'muted' }, `Two-player · ${net.role === 'host' ? 'You are hosting' : 'Connected to host'}. Both of you keep a copy of this campaign — either of you can host it again from Continue.`)),
   [['Share my realm', () => { setTimeout(() => shareRealm(S.state, S.T, myK().id), 50); }], ...(goalState(S.state, myK().id).hidden ? [['Show goals', () => { act({ type: 'hideGoals', hidden: false }); }]] : []), ['Resume'], ['Quit to title', () => { if (net.role !== 'single') net.close(); go('title'); }, 'danger']], { dismiss: true });
@@ -897,7 +902,25 @@ export function showCaptives() {
 
 // ---------- multiplayer glue ----------
 function setupNet() {
-  net.onClose = () => { net.close(); modal('Connection lost', h('div', {}, 'The other player disconnected.'), [['Title screen', () => go('title'), 'primary']]); };
+  // connection drops (screen locked, network blip): the game waits and reconnects instead of ending
+  net.onClose = () => connectionLost();
+  net.on('peerRejoined', () => {
+    // host: player 2 is back — send them everything
+    if (S.lostModal) { S.lostModal.close(); S.lostModal = null; }
+    toast('Player 2 reconnected', 'good'); sfx('recruit');
+    net.peerReady = false;
+    net.send({ t: 'resync', s: S.state, busy: !!S.busy });
+  });
+  net.on('resync', (m) => {
+    // client: the host's state is the truth
+    if (S.lostModal) { S.lostModal.close(); S.lostModal = null; }
+    S.reconnecting = false;
+    S.state = m.s; S.busy = !!m.busy; net.waitingFor = m.busy ? 'Resolving turn…' : null;
+    persist();
+    if (game.scene !== scenes_campaign()) go('campaign', { state: S.state, localPlayer: S.me, key: S.key });
+    else refreshUI();
+    toast('Reconnected', 'good');
+  });
   if (net.role === 'host') {
     net.stateGetter = () => S.state;
     net.on('act', (m) => { applyAction(S.state, 1, m.a); net.broadcastState(); refreshUI(); });
@@ -920,12 +943,42 @@ function setupNet() {
   }
 }
 
+function scenes_campaign() { return game.scene && game.scene.__name === 'campaign' ? game.scene : null; }
+function connectionLost() {
+  if (net.role === 'single') return;
+  // a battle with the other player in it carries on with their squads under AI control
+  try { battlePeerLost(); } catch {}
+  if (net.role === 'host') {
+    if (S.lostModal) return;
+    S.lostModal = modal('Player 2 disconnected', h('div', { class: 'col' },
+      h('div', {}, 'Waiting for them to come back. They reconnect automatically when their screen wakes up or their signal returns.'),
+      h('div', { class: 'chip gold' }, `Room ${net.code}`)),
+      [['Keep playing alone', () => { S.lostModal = null; }], ['End session', () => { S.lostModal = null; net.close(); go('title'); }, 'danger']]);
+    return;
+  }
+  if (S.reconnecting) return;
+  S.reconnecting = true;
+  let tries = 0;
+  const status = h('div', { class: 'muted' }, 'Trying to reach the host…');
+  S.lostModal = modal('Connection lost', h('div', { class: 'col' }, h('div', {}, 'Reconnecting to the host. Your campaign is saved on this phone too.'), status),
+    [['Give up', () => { S.reconnecting = false; S.lostModal = null; net.close(); go('title'); }, 'danger']]);
+  const attempt = () => {
+    if (!S.reconnecting || net.role !== 'client') return;
+    tries++; status.textContent = `Attempt ${tries}…`;
+    net.rejoin().then(() => { status.textContent = 'Connected — syncing…'; }).catch(() => { if (tries < 60) setTimeout(attempt, 3000); else status.textContent = 'Could not reach the host. Ask them to keep the game open, then try again from Continue.'; });
+  };
+  setTimeout(attempt, 800);
+  // try again right away when the phone wakes up
+  const wake = () => { if (document.visibilityState === 'visible' && S.reconnecting) { tries = Math.max(0, tries - 1); attempt(); } };
+  document.addEventListener('visibilitychange', wake);
+}
+
 // ---------- turn flow ----------
 function endTurnPressed() {
   if (S.busy) return;
   sfx('click');
   if (net.role === 'client') { net.send({ t: 'ready' }); net.waitingFor = 'Waiting for host…'; refreshUI(); return; }
-  if (net.role === 'host') { net.hostReady = true; net.waitingFor = net.peerReady ? null : 'Waiting for player 2…'; refreshUI(); if (net.peerReady) resolveTurn(); return; }
+  if (net.role === 'host') { net.hostReady = true; const alone = !net.conn || !net.conn.open; net.waitingFor = net.peerReady || alone ? null : 'Waiting for player 2…'; refreshUI(); if (net.peerReady || alone) resolveTurn(); return; }
   resolveTurn();
 }
 

@@ -1043,3 +1043,12 @@ function endBattle(result) {
     h('div', { class: 'col recap' }, result.retreated ? h('div', { class: 'muted' }, `${result.retreated === 'att' ? 'The attackers' : 'The defenders'} retreated.`) : null, lines),
     [['Continue', () => go('campaign', { resume: B.client ? true : result }), 'primary']]), 900);
 }
+
+// the other player dropped mid-battle: their squads fight on under AI control (host), the client waits for a resync
+export function battlePeerLost() {
+  if (!B.sim || B.ended || !B.setup) return;
+  if (net.role === 'host') {
+    for (const side of ['att', 'def']) if (B.setup.control[side] === 1) { B.setup.control[side] = 'ai'; B.sim.ai[side] = true; }
+    toast('Player 2 lost connection — their army fights on under their generals', 'gold');
+  }
+}

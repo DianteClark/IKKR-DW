@@ -212,7 +212,7 @@ export function createWorld(seed, players, opts = {}) {
       do { unit = rng.int(0, 2); } while (usedUnits.has(unit) && usedUnits.size < 3);
       usedUnits.add(unit);
       const heir = j === 0 && opts.heir && pi === 0 ? opts.heir : null;
-      const h = makeHero(state, rng, k.fid, k.id, k.capital, { status: 'candidate', unit, ruler: j === 0, troops: 5, gender: heir ? (rng() < 0.5 ? 'm' : 'f') : undefined });
+      const h = makeHero(state, rng, k.fid, k.id, k.capital, { status: 'candidate', unit, ruler: j === 0, troops: 99 /* full squads on the draft */, gender: heir ? (rng() < 0.5 ? 'm' : 'f') : undefined });
       if (heir) {
         // a descendant of a famous hero: carries the family name and a share of their strength
         h.name = h.name.split(' ')[0] + ', heir of ' + heir.name.split(' ')[0];

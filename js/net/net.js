@@ -25,6 +25,7 @@ export const net = {
 
   // request/response to the other peer
   ask(msg) {
+    if (!this.conn || !this.conn.open) return Promise.resolve('auto'); // nobody to ask: the generals decide
     const id = this.reqId++;
     this.send({ ...msg, rid: id });
     return new Promise((res) => this.pending.set(id, res));
@@ -40,7 +41,8 @@ export const net = {
       const h = this.handlers[m.t];
       if (h) h(m);
     });
-    conn.on('close', () => { if (this.onClose) this.onClose(); });
+    conn.on('close', () => { if (this.conn !== conn) return; this.conn = null; this._dropped(); });
+    conn.on('iceStateChanged', (st) => { if ((st === 'disconnected' || st === 'failed') && this.conn === conn) { try { conn.close(); } catch {} this.conn = null; this._dropped(); } });
     conn.on('error', (e) => console.warn('conn error', e));
   },
 
@@ -51,10 +53,15 @@ export const net = {
       const peer = new window.Peer(PREFIX + code, { debug: 1 });
       this.peer = peer; this.code = code; this.role = 'host';
       peer.on('open', () => resolve(code));
-      peer.on('error', (e) => reject(e));
+      peer.on('error', (e) => { if (!this.everJoined) reject(e); else console.warn('peer error', e); });
+      peer.on('disconnected', () => { try { if (!peer.destroyed) peer.reconnect(); } catch {} }); // lost the broker, not the player
       peer.on('connection', (conn) => {
         if (this.conn && this.conn.open) { conn.close(); return; }
-        conn.on('open', () => { this._wire(conn); const h = this.handlers.peerJoined; if (h) h(); });
+        conn.on('open', () => {
+          this._wire(conn);
+          const again = this.everJoined; this.everJoined = true;
+          const h = this.handlers[again ? 'peerRejoined' : 'peerJoined'] || this.handlers.peerJoined; if (h) h();
+        });
       });
     });
   },
@@ -74,10 +81,36 @@ export const net = {
     });
   },
 
+  // the other side vanished: tell the game once; it decides whether to wait for a reconnect
+  _dropped() {
+    for (const [, r] of this.pending) r('auto'); // questions in flight are settled by the AI
+    this.pending.clear();
+    if (this.onClose) this.onClose();
+  },
+  // client: find the host again with the same room code (keeps every handler)
+  rejoin() {
+    return new Promise((resolve, reject) => {
+      if (this.role !== 'client' || !this.code) return reject(new Error('Not a client'));
+      const go = () => {
+        const conn = this.peer.connect(PREFIX + this.code, { reliable: true, serialization: 'binary' });
+        const t = setTimeout(() => { if (!conn.open) { try { conn.close(); } catch {} reject(new Error('timeout')); } }, 8000);
+        conn.on('open', () => { clearTimeout(t); this._wire(conn); resolve(); });
+        conn.on('error', () => { clearTimeout(t); reject(new Error('unreachable')); });
+      };
+      if (this.peer && !this.peer.destroyed && this.peer.open !== false) go();
+      else {
+        try { this.peer && this.peer.destroy(); } catch {}
+        this.peer = new window.Peer({ debug: 1 });
+        this.peer.on('open', go);
+        this.peer.on('error', () => reject(new Error('broker')));
+      }
+    });
+  },
+
   close() {
     try { this.conn && this.conn.close(); } catch {}
     try { this.peer && this.peer.destroy(); } catch {}
-    this.peer = null; this.conn = null; this.role = 'single'; this.handlers = {}; this.onState = null; this.onClose = null;
+    this.peer = null; this.conn = null; this.role = 'single'; this.handlers = {}; this.onState = null; this.onClose = null; this.everJoined = false;
     this.hostReady = this.peerReady = false; this.waitingFor = null; this.pending.clear();
   },
 };
