@@ -1,3 +1,4 @@
+import { startPractice } from './battle.js';
 // How to play: short illustrated pages, reachable from the title screen and the in-game menu.
 import { registerScene, go } from '../main.js';
 import { h, btn, mount, clearUI, modal } from '../engine/ui.js';
@@ -78,6 +79,7 @@ registerScene('howto', {
       mount(h('div', { class: 'screen fade-in' },
         h('div', { class: 'panel col grow', style: { minHeight: 0 } },
           h('div', { class: 'row' }, btn('‹ Back', () => { sfx('close'); go('title'); }, 'small'), h('h2', { class: 'grow', style: { margin: 0 } }, 'How to play'),
+            btn('⚔ Practice battle', () => { sfx('horn'); startPractice({ back: 'howto' }); }, 'small good'),
             i > 0 ? btn('‹', () => { i--; sfx('click'); render(); }, 'small') : null,
             i < PAGES.length - 1 ? btn('Next ›', () => { i++; sfx('click'); render(); }, 'small primary') : btn('Done', () => go('title'), 'small primary')),
           h('div', { class: 'scroll grow', style: { minHeight: 0 } }, pageView(i, (j) => { i = j; sfx('click'); render(); })))));

@@ -66,6 +66,9 @@ export function confirm(title, text, yes = 'Confirm', no = 'Cancel', cls = 'prim
 }
 
 // drawer from the right or bottom
+function overlayCount() { const n = uiRoot.querySelectorAll('.sheet-back, .modal-back:not(.closing)').length; document.body.classList.toggle('overlay-open', n > 0); }
+const overlayObs = new MutationObserver(() => overlayCount());
+overlayObs.observe(uiRoot, { childList: true });
 export function sheet(title, body, actions = [], opts = {}) {
   const side = opts.side || 'right';
   const back = h('div', { class: 'sheet-back' });

@@ -234,6 +234,7 @@ export function createWorld(seed, players, opts = {}) {
 // older saves: give every hero a face that matches their gender
 export function fixPortraits(state) {
   for (const h of state.heroes) if (!FORMATIONS[h.formation]) h.formation = 'line'; // Loose was retired
+  tidy(state); // squads above their cap in older saves
   for (const h of state.heroes) if (!portraitFits(h.fid, h.gender, h.portrait)) h.portrait = (h.portrait % 20) + (h.gender === 'f' ? 20 : 0);
   // older saves: AI realms get a temperament
   for (const k of state.kingdoms) if (k.player < 0 && !k.temper) k.temper = TEMPER_IDS[(k.id * 7 + state.seed) % TEMPER_IDS.length];
@@ -790,6 +791,18 @@ export function applyOrders(state) {
 }
 // keep save files small: drop the long dead and items nobody holds
 export function tidy(state) {
+  // no squad ever holds more soldiers than its hero can lead (e.g. after losing Training Pits or changing realm):
+  // the weakest recruits are sent home first; heirs and Elites stay
+  for (const h of state.heroes) {
+    if (!h.troops) continue;
+    const cap = squadCap(h, h.kingdom >= 0 ? state.kingdoms[h.kingdom] : null);
+    if (h.troops.length <= cap) continue;
+    const order = h.troops.map((s, i) => [i, (s.heir ? 100 : 0) + s.s * 10 + (s.r || 0)]).sort((a, b) => a[1] - b[1]);
+    const drop = new Set(order.slice(0, h.troops.length - cap).map((x) => x[0]));
+    const heirs = h.troops.filter((s, i) => drop.has(i) && s.heir);
+    h.troops = h.troops.filter((_, i) => !drop.has(i));
+    if (heirs.length) (h.wards = h.wards || []).push(...heirs);
+  }
   state.heroes = state.heroes.filter((h) => h.status !== 'dead' || state.turn - (h.diedTurn ?? state.turn) < 2);
   for (const h of state.heroes) if (h.status === 'dead' && h.diedTurn == null) h.diedTurn = state.turn;
   const held = new Set();

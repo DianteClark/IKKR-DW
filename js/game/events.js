@@ -3,7 +3,7 @@ import { FACTIONS, FACTION_IDS } from '../data/art.js';
 import {
   makeHero, newKingdom, heroesAt, kingdomHeroes, kingdomTerritories, log, clamp, joinKingdom, hero, isHumanKingdom, pickLoadout,
 } from './world.js';
-import { squadPower, garrisonPower } from './rules.js';
+import { squadPower, garrisonPower, squadCap } from './rules.js';
 
 const BANDIT_NAMES = ['Black Fang', 'Red Hand', 'Grey Wolves', 'Iron Teeth', 'Night Ravens', 'Bone Crows', 'Dust Vipers', 'Mad Dogs', 'Rust Blades', 'Hollow Men'];
 const BLIGHTS = { necropolis: 'Undead Blight', conflux: 'Elemental Storm', inferno: 'Demon Rift', enclave: 'Swamp Horror', stronghold: 'Beast Horde' };
@@ -177,6 +177,6 @@ export function vagabondTick(state, rng, list) {
     }
     // wanderers recover and gather a few followers
     h.hp = Math.min(100, h.hp + 15);
-    if (h.troops.length < 5 && rng() < 0.3) h.troops.push({ s: 1, r: 0, xp: 0, g: [95, 95, 95] });
+    if (h.troops.length < Math.min(5, squadCap(h)) && rng() < 0.3) h.troops.push({ s: 1, r: 0, xp: 0, g: [95, 95, 95] });
   }
 }

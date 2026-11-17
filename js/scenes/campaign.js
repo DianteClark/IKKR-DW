@@ -44,7 +44,7 @@ import { bannerEl } from '../engine/banner.js';
 import { GOALS, goalState, newlyDone } from '../campaign/goals.js';
 import { shareRealm } from '../campaign/share.js';
 import { portrait, unitIcon, itemIcon, heroCard, orderLabel, kingdomBadge, unitCard } from '../campaign/widgets.js';
-import { saveCampaign, getRecord, prettyCode, stampCampaign } from '../game/save.js';
+import { saveCampaign, getRecord, prettyCode, stampCampaign, flush } from '../game/save.js';
 import { sfx, music } from '../engine/audio.js';
 import { net } from '../net/net.js';
 
@@ -73,7 +73,16 @@ function persist() { if (S.state) { if (!S.state.cid) stampCampaign(S.state, net
 registerScene('campaign', {
   enter(args) {
     if (args.load) {
-      getRecord(args.load).then((rec) => { if (!rec || !rec.state || rec.state.v !== 2) return go('title'); go('campaign', { state: rec.state, localPlayer: rec.seat || 0, key: rec.key }); });
+      getRecord(args.load).then((rec) => {
+        if (!rec || !rec.state || rec.state.v !== 2) return go('title');
+        if (rec.battle && rec.battle.b) {
+          // the app closed mid-battle: pick the fight back up where it was
+          S.state = rec.state; S.me = rec.seat || 0; S.key = rec.key; S.current = rec.battle.b;
+          const c = rec.battle.ctx || {}; S.queue = c.queue || []; S.reports = c.reports || []; S.choices = c.choices || null; S.orderNotes = c.orderNotes || []; S.busy = true;
+          return go('battle', { resumeBattle: rec.battle, state: rec.state, me: rec.seat || 0, key: rec.key });
+        }
+        go('campaign', { state: rec.state, localPlayer: rec.seat || 0, key: rec.key });
+      });
       return;
     }
     S.key = args.key || null;
@@ -98,6 +107,7 @@ registerScene('campaign', {
     }
     net.onState = (st) => { S.state = st; refreshUI(); };
     if (net.role !== 'single') setupNet();
+    if (music.setSeason) music.setSeason(seasonOf(S.state.turn));
     music.start(myK().landless ? 'tension' : 'campaign');
     buildUI();
     if (args.resume) { if (net.role !== 'client') resumeQueue(args.resume); }
@@ -123,7 +133,7 @@ registerScene('campaign', {
     // fog of war for the local player (sets what the map draws and the minimap shows)
     const vis = fogOn(st) ? visibleLands(st, myK().id) : null;
     if (vis !== S.vis) { S.vis = vis; setVisibility(S.T, vis); if (S.minimap) { updateMinimap(S.minimap, S.T, st); drawMinimapUI(); } }
-    if (S.T.season !== seasonOf(st.turn)) { setSeason(S.T, seasonOf(st.turn)); if (S.minimap) { updateMinimap(S.minimap, S.T, st); drawMinimapUI(); } }
+    if (S.T.season !== seasonOf(st.turn)) { music.setSeason && music.setSeason(seasonOf(st.turn)); setSeason(S.T, seasonOf(st.turn)); if (S.minimap) { updateMinimap(S.minimap, S.T, st); drawMinimapUI(); } }
     cam.apply();
     const vw = screen.w / cam.zoom, vh = screen.h / cam.zoom;
     const view = { x: cam.x - vw / 2, y: cam.y - vh / 2, w: vw, h: vh };
@@ -1109,7 +1119,9 @@ function askFight(b, humanAtt, humanDef) {
 function startBattle(b) {
   const st = S.state;
   const ctl = (kid) => (isHumanKingdom(st, kid) ? st.kingdoms[kid].player : 'ai');
-  go('battle', { state: st, battle: b, control: { att: ctl(b.att), def: b.def >= 0 ? ctl(b.def) : 'ai' }, me: S.me });
+  persist(); flush();
+  const saveCtx = { queue: S.queue, reports: S.reports, choices: S.choices || null, orderNotes: S.orderNotes || [] };
+  go('battle', { state: st, battle: b, control: { att: ctl(b.att), def: b.def >= 0 ? ctl(b.def) : 'ai' }, me: S.me, key: S.key, saveCtx: net.role === 'single' ? saveCtx : undefined });
 }
 
 function resumeQueue(result) {

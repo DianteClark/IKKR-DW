@@ -431,3 +431,13 @@ h1, h2, h3 { font-family: "Pixelify", "Nunito", sans-serif; letter-spacing: .5px
 @keyframes coachPop { from { transform: translateY(-6px); opacity: 0; } to { transform: none; opacity: 1; } }
 .coach-glow { outline: 2px solid var(--gold); outline-offset: 1px; animation: coachGlow 1s ease-in-out infinite; }
 @keyframes coachGlow { 50% { outline-color: rgba(255,216,107,.25); box-shadow: 0 0 10px rgba(255,216,107,.55); } }
+
+/* spacing: side sheets open below the top bar and never cover it; while a sheet or window is open the land panel steps aside */
+.sheet.right { top: calc(52px + var(--sat)); bottom: calc(6px + var(--sab)); right: calc(6px + var(--sar)); }
+.sheet-back { top: 0; }
+body.overlay-open .side, body.overlay-open .goals, body.overlay-open .minimap, body.overlay-open .bottombar { visibility: hidden; }
+.bottombar.narrow { max-width: calc(100vw - min(48vw, 400px) - 24px - var(--sar) - var(--sal)); }
+.modal { max-height: calc(100% - 24px - var(--sat) - var(--sab)); }
+.modal .body { min-height: 0; overflow-y: auto; }
+.goals { max-width: min(40vw, 320px); }
+@media (max-width: 700px) { .side { width: min(52vw, 360px); } .bottombar.narrow { max-width: calc(100vw - min(52vw, 360px) - 20px); } }

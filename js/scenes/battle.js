@@ -1,3 +1,4 @@
+import { showChat } from './campaign.js';
 import { weatherAtId } from '../game/weather.js';
 import { autumnizeCanvas } from '../campaign/mapview.js';
 import { seasonOf } from '../game/family.js';
@@ -121,6 +122,7 @@ registerScene('battle', {
       net.send({ t: 'battleStart', setup, items: B.state.items });
       net.on('cmd', (m) => { const side = setup.control.att === 1 ? 'att' : setup.control.def === 1 ? 'def' : null; if (!side) return; if (m.c.type === 'auto') { setup.control[side] = 'ai'; toast('The other player let their generals take over'); return; } command(B.sim, side, m.c); });
     }
+    if (net.role !== 'single') net.on('chat', (m) => showChat(m.text, false));
     if (B.client) { net.on('snap', (m) => { const now = performance.now(), prev = new Map(B.sim.squads.map((q) => [q.id, [q.x, q.y]])); const gap = Math.min(0.4, Math.max(0.05, (now - (B.snapAt || now - 100)) / 1000)); applySnapshot(B.sim, m.s); B.snapAt = now; for (const q of B.sim.squads) { const o = prev.get(q.id); q._vx = o ? (q.x - o[0]) / gap : 0; q._vy = o ? (q.y - o[1]) / gap : 0; } }); net.on('battleEnd', (m) => endBattle(m.result)); }
     music.start('battle');
     fitCamera();

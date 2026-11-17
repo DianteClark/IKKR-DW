@@ -4,7 +4,7 @@
 // and when they reach Elite they come of age as a hero with a subtle mix of their parents' strengths.
 import { FACTIONS } from '../data/art.js';
 import { hero, makeHero, log, isHumanKingdom } from './world.js';
-import { EVOLVE_XP, canLead } from './rules.js';
+import { EVOLVE_XP, canLead, squadCap } from './rules.js';
 // heirs live in a parent's squad, or as a ward at their side when that squad is made of beasts
 const kin = (x) => [...(x.troops || []), ...(x.wards || [])];
 import { namesFor } from '../data/givennames.js';
@@ -108,7 +108,7 @@ function bear(state, rng, mother, notes) {
   }
   // the child trains under whichever parent is home and has room, else the mother
   const home = parents.find((p) => p.status === 'active' && p.kingdom === mother.kingdom && p.troops.length < 45) || mother;
-  if (canLead(home.ufid || home.fid, home.unit)) home.troops.push(s);
+  if (canLead(home.ufid || home.fid, home.unit) && home.troops.length < squadCap(home, state.kingdoms[home.kingdom])) home.troops.push(s);
   else (home.wards = home.wards || []).push(s); // a child is not raised as a griffin
   const k = state.kingdoms[mother.kingdom];
   const text = human
