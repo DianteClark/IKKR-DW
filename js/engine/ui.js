@@ -43,8 +43,11 @@ export function modal(title, body, actions = [], opts = {}) {
 }
 
 export function toast(text, cls = '') {
+  let box = document.getElementById('toasts');
+  if (!box) { box = h('div', { id: 'toasts' }); document.body.appendChild(box); }
   const t = h('div', { class: 'chip toast ' + cls }, text);
-  uiRoot.appendChild(t);
+  box.appendChild(t);
+  while (box.children.length > 3) box.firstChild.remove();
   setTimeout(() => t.remove(), 2700);
 }
 

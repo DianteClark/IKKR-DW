@@ -19,6 +19,7 @@ import { net } from '../net/net.js';
 const cam = new Camera();
 const S = { state: null, me: 0, terrainCanvas: null, overlay: null, overlayKey: '', sel: null, target: null, busy: false, queue: null, reports: [], seed: null };
 export const campaignSession = S;
+window.__dw = Object.assign(window.__dw || {}, { S, act });
 
 function myK() { return S.state.kingdoms[S.state.players[S.me].kingdom]; }
 

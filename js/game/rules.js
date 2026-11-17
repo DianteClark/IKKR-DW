@@ -2,9 +2,9 @@
 import { FACTIONS } from '../data/art.js';
 
 // per unit level (index 0..6 inside a faction)
-const HP = [7, 11, 16, 23, 32, 44, 58];
-const ATK = [2.2, 3.2, 4.4, 6, 7.8, 10, 12.5];
-const DEF = [1, 1.5, 2.1, 2.9, 3.8, 4.9, 6.2];
+const HP = [9, 12, 15.5, 20, 25, 31, 38];
+const ATK = [2.6, 3.2, 3.9, 4.7, 5.6, 6.6, 7.8];
+const DEF = [1, 1.4, 1.9, 2.4, 3, 3.6, 4.3];
 const SPD = [1.15, 1.1, 1.3, 1.0, 0.95, 1.25, 0.9];
 
 export const RANGED = {
@@ -31,7 +31,7 @@ export function soldierStats(fid, ui, s) {
 
 export function squadCap(hero) {
   const L = unitLevel(hero.fid, hero.unit);
-  return Math.max(5, Math.min(10, Math.round(hero.lead - L * 0.45)));
+  return Math.max(5, Math.min(10, Math.round(hero.lead + 1 - L * 0.65)));
 }
 
 export function recruitCost(fid, ui) { return 12 + unitLevel(fid, ui) * 9; }
