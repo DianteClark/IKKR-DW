@@ -78,7 +78,7 @@ registerScene('battle', {
       setup = {
         seed: hashStr(`${st.seed}:${st.turn}:${b.tid}:${b.att}`), biome: (seasonOf(st.turn) === 'Winter' && (t.biome === 'grass' || t.biome === 'marsh')) ? 'ice' : t.biome, season: seasonOf(st.turn), level: t.level, place: t.name, siege: !!b.siege,
         attackers: JSON.parse(JSON.stringify(atk)), defenders: JSON.parse(JSON.stringify(dfd)),
-        attFid: A.fid, defFid: D ? D.fid : (t.race || 'castle'), attName: A.name, defName: D ? D.name : 'Town guard',
+        attFid: A.fid, defFid: D ? D.fid : (t.race || 'castle'), attName: A.name, defName: D ? D.name : (t.owner < 0 ? `Free folk of ${t.name}` : 'Town guard'),
         attKid: A.id, defKid: D ? D.id : -1, attMorale: A.morale, defMorale: D ? D.morale : 60,
         attLoadout: (A.loadout || []).slice(), defLoadout: D ? (D.loadout || []).slice() : [],
         attPool: commandPool(atk, tierIndex(A), A.buildings.academy), defPool: D ? commandPool(dfd, tierIndex(D), D.buildings.academy) : 4,

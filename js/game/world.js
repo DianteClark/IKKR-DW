@@ -517,6 +517,9 @@ export function applyBattle(state, b, result) {
   };
   settle(b.attackers.filter((id) => !report.defected.includes(id)), attWon);
   settle(b.defenders.filter((id) => !report.defected.includes(id)), !attWon);
+  // allied heroes who marched in as reinforcements share the losses and the glory
+  const extra = Object.keys(result.heroes || {}).map(Number).filter((id) => !b.attackers.includes(id) && !b.defenders.includes(id) && !report.defected.includes(id));
+  for (const id of extra) { const h = hero(state, id); if (!h || h.status !== 'active') continue; const withAtt = friendly(state, b.att, h.kingdom); settle([id], withAtt ? attWon : !attWon); }
   const shift = (k, m, s) => { if (k) { k.morale = clamp(k.morale + m); k.stability = clamp(k.stability + s); } };
   shift(attK, attWon ? 6 : -6, attWon ? 0 : -2);
   shift(defK, attWon ? -8 : 5, attWon ? -5 : 1);
