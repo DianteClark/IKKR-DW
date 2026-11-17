@@ -5,6 +5,7 @@ import { FACTIONS, FACTION_IDS } from '../data/art.js';
 import { SPELLS } from '../data/spells.js';
 import { generateTerrain } from './mapgen.js';
 import { kingdomName, KINGDOM_COLORS } from './names.js';
+import { namesFor } from '../data/givennames.js';
 import { initNeutral, applyNeutralOrders, validNeutralOrder } from './neutral.js';
 import { makeItem, SLOTS } from './items.js';
 import {
@@ -35,22 +36,23 @@ function newId(state) { return state.nextId++; }
 export const clamp = (v, a = 0, b = 100) => Math.max(a, Math.min(b, v));
 
 // ---------- creation ----------
-function uniqueName(state, rng, F) {
+function uniqueName(state, rng, F, list) {
+  const pool = list || F.names;
   const used = new Set(state.heroes.map((x) => x.name.split(' ')[0]));
-  const free = F.names.filter((n) => !used.has(n));
-  return rng.pick(free.length ? free : F.names);
+  const free = pool.filter((n) => !used.has(n));
+  return rng.pick(free.length ? free : pool);
 }
 const EPITHETS = ['the Bold', 'the Red', 'Ironhand', 'the Wise', 'Stormborn', 'the Grim', 'Oathkeeper', 'the Swift', 'Dragonsbane', 'the Elder', 'Halfhand', 'the Silent', 'Ashborn', 'the Just'];
 
 export function makeHero(state, rng, fid, kingdom, loc, opts = {}) {
   const F = FACTIONS[fid];
-  const gender = rng.chance(0.45) ? 'f' : 'm';
+  const gender = opts.gender || (rng.chance(0.45) ? 'f' : 'm');
   const nUnits = F.units.length;
   const maxU = Math.min(nUnits - 1, opts.maxUnit ?? nUnits - 1);
   const unit = opts.unit ?? Math.min(maxU, Math.floor(Math.pow(rng(), 1.6) * (maxU + 1)));
   const boost = opts.ruler ? 2 : 0;
   const hero = {
-    id: newId(state), name: (opts.name || uniqueName(state, rng, F)) + (!opts.name && rng.chance(0.3) ? ' ' + rng.pick(EPITHETS) : ''),
+    id: newId(state), name: (opts.name || uniqueName(state, rng, F, namesFor(fid, gender))) + (!opts.name && rng.chance(0.3) ? ' ' + rng.pick(EPITHETS) : ''),
     fid, ufid: opts.ufid || fid, gender, portrait: rng.int(0, F.portraits.length - 1), kingdom, origin: kingdom, loc, unit,
     atk: rng.int(1, 4) + boost, def: rng.int(1, 4) + boost, lead: rng.int(7, 9) + (opts.ruler ? 1 : 0), int: rng.int(1, 4) + boost,
     level: 1, xp: 0, morale: 60, hp: 100, loyalty: rng.int(55, 95), trait: opts.trait || rng.pick(TRAITS), ambition: rng.int(10, 90),

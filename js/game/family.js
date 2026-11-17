@@ -5,6 +5,7 @@
 import { FACTIONS } from '../data/art.js';
 import { hero, makeHero, log, isHumanKingdom } from './world.js';
 import { EVOLVE_XP } from './rules.js';
+import { namesFor } from '../data/givennames.js';
 
 export const SEASONS = ['Spring', 'Summer', 'Autumn', 'Winter'];
 export const SEASON_ICON = { Spring: '🌱', Summer: '☀', Autumn: '🍂', Winter: '❄' };
@@ -48,12 +49,33 @@ export function wed(state, a, b) {
   return true;
 }
 
-function childName(state, rng, fid) {
-  const F = FACTIONS[fid];
-  const used = new Set(state.heroes.map((x) => x.name.split(' ')[0]));
-  for (const x of state.heroes) for (const s of x.troops || []) if (s.name) used.add(s.name.split(' ')[0]);
-  const free = F.names.filter((n) => !used.has(n));
-  return free.length ? rng.pick(free) : rng.pick(F.names) + ' the Younger';
+// name suggestions for a child of this people and gender, skipping names already in use
+export function childNames(state, fid, gender, n = 6, rng = null, kid = null) {
+  // avoid names already used in this realm (parents, siblings, comrades); other realms may share names
+  const mine = state.heroes.filter((x) => kid == null || x.kingdom === kid);
+  const used = new Set(mine.map((x) => x.name.split(' ')[0]));
+  for (const x of mine) for (const s of x.troops || []) if (s.name) used.add(s.name.split(' ')[0]);
+  const pool = namesFor(fid, gender);
+  const free = pool.filter((nm) => !used.has(nm));
+  const list = (free.length >= n ? free : pool).slice();
+  const r = rng || Math.random;
+  for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [list[i], list[j]] = [list[j], list[i]]; }
+  return list.slice(0, n);
+}
+function childName(state, rng, fid, gender, kid) { return childNames(state, fid, gender, 1, rng, kid)[0]; }
+
+// the player names their own children; this applies the choice (also used to auto-name after a season)
+export function nameChild(state, kid, bid, gender, name) {
+  const pb = (state.pendingBirths || []).find((b) => b.bid === bid && b.kid === kid);
+  if (!pb) return false;
+  const clean = String(name || '').replace(/[^\p{L}\p{N} '\-]/gu, '').trim().slice(0, 18);
+  if (!clean || (gender !== 'm' && gender !== 'f')) return false;
+  for (const x of state.heroes) for (const s of x.troops || []) if (s.heir && s.heir.bid === bid) {
+    s.name = clean; s.heir.gender = gender; delete s.heir.pending;
+    log(state, `${pb.parents.join(' and ')} named their ${gender === 'f' ? 'daughter' : 'son'} ${clean}.`, kid, 'family');
+  }
+  state.pendingBirths = state.pendingBirths.filter((b) => b !== pb);
+  return true;
 }
 
 function bear(state, rng, mother, notes) {
@@ -64,15 +86,24 @@ function bear(state, rng, mother, notes) {
   const fid = rng.pick(parents).fid;
   const avg = (k) => parents.reduce((a, p) => a + p[k], 0) / parents.length;
   const r = () => 108 + Math.floor(rng() * 18);
+  const human = isHumanKingdom(state, mother.kingdom);
+  const gender = rng.chance(0.5) ? 'f' : 'm';
+  const bid = (state.birthSeq = (state.birthSeq || 0) + 1);
   const s = {
-    s: 1, r: 0, xp: 1, g: [r(), r(), r()], name: childName(state, rng, fid),
-    heir: { parents: parents.map((p) => p.id), gender: rng.chance(0.5) ? 'f' : 'm', fid, born: state.turn, stats: { atk: avg('atk'), def: avg('def'), lead: avg('lead'), int: avg('int') }, trait: rng.pick(parents).trait },
+    s: 1, r: 0, xp: 1, g: [r(), r(), r()], name: childName(state, rng, fid, gender, mother.kingdom),
+    heir: { bid, parents: parents.map((p) => p.id), gender, fid, born: state.turn, stats: { atk: avg('atk'), def: avg('def'), lead: avg('lead'), int: avg('int') }, trait: rng.pick(parents).trait },
   };
+  if (human) {
+    s.heir.pending = true;
+    (state.pendingBirths = state.pendingBirths || []).push({ bid, kid: mother.kingdom, fid, turn: state.turn, parents: parents.map((p) => p.name) });
+  }
   // the child trains under whichever parent is home and has room, else the mother
   const home = parents.find((p) => p.status === 'active' && p.kingdom === mother.kingdom && p.troops.length < 45) || mother;
   home.troops.push(s);
   const k = state.kingdoms[mother.kingdom];
-  const text = `${parents.map((p) => p.name).join(' and ')} welcomed ${s.heir.gender === 'f' ? 'a daughter' : 'a son'}, ${s.name}. They will train in ${home.name}'s squad.`;
+  const text = human
+    ? `${parents.map((p) => p.name).join(' and ')} welcomed a child! Choose a name — they will train in ${home.name}'s squad.`
+    : `${parents.map((p) => p.name).join(' and ')} welcomed ${s.heir.gender === 'f' ? 'a daughter' : 'a son'}, ${s.name}. They will train in ${home.name}'s squad.`;
   log(state, text, mother.kingdom, 'family');
   if (k && isHumanKingdom(state, k.id)) notes.push({ kid: k.id, kind: 'birth', text });
 }
@@ -94,6 +125,11 @@ function comeOfAge(state, rng, holder, idx, notes) {
 }
 
 export function familyTick(state, rng, notes) {
+  // births the player never named get the suggested name after a season
+  for (const pb of [...(state.pendingBirths || [])]) if (state.turn - pb.turn >= 1) {
+    let s0 = null; for (const x of state.heroes) for (const s of x.troops || []) if (s.heir && s.heir.bid === pb.bid) s0 = s;
+    if (s0) nameChild(state, pb.kid, pb.bid, s0.heir.gender, s0.name); else state.pendingBirths = state.pendingBirths.filter((b) => b !== pb);
+  }
   // births
   for (const h of state.heroes) if (h.expecting && state.turn - h.expecting >= GESTATION) bear(state, rng, h, notes);
   // couples drift apart only through death or capture: widowing

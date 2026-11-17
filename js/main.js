@@ -1,4 +1,4 @@
-import { resize, attachGestures, canvas, ctx, screen } from './engine/view.js';
+import { resize, attachGestures, canvas, ctx, screen, sizeChanged } from './engine/view.js';
 import { loadAll } from './engine/assets.js';
 import { allArt } from './data/art.js';
 import { SPELLS } from './data/spells.js';
@@ -23,6 +23,8 @@ function frame(now) {
   frame.last = now;
   game.time += dt;
   const s = game.scene;
+  // catch every size change (rotation, URL bar, fullscreen, split view) before drawing, so art never stretches
+  if ((frame.n = (frame.n || 0) + 1) % 10 === 0 && sizeChanged()) { resize(); s && s.onResize && s.onResize(); }
   if (s) {
     if (s.update) s.update(dt);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -35,7 +37,10 @@ function frame(now) {
 
 async function boot() {
   resize();
-  window.addEventListener('resize', () => { resize(); game.scene && game.scene.onResize && game.scene.onResize(); });
+  const onSize = () => { resize(); game.scene && game.scene.onResize && game.scene.onResize(); };
+  window.addEventListener('resize', onSize);
+  window.addEventListener('orientationchange', () => setTimeout(onSize, 250));
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', onSize);
   attachGestures(canvas, () => game.scene);
   const bootEl = document.getElementById('boot');
   const list = [...allArt(), ...SPELLS.map((s) => s.src)];

@@ -7,11 +7,21 @@ export const screen = { w: 0, h: 0, dpr: 1 };
 export function resize() {
   const dpr = Math.min(window.devicePixelRatio || 1, 3);
   screen.dpr = dpr;
-  screen.w = window.innerWidth;
-  screen.h = window.innerHeight;
+  // the canvas's own CSS box is the truth (innerWidth/innerHeight lag behind on iOS rotation and URL-bar changes,
+  // which made the pixel buffer and the displayed size disagree and stretched the art)
+  const r = canvas.getBoundingClientRect();
+  screen.w = Math.max(1, Math.round(r.width || window.innerWidth));
+  screen.h = Math.max(1, Math.round(r.height || window.innerHeight));
   canvas.width = Math.round(screen.w * dpr);
   canvas.height = Math.round(screen.h * dpr);
   ctx.imageSmoothingEnabled = false;
+}
+
+// true when the drawing buffer no longer matches what is on screen
+export function sizeChanged() {
+  const r = canvas.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  return Math.round(r.width) !== screen.w || Math.round(r.height) !== screen.h || dpr !== screen.dpr;
 }
 
 export class Camera {

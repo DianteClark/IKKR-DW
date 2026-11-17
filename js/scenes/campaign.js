@@ -13,7 +13,7 @@ import {
 } from '../game/world.js';
 import { endTurn } from '../game/turn.js';
 import { neutralActions, sitesIn, SITES, plunderYield } from '../game/neutral.js';
-import { seasonOf, yearOf, SEASON_FOOD, childrenOf, wedOptions, MARRY_LEVEL } from '../game/family.js';
+import { seasonOf, yearOf, SEASON_FOOD, childrenOf, wedOptions, MARRY_LEVEL, childNames } from '../game/family.js';
 import { runAI } from '../game/ai.js';
 import { applyAction } from '../game/actions.js';
 import {
@@ -49,7 +49,7 @@ export function act(a) {
   refreshUI();
   return ok;
 }
-window.__dw = Object.assign(window.__dw || {}, { S, act });
+window.__dw = Object.assign(window.__dw || {}, { S, act, ccam: cam });
 function persist() { if (S.state) { if (!S.state.cid) stampCampaign(S.state, net.role === 'single' ? 'single' : 'p2p'); saveCampaign(S.state, S.me, S.key || null); } }
 
 // ---------- scene ----------
@@ -202,6 +202,14 @@ function drawMinimapUI() {
   x.strokeStyle = '#ffd86b'; x.lineWidth = 1.5;
   x.strokeRect((cam.x - vw / 2) * sx, (cam.y - vh / 2) * sy, vw * sx, vh * sy);
 }
+// jump back to your capital (or your warband, if you have no land); zooms back in if you were far out
+function goHome() {
+  const st = S.state, k = myK(), hs = kingdomHeroes(st, k.id);
+  const own = kingdomTerritories(st, k.id);
+  const tid = st.territories[k.capital] && st.territories[k.capital].owner === k.id ? k.capital : own.length ? own[0].id : hs[0] ? hs[0].loc : k.capital;
+  cam.zoom = Math.max(cam.zoom, Math.max(1, Math.round(1.5 * screen.dpr) / screen.dpr));
+  focus(tid); S.sel = tid; sfx('open'); refreshUI(); drawMinimapUI();
+}
 function focus(tid) { const t = S.state.territories[tid]; cam.x = t.cx * TS + 8; cam.y = t.cy * TS + 8; cam.clamp(); }
 
 // ---------- UI ----------
@@ -249,6 +257,7 @@ export function refreshUI() {
   ui.bottom.innerHTML = '';
   const prisoners = captivesOf(st, k.id).length;
   add(ui.bottom,
+    btn('⌂ Home', goHome, 'small'),
     btn('Heroes', heroesList, 'small'),
     btn('Realm', realmSheet, 'small'),
     btn(incoming ? `Diplomacy (${incoming})` : 'Diplomacy', diplomacySheet, 'small' + (incoming ? ' primary' : '')),
@@ -854,7 +863,35 @@ export function showTurnSummary(prevTurn, reports, summary = { events: [], notes
     banner(`${seasonOf(st.turn)}, Year ${yearOf(st.turn)}`, bad ? 'bad' : 'blue', k.landless ? 'Your warband wanders' : k.name);
     if (captivesOf(st, myKid).length && (reports || []).some((r) => r.captured.length)) showCaptives();
     else if (st.proposals.some((p) => p.to === myKid)) diplomacySheet();
+    nameBirths();
   }, 'primary']], { width: '680px' });
+}
+
+// a child was born in your realm: boy or girl, then a name
+export function nameBirths() {
+  const st = S.state, myKid = myK().id;
+  const pb = (st.pendingBirths || []).find((b) => b.kid === myKid);
+  if (!pb) return;
+  let gender = Math.random() < 0.5 ? 'm' : 'f', name = '', sug = [], mm;
+  const input = h('input', { class: 'text grow', maxlength: '18', placeholder: 'Or type a name', autocomplete: 'off', onInput: (e) => { name = e.target.value; } });
+  const box = h('div', { class: 'col' });
+  const render = () => {
+    if (!sug.length) sug = childNames(st, pb.fid, gender, 6, null, myKid);
+    if (!name) name = sug[0];
+    input.value = name;
+    box.replaceChildren(
+      h('div', { class: 'muted' }, `${pb.parents.join(' and ')} have a child. They will train in a parent's squad and come of age as a hero.`),
+      segmented([{ value: 'm', label: 'Boy' }, { value: 'f', label: 'Girl' }], gender, (g) => { gender = g; sug = []; name = ''; sfx('click'); render(); }),
+      h('div', { class: 'row wrap', style: { gap: '6px' } }, sug.map((nm) => btn(nm, () => { name = nm; sfx('click'); render(); }, 'small' + (nm === name ? ' good' : ''))),
+        btn('↻', () => { sug = childNames(st, pb.fid, gender, 6, null, myKid); name = sug[0]; sfx('click'); render(); }, 'small')),
+      h('div', { class: 'row' }, input));
+  };
+  render();
+  mm = modal('A child is born!', box, [['Name them', () => {
+    const nm = (input.value || name).trim();
+    if (act({ type: 'nameChild', bid: pb.bid, gender, name: nm })) { sfx('levelup'); toast(`Welcome, ${nm}!`, 'good'); setTimeout(nameBirths, 300); }
+    else { toast('Pick a name', 'gold'); setTimeout(nameBirths, 200); }
+  }, 'primary']], { width: '560px' });
 }
 
 function gameOver() {

@@ -32,9 +32,9 @@ const DUNGEON_PROPS = 'assets/dungeon/Overworld Dungeon/HAS-Dungeon.png';
 [FIELD_SHEET, DOCKS, SHIP, ROAD_SHEET, FENCE_SHEET, WALLS, DUNGEON_PROPS, STRUCT].forEach((s) => loadImage(s));
 preloadLandmarks();
 
-const CHUNK = 48;          // cells per chunk side
+const CHUNK = 24;          // cells per chunk side (small chunks = short, frequent work instead of long stalls)
 const CHUNKED_ABOVE = 16000; // cells; bigger maps render lazily in chunks
-const LRU_MAX = 16;
+const LRU_MAX = 64;
 
 const hashI = (a, b) => { let h = (a * 374761393 + b * 668265263) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return (h ^ (h >>> 16)) >>> 0; };
 
@@ -275,47 +275,58 @@ export function drawTerrain(ctx, T, view) {
   const count = (bx - ax + 1) * (by - ay + 1);
   const ov = overview(T);
   const prevSmooth = ctx.imageSmoothingEnabled;
-  if (count > 16) {
+  if (count > 64) {
     // far zoom: draw the overview, and quietly upgrade one more of it per few frames
     ctx.imageSmoothingEnabled = false;
     const sx = Math.max(0, v.x / (TS / OV)), sy = Math.max(0, v.y / (TS / OV));
     const sw = Math.min(ov.width - sx, v.w / (TS / OV)), sh = Math.min(ov.height - sy, v.h / (TS / OV));
     if (sw > 0 && sh > 0) ctx.drawImage(ov, sx, sy, sw, sh, sx * (TS / OV), sy * (TS / OV), sw * (TS / OV), sh * (TS / OV));
-    T._ovTick = (T._ovTick || 0) + 1;
-    if (T._ovQueue && T._ovQueue.length && T._ovTick % 4 === 0) {
-      const [a, b] = T._ovQueue.shift();
-      const cw = Math.min(CHUNK, T.W - a * CHUNK), ch = Math.min(CHUNK, T.H - b * CHUNK);
-      blitOverview(T, a, b, renderRegion(T, a * CHUNK, b * CHUNK, cw, ch));
+    // upgrade the overview with real tiles only when the main thread is idle (never inside a frame)
+    if (T._ovQueue && T._ovQueue.length && !T._ovBusy) {
+      T._ovBusy = true;
+      const run = () => {
+        T._ovBusy = false;
+        if (!T._ovQueue || !T._ovQueue.length) return;
+        const [a, b] = T._ovQueue.shift();
+        const cw = Math.min(CHUNK, T.W - a * CHUNK), ch = Math.min(CHUNK, T.H - b * CHUNK);
+        blitOverview(T, a, b, renderRegion(T, a * CHUNK, b * CHUNK, cw, ch));
+      };
+      if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 1500 }); else setTimeout(run, 200);
     }
     ctx.imageSmoothingEnabled = prevSmooth;
     return;
   }
-  let fresh = 0;
+  // never render a chunk inside a frame: missing ones show the overview for a moment while an idle callback
+  // paints them (visible chunks first, then a ring around the view), so panning never stalls
+  const missing = [];
   for (let cy = ay; cy <= by; cy++) for (let cx = ax; cx <= bx; cx++) {
     const key = cy * 1000 + cx;
-    if (!T._chunks.has(key) && fresh >= 1) {
-      // not rendered yet: show the overview for this patch, real tiles arrive next frame
-      ctx.imageSmoothingEnabled = false;
-      const cw = Math.min(CHUNK, T.W - cx * CHUNK), ch = Math.min(CHUNK, T.H - cy * CHUNK);
-      ctx.drawImage(ov, cx * CHUNK * OV, cy * CHUNK * OV, cw * OV, ch * OV, cx * C, cy * C, cw * TS, ch * TS);
-      continue;
-    }
-    if (!T._chunks.has(key)) fresh++;
-    ctx.drawImage(chunk(T, cx, cy), cx * C, cy * C);
+    const c = T._chunks.get(key);
+    if (c) { ctx.drawImage(c, cx * C, cy * C); continue; }
+    missing.push([cx, cy]);
+    ctx.imageSmoothingEnabled = false;
+    const cw = Math.min(CHUNK, T.W - cx * CHUNK), ch = Math.min(CHUNK, T.H - cy * CHUNK);
+    ctx.drawImage(ov, cx * CHUNK * OV, cy * CHUNK * OV, cw * OV, ch * OV, cx * C, cy * C, cw * TS, ch * TS);
   }
   ctx.imageSmoothingEnabled = prevSmooth;
-  // prefetch one neighbouring chunk when the main thread is idle, so panning finds tiles ready
-  if (!T._prefetching) {
-    let want = null;
-    for (let cy = ay - 1; cy <= by + 1 && !want; cy++) for (let cx = ax - 1; cx <= bx + 1; cx++) {
-      if (cx < 0 || cy < 0 || cx >= Math.ceil(T.W / CHUNK) || cy >= Math.ceil(T.H / CHUNK)) continue;
-      if (!T._chunks.has(cy * 1000 + cx)) { want = [cx, cy]; break; }
-    }
-    if (want && T._chunks.size < LRU_MAX) {
-      T._prefetching = true;
-      const run = () => { T._prefetching = false; if (!T._chunks.has(want[1] * 1000 + want[0])) chunk(T, want[0], want[1]); };
-      if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 600 }); else setTimeout(run, 120);
-    }
+  const NX = Math.ceil(T.W / CHUNK), NY = Math.ceil(T.H / CHUNK);
+  T._want = missing.length ? missing : [];
+  if (!missing.length) for (let cy = ay - 1; cy <= by + 1; cy++) for (let cx = ax - 1; cx <= bx + 1; cx++) {
+    if (cx < 0 || cy < 0 || cx >= NX || cy >= NY || T._chunks.has(cy * 1000 + cx)) continue;
+    if (T._chunks.size < LRU_MAX - (bx - ax + 1) * (by - ay + 1)) T._want.push([cx, cy]);
+  }
+  if (T._want.length && !T._prefetching) {
+    T._prefetching = true;
+    const run = (deadline) => {
+      T._prefetching = false;
+      // paint as many wanted chunks as fit in this idle slice (at least one)
+      let n = 0;
+      while (T._want && T._want.length && (n === 0 || !deadline || deadline.timeRemaining() > 12)) {
+        const [cx, cy] = T._want.shift();
+        if (!T._chunks.has(cy * 1000 + cx)) { chunk(T, cx, cy); n++; }
+      }
+    };
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: missing.length ? 60 : 500 }); else setTimeout(run, missing.length ? 16 : 120);
   }
 }
 
@@ -602,6 +613,7 @@ function smoke(ctx, x, y, time, seed) {
 export function drawTowns(ctx, state, time, view) {
   const st = img(STRUCT), walls = img(WALLS);
   const v = view;
+  const far = !!(v && v.w > 1500); // zoomed far out: skip shadows and smoke, the detail is invisible anyway
   for (const t of state.territories) {
     const ax = t.cx * TS + 8, ay = t.cy * TS + 14;
     if (v && (ax < v.x - 80 || ay < v.y - 40 || ax > v.x + v.w + 80 || ay > v.y + v.h + 90)) continue;
@@ -611,22 +623,20 @@ export function drawTowns(ctx, state, time, view) {
       const r = townRef(state, t);
       const w = r[3], hh = r[4];
       const px = ax - w / 2, py = ay - hh;
-      ctx.fillStyle = 'rgba(0,0,0,.28)';
-      ctx.beginPath(); ctx.ellipse(ax, ay - 1, w * 0.46, 5, 0, 0, Math.PI * 2); ctx.fill();
+      if (!far) { ctx.fillStyle = 'rgba(0,0,0,.28)'; ctx.beginPath(); ctx.ellipse(ax, ay - 1, w * 0.46, 5, 0, 0, Math.PI * 2); ctx.fill(); }
       drawSpriteRef(ctx, r, px, py);
-      if (kind === 'town') smoke(ctx, ax - 10, py + 14, time, t.id * 13);
+      if (kind === 'town' && !far) smoke(ctx, ax - 10, py + 14, time, t.id * 13);
       if (col) flag(ctx, Math.round(px + w - 6), Math.round(py + 2), col, time, t.id);
     } else if (st) {
       // ground patch so the cluster reads as a place
-      ctx.fillStyle = 'rgba(70,50,30,.16)';
-      ctx.beginPath(); ctx.ellipse(ax + 2, ay - 8, kind === 'hamlet' ? 22 : 36, kind === 'hamlet' ? 13 : 20, 0, 0, Math.PI * 2); ctx.fill();
+      if (!far) { ctx.fillStyle = 'rgba(70,50,30,.16)'; ctx.beginPath(); ctx.ellipse(ax + 2, ay - 8, kind === 'hamlet' ? 22 : 36, kind === 'hamlet' ? 13 : 20, 0, 0, Math.PI * 2); ctx.fill(); }
       if (kind === 'walled' && walls) {
         // back wall line
         for (let i = -2; i <= 2; i++) ctx.drawImage(walls, 32, 0, 16, 16, ax - 8 + i * 16, ay - 46, 16, 16);
       }
       for (const [sx, sy, dx, dy] of pieces) {
         const x = Math.round(ax + dx - 8), y = Math.round(ay + dy - 16);
-        ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.beginPath(); ctx.ellipse(x + 8, y + 14, 7, 2.4, 0, 0, Math.PI * 2); ctx.fill();
+        if (!far) { ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.fillRect(x + 2, y + 13, 12, 3); }
         ctx.drawImage(st, sx, sy, 16, 16, x, y, 16, 16);
       }
       if (kind === 'walled' && walls) {
@@ -635,7 +645,7 @@ export function drawTowns(ctx, state, time, view) {
         for (const i of [-2, -1, 1, 2]) ctx.drawImage(walls, i < 0 ? (i === -2 ? 16 : 32) : (i === 2 ? 48 : 32), 0, 16, 16, ax - 8 + i * 16, ay - 2, 16, 16);
       }
       const top = pieces.reduce((m, p) => (p[3] < m[3] ? p : m), pieces[0] || [0, 0, 0, 0]);
-      if (pieces.length) smoke(ctx, ax + top[2] - 2, ay + top[3] - 15, time, t.id * 7);
+      if (pieces.length && !far) smoke(ctx, ax + top[2] - 2, ay + top[3] - 15, time, t.id * 7);
       if (col) flag(ctx, Math.round(ax + 16), Math.round(ay - (kind === 'hamlet' ? 30 : 40)), col, time, t.id);
     }
   }
