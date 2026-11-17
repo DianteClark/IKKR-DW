@@ -361,3 +361,11 @@ input.text:focus { outline: none; box-shadow: 0 0 0 2px var(--gold); }
 .bm-tile canvas { image-rendering: pixelated; }
 .bm-palette { display: grid; grid-template-columns: repeat(12, 30px); gap: 5px; }
 @media (max-width: 760px) { .bm-palette { grid-template-columns: repeat(8, 30px); } .bm-stage { width: 150px; } }
+/* battle 11 */
+.bsq .bsq-tag { font-size: 10px; line-height: 12px; color: #9fd0ff; text-align: center; white-space: nowrap; }
+.bsq.reserve { border-style: dashed; }
+.bsq.reserve .bsq-tag { color: var(--gold); font-weight: 700; }
+.bsq.ally { opacity: .85; filter: hue-rotate(-15deg); }
+.bpanel-name { display: inline-flex; flex-direction: column; line-height: 1.05; }
+.bpanel-ter { font-size: 10px; color: #9fd0ff; font-weight: 600; }
+.btn.tiny.dim { opacity: .55; }
