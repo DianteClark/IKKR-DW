@@ -86,6 +86,7 @@ registerScene('battle', {
         colors: { att: A.color, def: D ? D.color : '#9aa7b8' }, control: args.control,
         garrison: b.skirmish ? { squads: 0, size: 0 } : { squads: dfd.length ? 1 : 2 + Math.min(2, t.level), size: dfd.length ? 4 + t.level * 2 : 6 + t.level * 3 },
         skirmish: !!b.skirmish,
+        nemesis: Array.isArray(b.nemesis) ? b.nemesis : [], // [[attackerHeroId, defenderHeroId], …] from the campaign's grudges
         intel: hasIntel(st, A.id, b.tid),
         land: landInfo(st, b.tid),
         reinforce: { att: allyReinforcements(st, A.id, b), def: D ? allyReinforcements(st, D.id, b) : [] },
