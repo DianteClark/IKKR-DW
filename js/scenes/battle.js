@@ -66,11 +66,6 @@ registerScene('battle', {
     fitCamera();
     buildUI();
     intro();
-    // slow presses (>0.5s without moving) still count as taps on a battlefield
-    B._down = (e) => { B._press = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false }; };
-    B._move = (e) => { if (B._press && Math.hypot(e.clientX - B._press.x, e.clientY - B._press.y) > 9) B._press.moved = true; };
-    B._up = (e) => { const p = B._press; B._press = null; if (p && !p.moved && performance.now() - p.t >= 500 && performance.now() - p.t < 1600) tap(e.clientX, e.clientY); };
-    canvas.addEventListener('pointerdown', B._down); canvas.addEventListener('pointermove', B._move); canvas.addEventListener('pointerup', B._up);
   },
   exit() {
     net.off('cmd'); net.off('snap'); net.off('battleEnd'); net.off('battleGo');
