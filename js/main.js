@@ -48,6 +48,7 @@ async function boot() {
   await import('./scenes/campaign.js');
   await import('./scenes/battle.js');
   await import('./scenes/lobby.js');
+  await import('./scenes/saves.js');
   go('title');
   requestAnimationFrame(frame);
 }

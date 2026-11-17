@@ -3,7 +3,7 @@ import { ctx, canvas, screen } from '../engine/view.js';
 import { h, btn, mount, modal, toggle } from '../engine/ui.js';
 import { img } from '../engine/assets.js';
 import { FACTION_IDS, FACTIONS, BIOMES, TILE, TREES, drawUnit, drawHero, drawSpriteRef } from '../data/art.js';
-import { hasSave } from '../game/save.js';
+import { hasSave, listCampaigns } from '../game/save.js';
 import { music, sfx, isMuted, setMuted } from '../engine/audio.js';
 
 // Parallax title scene: sky, clouds, far ranges, a castle on the hill, two armies marching to meet.
@@ -113,14 +113,14 @@ registerScene('title', {
   enter() {
     setupScene();
     music.start('title');
-    const save = hasSave();
+    const save = true; // Continue lists every saved campaign
     mount(h('div', { class: 'screen', style: { alignItems: 'center', justifyContent: 'space-between', gap: '12px' } },
       h('div', { class: 'logo-wrap grow', style: { alignSelf: 'flex-start', marginTop: '6vh' } },
         h('div', { class: 'logo-kicker' }, 'HEROES · ARMIES · EMPIRES'),
         h('div', { class: 'logo' }, 'Dynasty', h('br'), 'Wars'),
         h('div', { class: 'subtitle', style: { marginTop: '12px' } }, 'Conquer every realm')),
       h('div', { class: 'panel menu stagger rise-in', style: { width: 'min(42vw, 330px)' } },
-        save ? btn('Continue', () => { sfx('horn'); go('campaign', { load: true }); }, 'primary big') : null,
+        save ? btn('Continue', () => { sfx('horn'); go('saves'); }, 'primary big') : null,
         btn('New Campaign', () => { sfx('open'); go('setup', { mode: 'single' }); }, save ? '' : 'primary big'),
         btn('Multiplayer', () => { sfx('open'); go('lobby'); }),
         h('div', { class: 'row' }, btn('Settings', settings, 'small grow'), btn('Credits', credits, 'small grow'))),

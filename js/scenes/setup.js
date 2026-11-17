@@ -3,7 +3,7 @@ import { h, btn, mount, clearUI, toast, segmented, stepDots } from '../engine/ui
 import { FACTIONS, FACTION_IDS } from '../data/art.js';
 import { createWorld, confirmPicks, hero } from '../game/world.js';
 import { factionBadge, unitIcon, heroCard } from '../campaign/widgets.js';
-import { clearSave } from '../game/save.js';
+import { stampCampaign } from '../game/save.js';
 import { sfx, music } from '../engine/audio.js';
 
 const FLAVOR = {
@@ -126,7 +126,7 @@ registerScene('setup', {
         clearUI();
         mount(heroPicker(state, 0, (ids) => {
           confirmPicks(state, 0, ids);
-          clearSave();
+          stampCampaign(state, 'single');
           go('campaign', { state, localPlayer: 0 });
         }, { back: pickFaction }));
       }, pickOptions));

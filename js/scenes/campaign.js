@@ -26,7 +26,7 @@ import { EVENT_INFO } from '../game/events.js';
 import { captureScene, decisionScene } from '../game/dialogue.js';
 import { renderTerrain, renderOverlay, drawTowns, drawHeroes, drawOrders, drawAnimated, TS } from '../campaign/mapview.js';
 import { portrait, unitIcon, itemIcon, heroCard, orderLabel, kingdomBadge, unitCard } from '../campaign/widgets.js';
-import { saveGame, loadGame, clearSave } from '../game/save.js';
+import { saveCampaign, getRecord, prettyCode, stampCampaign } from '../game/save.js';
 import { sfx, music } from '../engine/audio.js';
 import { net } from '../net/net.js';
 
@@ -49,12 +49,16 @@ export function act(a) {
   return ok;
 }
 window.__dw = Object.assign(window.__dw || {}, { S, act });
-function persist() { if (net.role === 'single') saveGame(S.state); }
+function persist() { if (S.state) { if (!S.state.cid) stampCampaign(S.state, net.role === 'single' ? 'single' : 'p2p'); saveCampaign(S.state, S.me, S.key || null); } }
 
 // ---------- scene ----------
 registerScene('campaign', {
   enter(args) {
-    if (args.load) { const st = loadGame(); if (!st || st.v !== 2) return go('title'); S.state = st; S.me = 0; }
+    if (args.load) {
+      getRecord(args.load).then((rec) => { if (!rec || !rec.state || rec.state.v !== 2) return go('title'); go('campaign', { state: rec.state, localPlayer: rec.seat || 0, key: rec.key }); });
+      return;
+    }
+    S.key = args.key || null;
     if (args.state) { S.state = args.state; S.me = args.localPlayer ?? 0; S.sel = null; S.target = null; S.queue = null; S.reports = []; }
     if (S.seed !== S.state.seed + ':' + S.state.size || !S.terrainCanvas) {
       S.seed = S.state.seed + ':' + S.state.size;
@@ -550,7 +554,8 @@ function chronicle() {
 
 function menu() {
   modal('Menu', h('div', { class: 'col' },
-    net.role === 'single' ? h('div', { class: 'muted' }, 'Your campaign saves automatically.') : h('div', { class: 'muted' }, `Multiplayer · ${net.role === 'host' ? 'You are hosting' : 'Connected to host'}`)),
+    h('div', { class: 'row wrap' }, h('span', { class: 'chip gold' }, `Campaign ${prettyCode(S.state.cid)}`), h('span', { class: 'chip' }, `Seed ${S.state.seed}`), h('span', { class: 'chip' }, `${seasonOf(S.state.turn)}, year ${yearOf(S.state.turn)}`)),
+    net.role === 'single' ? h('div', { class: 'muted' }, 'Your campaign saves automatically every season. Find it under Continue.') : h('div', { class: 'muted' }, `Two-player · ${net.role === 'host' ? 'You are hosting' : 'Connected to host'}. Both of you keep a copy of this campaign — either of you can host it again from Continue.`)),
   [['Resume'], ['Quit to title', () => { if (net.role !== 'single') net.close(); go('title'); }, 'danger']], { dismiss: true });
 }
 
@@ -615,6 +620,7 @@ function setupNet() {
     net.on('turnDone', (m) => {
       S.busy = false; net.waitingFor = null;
       if (m.s) S.state = m.s;
+      persist();
       refreshUI();
       showTurnSummary(m.turn - 1, m.reports || [], m.summary || { events: [], notes: [] }, m.orderNotes || []);
     });
@@ -775,7 +781,6 @@ function gameOver() {
   const st = S.state, myKid = myK().id;
   const o = st.over;
   const win = o.winner === myKid || (o.type === 'alliance' && (o.winners || []).includes(myKid));
-  if (net.role === 'single') clearSave();
   sfx(win ? 'victory' : 'defeat');
   banner(win ? 'VICTORY' : 'DEFEAT', win ? 'good' : 'bad');
   modal(win ? 'Victory!' : 'Defeat', h('div', {}, win ? (o.type === 'alliance' ? 'You and your allies rule every realm. The dynasty is yours.' : 'Every realm bows to you. The dynasty is yours.') : o.type === 'alliance' && o.members.includes(myKid) ? 'Your alliance rules the land — but you followed others into it, and the crown went to them.' : 'Your cause is lost.'),
