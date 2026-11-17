@@ -18,7 +18,7 @@ import { runAI } from '../game/ai.js';
 import { applyAction } from '../game/actions.js';
 import {
   squadCap, developCost, territoryIncome, territoryFood, heroTotals, unitName, FORMATIONS, FORMATION_IDS, HIRE_COST, isRanged, LEVEL_XP,
-  soldierStats, soldierTitle, unitLevel, TIERS, tierIndex, BUILDINGS, POLICIES, EDICTS, STRATAGEMS, PROMOTE_ELITE_COST, commandPool, recruitCost, CLASS_INFO,
+  soldierStats, soldierTitle, unitLevel, TIERS, tierIndex, BUILDINGS, POLICIES, EDICTS, STRATAGEMS, PROMOTE_ELITE_COST, commandPool, recruitCost, CLASS_INFO, ROLES, ROLE_LEVEL,
 } from '../game/rules.js';
 import { SLOTS, SLOT_NAMES, itemStatText, rarityColor } from '../game/items.js';
 import { economyPreview, edictCost, canEdict, promotionStatus, loadoutOptions, loadoutSlots } from '../game/kingdom.js';
@@ -359,12 +359,16 @@ export function heroModal(id) {
     const head = h('div', { class: 'row', style: { gap: '10px', alignItems: 'flex-start' } },
       portrait(x, 3.5),
       h('div', { class: 'col grow', style: { gap: '3px' } },
-        h('div', { class: 'row wrap', style: { gap: '6px' } }, chip('Lv ' + x.level, 'gold'), chip(x.trait), x.id === k.ruler ? chip('Ruler', 'gold') : null),
+        h('div', { class: 'row wrap', style: { gap: '6px' } }, chip('Lv ' + x.level, 'gold'), chip(x.trait), x.role ? chip(ROLES[x.role].name, 'blue') : null, x.id === k.ruler ? chip('Ruler', 'gold') : null),
         h('div', { class: 'muted' }, `${FACTIONS[x.fid].race} · Loyalty ${x.loyalty}${x.lentTo >= 0 ? ' · lent to ' + st.kingdoms[x.lentTo].name : ''}`),
         h('div', { class: 'row wrap', style: { gap: '4px' } }, ['atk', 'def', 'lead', 'int'].map((s) => chip(`${s.toUpperCase()} ${t[s]}`))),
         h('div', { class: 'row' }, h('span', { class: 'muted', style: { width: '52px' } }, 'XP'), h('div', { class: 'grow' }, bar(x.xp / LEVEL_XP(x.level), 'xp'))),
         h('div', { class: 'row' }, h('span', { class: 'muted', style: { width: '52px' } }, 'Health'), h('div', { class: 'grow' }, bar(x.hp / 100)))));
     let content;
+    const rolePick = editable && !x.role && x.level >= ROLE_LEVEL ? h('div', { class: 'card col', style: { alignItems: 'stretch', borderColor: '#ffd86b' } },
+      h('b', {}, `${x.name} is ready to choose a calling`),
+      h('div', { class: 'row wrap', style: { gap: '6px' } }, Object.entries(ROLES).map(([id, r]) => btn(`${r.name}${x.pendingRole === id ? ' ★' : ''}`, () => { if (act({ type: 'role', hero: x.id, role: id })) { sfx('levelup'); toast(`${x.name} becomes a ${r.name}: ${r.desc}`, 'good'); render(); } }, 'small' + (x.pendingRole === id ? ' good' : '')))),
+      h('div', { class: 'muted', style: { fontSize: '12px' } }, Object.values(ROLES).map((r) => `${r.name}: ${r.desc}`).join(' · '))) : null;
     if (tab === 'squad') {
       const list = x.troops.map((s, i) => ({ s, i })).sort((a, b) => b.s.s - a.s.s || b.s.r - a.s.r);
       content = h('div', { class: 'col' },
@@ -438,7 +442,7 @@ export function heroModal(id) {
         editable && x.lentTo >= 0 ? btn('Recall', () => { act({ type: 'recall', hero: x.id }); render(); }, 'small') : null,
         h('div', { class: 'muted', style: { fontSize: '13px' } }, 'Lent heroes fight in your ally\'s battles and gain experience — but a disloyal hero may decide to stay with them.'));
     }
-    const body = h('div', { class: 'col' }, head,
+    const body = h('div', { class: 'col' }, head, rolePick,
       tabs([{ id: 'squad', label: 'Squad' }, { id: 'unit', label: 'Unit type' }, { id: 'gear', label: 'Gear' }, { id: 'family', label: 'Family' }, { id: 'more', label: 'Tactics' }], (id) => { tab = id; render(); }, tab), content);
     if (m) m.box.querySelector('.body').replaceChildren(body); else m = sheet(x.name, body, [], { side: 'right' });
   };

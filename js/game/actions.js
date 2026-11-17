@@ -1,5 +1,6 @@
 // Every player-made change to the campaign goes through here, so the host can replay a peer's actions.
 import { wed } from './family.js';
+import { ROLES, ROLE_LEVEL } from './rules.js';
 import { setOrder, hireVagabond, equip, unequip, decideCaptive, changeUnit, hero, promoteElite } from './world.js';
 import { setPolicy, issueEdict, promoteRealm, build, setLoadout } from './kingdom.js';
 import { propose, respondProposal, breakTreaty, lendHero, recallHero } from './diplomacy.js';
@@ -22,6 +23,7 @@ export function applyAction(state, playerIdx, a) {
     case 'formation': { const x = hero(state, a.hero); if (own(a.hero)) x.formation = a.formation; return true; }
     case 'unit': return own(a.hero) && changeUnit(state, a.hero, a.ufid, a.unit);
     case 'wed': return own(a.a) && own(a.b) && wed(state, hero(state, a.a), hero(state, a.b));
+    case 'role': { const x = hero(state, a.hero); if (!own(a.hero) || x.role || x.level < ROLE_LEVEL || !ROLES[a.role]) return false; x.role = a.role; delete x.pendingRole; return true; }
     case 'promoteElite': return own(a.hero) && !!promoteElite(state, kid, a.hero, a.idx);
     case 'captive': { const x = hero(state, a.hero); if (x && x.captor === kid) return decideCaptive(state, a.hero, a.decision); return false; }
     case 'rename': { k.name = String(a.name).slice(0, 40); return true; }

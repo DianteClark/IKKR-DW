@@ -9,7 +9,7 @@ import { initNeutral, applyNeutralOrders, validNeutralOrder } from './neutral.js
 import { makeItem, SLOTS } from './items.js';
 import {
   squadCap, recruitCost, squadPower, garrisonPower, unitLevel, HIRE_COST, EVOLVE_XP, LEVEL_XP, MAX_LEVEL,
-  newSoldier, TIERS, tierIndex, PROMOTE_ELITE_COST, STRATAGEMS, STRATAGEM_IDS, unitClass, CLASS_INFO,
+  newSoldier, TIERS, tierIndex, PROMOTE_ELITE_COST, STRATAGEMS, STRATAGEM_IDS, unitClass, CLASS_INFO, ROLE_LEVEL, ROLES,
 } from './rules.js';
 
 export const SIZES = {
@@ -398,6 +398,11 @@ export function gainHeroXp(h, amount, rng) {
   h.xp += amount;
   let ups = 0;
   while (h.level < MAX_LEVEL && h.xp >= LEVEL_XP(h.level)) { h.xp -= LEVEL_XP(h.level); levelUp(h, rng); ups++; }
+  // computer heroes pick a calling on their own; players choose in the hero sheet
+  if (!h.role && h.level >= ROLE_LEVEL && h.kingdom >= 0 && rng && h.autoRole !== false) {
+    const best = h.lead >= 11 ? 'commander' : h.atk >= h.def + 2 ? 'duelist' : h.int >= 6 ? 'strategist' : 'scout';
+    h.pendingRole = best;
+  }
   return ups;
 }
 
@@ -683,7 +688,7 @@ export function applyOrders(state) {
       if (pr.evolve || pr.elite) results.push({ kid: k.id, text: `${h.name}'s drills paid off: ${pr.evolve ? pr.evolve + ' evolved' : ''}${pr.elite ? ' ' + pr.elite + ' became Elite' : ''}.` });
     } else if (o.type === 'spy') {
       const t = state.territories[o.target];
-      if (rng() < 0.45 + h.int * 0.06) {
+      if (h.role === 'scout' || rng() < 0.45 + h.int * 0.06) {
         k.intel[o.target] = { turn: state.turn + 1 };
         results.push({ kid: k.id, text: `${h.name}'s spies mapped the defences of ${t.name}.` });
       } else {

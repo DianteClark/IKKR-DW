@@ -78,9 +78,17 @@ export const MAX_LEVEL = 30;
 export const LEVEL_XP = (lvl) => 6 + lvl * 5;
 
 // command points: how many soldiers a hero can lead (bigger units take more room)
+// a hero picks a calling at level 5 that shapes how they fight
+export const ROLE_LEVEL = 5;
+export const ROLES = {
+  commander: { name: 'Commander', desc: '+4 command: a bigger squad.' },
+  duelist: { name: 'Duelist', desc: '+3 attack and the edge in hero duels.' },
+  strategist: { name: 'Strategist', desc: '+3 stratagem points in every battle they join.' },
+  scout: { name: 'Scout', desc: 'Spies always succeed; +2 defence.' },
+};
 export function commandCap(hero, kingdom) {
   const pits = kingdom && kingdom.buildings && kingdom.buildings.pits ? 3 : 0;
-  return Math.min(45, 5 + Math.floor((hero.level - 1) * 1.6) + Math.max(0, hero.lead - 8) + pits);
+  return Math.min(49, 5 + Math.floor((hero.level - 1) * 1.6) + Math.max(0, hero.lead - 8) + pits + (hero.role === 'commander' ? 4 : 0));
 }
 export function squadCap(hero, kingdom) {
   return Math.max(1, Math.floor(commandCap(hero, kingdom) / unitWeight(hero.ufid || hero.fid, hero.unit) + 1e-6));
@@ -88,7 +96,7 @@ export function squadCap(hero, kingdom) {
 export function recruitCost(fid, ui) { return 10 + unitLevel(fid, ui) * 8; }
 
 export function heroTotals(hero, items) {
-  const t = { atk: hero.atk, def: hero.def, lead: hero.lead, int: hero.int, morale: 0, spd: 0 };
+  const t = { atk: hero.atk + (hero.role === 'duelist' ? 3 : 0), def: hero.def + (hero.role === 'scout' ? 2 : 0), lead: hero.lead, int: hero.int, morale: 0, spd: 0 };
   for (const id of Object.values(hero.gear || {})) {
     const it = items[id];
     if (!it) continue;
@@ -176,7 +184,7 @@ export const STRATAGEMS = {
 export const STRATAGEM_IDS = Object.keys(STRATAGEMS);
 export function commandPool(heroes, tierIdx, academy) {
   const bestInt = heroes.reduce((m, h) => Math.max(m, h.int || 0), 0);
-  return 4 + Math.floor(bestInt / 2) + tierIdx * 2 + (academy ? 2 : 0);
+  return 4 + Math.floor(bestInt / 2) + tierIdx * 2 + (academy ? 2 : 0) + (heroes.some((h) => h.role === 'strategist') ? 3 : 0);
 }
 
 // ---------------- kingdoms ----------------

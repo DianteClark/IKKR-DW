@@ -44,6 +44,7 @@ export function endTurn(state) {
     if (k.player < 0) { aiDevelop(state, k, rng); if (state.turn % 5 === 0) k.loadout = pickLoadout(k, rng); }
   }
   autoPromote(state);
+  for (const h of state.heroes) if (h.pendingRole && !h.role && !isHumanKingdom(state, h.kingdom)) { h.role = h.pendingRole; delete h.pendingRole; }
   if (state.turn % 3 === 0) {
     const n = rng.int(1, 2);
     for (let i = 0; i < n; i++) makeHero(state, rng, rng.pick(FACTION_IDS), -1, rng.pick(state.territories).id, { status: 'vagabond', level: Math.floor(state.turn / 6) });
