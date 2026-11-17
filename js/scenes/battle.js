@@ -18,6 +18,7 @@ import { alliesOf } from '../game/diplomacy.js';
 import { line } from '../game/dialogue.js';
 import { portrait, unitIcon } from '../campaign/widgets.js';
 import { sfx, music } from '../engine/audio.js';
+import { prefs, buzz } from '../engine/prefs.js';
 import { net } from '../net/net.js';
 
 const cam = new Camera();
@@ -125,7 +126,7 @@ registerScene('battle', {
   },
   update(dt) {
     const sim = B.sim; if (!sim) return;
-    B.freeze = Math.max(0, B.freeze - dt);
+    B.freeze = prefs.lowFx ? 0 : Math.max(0, B.freeze - dt); // low effects: no hit-stop
     B.slow = Math.max(0, B.slow - dt);
     if (!B.client && B.started && !B.paused && !B.ended && B.freeze <= 0) {
       B.acc += dt * B.speed * (B.slow > 0 ? 0.3 : 1);
@@ -235,7 +236,7 @@ function consumeEvents() {
       if (e.by != null && e.by >= 0) B.kills.set(e.by, (B.kills.get(e.by) || 0) + 1);
       const s = sq(e.id), r = B.render.get(e.id); if (!s || !r) continue;
       const i = s.soldiers.findIndex((x) => x.idx === e.idx), p = r.soldiers[i];
-      if (p) { B.fx.push({ k: 'corpse', x: p.x, y: p.y, fid: s.fid, unit: s.unit, stage: s.soldiers[i].s, flip: Math.cos(s.dir) < 0, age: 0, life: 6 }); J.dust(p.x, p.y); }
+      if (p) { B.fx.push({ k: 'corpse', x: p.x, y: p.y, fid: s.fid, unit: s.unit, stage: s.soldiers[i].s, flip: Math.cos(s.dir) < 0, age: 0, life: prefs.lowFx ? 2.5 : 6 }); J.dust(p.x, p.y); }
       sfx('death');
       if (e.elite && mineSide(s.side)) toast(`${e.elite} has fallen!`, 'bad');
     } else if (e.k === 'hit') {
@@ -243,7 +244,7 @@ function consumeEvents() {
       r.flash = 1;
       r.dmg = (r.dmg || 0) + e.d;
       J.hit(r.x * TS + (Math.random() - 0.5) * 10, r.y * TS - 4, '#fff');
-      if (e.d >= 14 && (B._bigHit || 0) < game.time) { B._bigHit = game.time + 0.6; B.freeze = Math.max(B.freeze, 0.06); J.sparks(r.x * TS, r.y * TS - 6, '#ffd86b'); J.shake(2, 0.15); }
+      if (e.d >= 14 && (B._bigHit || 0) < game.time) { B._bigHit = game.time + 0.6; B.freeze = Math.max(B.freeze, 0.06); J.sparks(r.x * TS, r.y * TS - 6, '#ffd86b'); J.shake(2, 0.15); const hs = sq(e.id); if (hs && mineSide(hs.side)) buzz('hit'); }
       sfx(e.d >= 14 ? 'heavy' : 'hit');
     } else if (e.k === 'shot') {
       const a = B.render.get(e.from), b = B.render.get(e.to); if (!a || !b) continue;
@@ -257,7 +258,7 @@ function consumeEvents() {
       const p = sim.field.posts[e.post];
       B.fx.push({ k: 'flash', x: p.x * TS, y: p.y * TS, age: 0, life: 0.8, side: e.side });
       J.confetti(p.x * TS, p.y * TS - 20);
-      { const good = mineSide(e.side) || (!B.side && e.side === 'att'); sfx(p.main ? (good ? 'fanfare' : 'mainLost') : good ? 'capture' : 'lost'); }
+      { const good = mineSide(e.side) || (!B.side && e.side === 'att'); sfx(p.main ? (good ? 'fanfare' : 'mainLost') : good ? 'capture' : 'lost'); if (B.side) buzz(p.main ? 'heavy' : good ? 'tap' : 'alert'); }
       B.fx.push({ k: 'flag', x: p.x * TS + 10, y: p.y * TS - 8, age: 0, life: 2.4, col: B.colors[e.side] });
       if (p.main) { B.slow = 1.6; J.shake(6, 0.6); J.shockwave(p.x * TS, p.y * TS, '#ffd86b'); }
       if (B.side) banner(p.main ? (e.side === B.side ? 'MAIN POST TAKEN' : 'MAIN POST LOST') : e.side === B.side ? 'Post captured' : 'Post lost', e.side === B.side ? 'good' : 'bad');
@@ -267,6 +268,7 @@ function consumeEvents() {
       const s = sq(e.id), r = B.render.get(e.id);
       if (r) { J.floatText(r.x * TS, r.y * TS - 30, 'ROUTED!', mineSide(s && s.side) ? '#ff6a5a' : '#8fd06b'); B.fx.push({ k: 'whiteflag', x: r.x * TS + 8, y: r.y * TS - 10, age: 0, life: 2 }); }
       sfx('rout');
+      if (s && mineSide(s.side)) buzz('lose');
       if (s && mineSide(s.side)) toast(`${s.name}'s squad is routing!`, 'bad');
     } else if (e.k === 'flank') {
       J.floatText(e.x * TS, e.y * TS - 24, e.rear ? 'REAR ATTACK!' : 'FLANKED!', '#ffb347'); sfx('flank');
@@ -324,7 +326,7 @@ function consumeEvents() {
     } else if (e.k === 'gateHit') {
       if ((B._gateT || 0) < game.time) { B._gateT = game.time + 0.45; J.sparks(e.x * TS, e.y * TS, '#ffd86b'); J.shake(1.5, 0.12); sfx('hit'); }
     } else if (e.k === 'gateBroken') {
-      J.shockwave(e.x * TS, e.y * TS, '#ffb347'); J.shake(7, 0.6); B.freeze = Math.max(B.freeze, 0.15); sfx('gate');
+      J.shockwave(e.x * TS, e.y * TS, '#ffb347'); J.shake(7, 0.6); B.freeze = Math.max(B.freeze, 0.15); sfx('gate'); buzz('heavy');
       for (let i = 0; i < 8; i++) J.smoke(e.x * TS + (Math.random() - 0.5) * 30, e.y * TS + (Math.random() - 0.5) * 20);
       banner('THE GATE FALLS!', B.side === 'att' ? 'good' : B.side === 'def' ? 'bad' : '', 'The way into the keep is open');
     } else if (e.k === 'ladder') {
@@ -374,7 +376,7 @@ function draw() {
   for (const f of sim.fires) {
     ctx.fillStyle = `rgba(255,${100 + Math.sin(time * 9) * 30 | 0},40,0.22)`;
     ctx.beginPath(); ctx.ellipse(f.x * TS, f.y * TS, f.r * TS, f.r * TS * 0.7, 0, 0, Math.PI * 2); ctx.fill();
-    if (Math.random() < 0.5) B.juice.fire(f.x * TS + (Math.random() - 0.5) * f.r * TS * 1.6, f.y * TS + (Math.random() - 0.5) * f.r * TS);
+    if (Math.random() < (prefs.lowFx ? 0.12 : 0.5)) B.juice.fire(f.x * TS + (Math.random() - 0.5) * f.r * TS * 1.6, f.y * TS + (Math.random() - 0.5) * f.r * TS);
   }
   const selList = selSquads();
   const sel = selList[0] || null;
@@ -1019,7 +1021,7 @@ function endBattle(result) {
   B.ended = true;
   const sim = B.sim;
   const won = B.side ? result.winner === B.side : null;
-  sfx(won === false ? 'defeat' : 'victory');
+  sfx(won === false ? 'defeat' : 'victory'); buzz(won === false ? 'lose' : 'win');
   banner(won == null ? (result.winner === 'att' ? 'ATTACKERS WIN' : 'DEFENDERS WIN') : won ? 'VICTORY' : 'DEFEAT', won === false ? 'bad' : 'good', B.setup.place);
   if (won) B.juice.confetti(sim.field.W * TS / 2, sim.field.H * TS / 2);
   // recap: losses on each side, the squad of the battle, elites lost, heroes wounded or taken

@@ -1,6 +1,8 @@
 // Battle "juice": pixel particles, damage numbers, shockwaves and screen shake.
 // All coordinates are world pixels (16 px per tile). Draw with the camera transform applied.
+import { prefs } from '../engine/prefs.js';
 const MAX = 700;
+const low = () => prefs.lowFx;
 
 export function createFx() {
   const P = [];       // particles
@@ -21,36 +23,42 @@ export function createFx() {
 
   return {
     hit(x, y, color = '#ffffff') {
-      burst(x, y - 4, 5, { color: [color, '#ffffff'], spMin: 25, spMax: 60, lMin: 0.12, lMax: 0.28, g: 120 });
+      burst(x, y - 4, low() ? 2 : 5, { color: [color, '#ffffff'], spMin: 25, spMax: 60, lMin: 0.12, lMax: 0.28, g: 120 });
     },
     damage(x, y, amount, color = '#ffe0a0') {
+      if (low() && (amount < 20 || T.length > 6)) return; // only big numbers, few at once
       if (T.length > 60) T.shift();
       T.push({ x: x + rnd(-3, 3), y: y - 10, vy: -26, age: 0, life: 0.8, text: String(Math.round(amount)), color, size: amount >= 20 ? 9 : 7 });
     },
     dust(x, y) {
+      if (low()) return;
       burst(x, y, 4, { color: ['#c9a87a', '#9c7e58', '#e2cfa8'], spMin: 6, spMax: 18, lMin: 0.3, lMax: 0.6, g: -6, drag: 3, size: 2, grow: 2 });
     },
     sparks(x, y, color = '#ffd86b') {
-      burst(x, y - 4, 9, { color: [color, '#fff6d0', '#ff9a3a'], spMin: 40, spMax: 110, lMin: 0.18, lMax: 0.4, g: 160 });
+      if (low() && Math.random() < 0.5) return;
+      burst(x, y - 4, low() ? 3 : 9, { color: [color, '#fff6d0', '#ff9a3a'], spMin: 40, spMax: 110, lMin: 0.18, lMax: 0.4, g: 160 });
     },
     shockwave(x, y, color = '#ffffff') {
       if (W.length > 20) W.shift();
       W.push({ x, y, age: 0, life: 0.55, color, r: 4, max: 34 });
     },
     fire(x, y) {
+      if (low() && Math.random() < 0.7) return;
       burst(x, y, 6, { color: ['#ffef8a', '#ffb43a', '#ff5a2a', '#c8301e'], ang: -Math.PI / 2, spread: 0.6, spMin: 14, spMax: 38, lMin: 0.3, lMax: 0.7, g: -40, drag: 1.5, size: 2 });
     },
     smoke(x, y) {
+      if (low()) return;
       burst(x, y, 4, { color: ['#5a5466', '#77708a', '#3e3a48'], ang: -Math.PI / 2, spread: 0.5, spMin: 6, spMax: 16, lMin: 0.8, lMax: 1.4, g: -12, drag: 1, size: 2, grow: 3 });
     },
     confetti(x, y) {
-      burst(x, y, 40, { color: ['#ffd86b', '#8ee06b', '#6fb7ff', '#ff6f5e', '#b58bff', '#ffffff'], ang: -Math.PI / 2, spread: 1.2, spMin: 50, spMax: 130, lMin: 0.9, lMax: 1.6, g: 110, drag: 1.2, size: 2 });
+      burst(x, y, low() ? 10 : 40, { color: ['#ffd86b', '#8ee06b', '#6fb7ff', '#ff6f5e', '#b58bff', '#ffffff'], ang: -Math.PI / 2, spread: 1.2, spMin: 50, spMax: 130, lMin: 0.9, lMax: 1.6, g: 110, drag: 1.2, size: 2 });
     },
     floatText(x, y, text, color = '#ffd86b') {
       if (T.length > 60) T.shift();
       T.push({ x, y: y - 14, vy: -18, age: 0, life: 1.3, text, color, size: 8, bold: true });
     },
     shake(intensity = 3, dur = 0.25) {
+      if (low()) return;
       if (intensity >= shakeI * (1 - shakeT / Math.max(0.001, shakeDur))) { shakeI = intensity; shakeDur = dur; shakeT = 0; }
     },
     update(dt) {
