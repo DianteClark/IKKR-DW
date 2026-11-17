@@ -85,7 +85,7 @@ export const FACTIONS = {
     town: (stage) => ['assets/dwarves/Buildings/DwarvesCastlesSpriteSheet.png', Math.min(3, stage) * 64, 0, 64, 64],
     dwelling: (i) => ['assets/dwarves/Buildings/DwarvesDwellingsSpriteSheet.png', (i % 3) * 32, Math.floor(i / 3) % 3 * 32, 32, 32],
     heroes: 'assets/dwarves/Heroes/DwarvesHeroesSpriteSheet.png',
-    portraits: (() => { const o = []; for (let r = 0; r < 2; r++) for (let c = 0; c < 20; c++) o.push(['assets/dwarves/Heroes/DwarvesHeroesIconSheet.png', c * 16, r * 16]); return o; })(),
+    portraits: (() => { const o = []; for (let r = 1; r < 3; r++) for (let c = 0; c < 20; c++) o.push(['assets/dwarves/Heroes/DwarvesHeroesIconSheet.png', c * 16, r * 16]); return o; })(),
     names: ['Thorin', 'Brunna', 'Dwalin', 'Helga', 'Gimrek', 'Dagna', 'Balin', 'Thora', 'Durin', 'Kili', 'Orla', 'Bombur', 'Runa', 'Gloin', 'Vigdis', 'Nori', 'Embla', 'Fundin', 'Sigrid', 'Brokk'],
   },
   conflux: {

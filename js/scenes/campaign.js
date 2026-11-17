@@ -471,6 +471,10 @@ export function showTurnSummary(prevTurn, mine, extra = []) {
   const st = S.state;
   const myKid = st.players[S.me].kingdom;
   if (st.over) return gameOver();
+  if (!st.kingdoms[myKid].alive && !S.toldFallen) {
+    S.toldFallen = true;
+    return modal('Your realm has fallen', h('div', {}, 'Every territory you held has been taken. You can keep watching the war unfold or leave.'), [['Watch'], ['Title screen', () => { if (net.role !== 'single') net.close(); else clearSave(); go('title'); }, 'danger']]);
+  }
   const items = [];
   for (const r of mine || []) {
     const t = st.territories[r.tid];

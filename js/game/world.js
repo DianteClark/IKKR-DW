@@ -532,6 +532,13 @@ export function endTurn(state) {
       }
     }
   }
+  // a realm with land but no heroes raises a new champion
+  for (const k of state.kingdoms) {
+    if (!k.alive || kingdomHeroes(state, k.id).length) continue;
+    const h = makeHero(state, rng, k.fid, k.id, k.capital, { troops: 5 });
+    if (k.ruler < 0 || !hero(state, k.ruler) || hero(state, k.ruler).status !== 'active') k.ruler = h.id;
+    log(state, `${h.name} rose to defend ${k.name}.`, k.id);
+  }
   // new wanderers now and then
   if (state.turn % 3 === 0) {
     const n = rng.int(1, 2);
