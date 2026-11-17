@@ -488,7 +488,7 @@ export function step(sim) {
     if (s.heroAlive) dmg += s.heroAtk;
     if (s.ranged) dmg *= 0.6;
     const fa = FORMATIONS[s.formation], fb = FORMATIONS[e.formation];
-    dmg *= s.atkMul * fa.atk * formationEdge(s.formation, e.formation) * (0.6 + 0.4 * s.morale / 100) * 0.031 * DT;
+    dmg *= s.atkMul * fa.atk * formationEdge(s.formation, e.formation) * (0.6 + 0.4 * s.morale / 100) * 0.026 * DT;
     if (s.reform) dmg *= 0.75;
     if (buff(s, 'warcry')) dmg *= 1.15;
     if (fb.arrowGuard) dmg *= 1.1;
@@ -508,7 +508,7 @@ export function step(sim) {
   for (const p of sim.field.posts) {
     let att = 0, def = 0;
     for (const s of S) if (fighting(s) && Math.hypot(s.x - p.x, s.y - p.y) < CAP_R) { if (s.side === 'att') att++; else def++; }
-    const rate = p.main ? 0.045 : 0.12;
+    const rate = p.main ? 0.03 : 0.09;
     const contest = (side, n) => {
       if (p.owner === side) { p.prog = Math.max(0, p.prog - DT * 0.3); return; }
       if (p.by !== side) { p.by = side; p.prog = 0; }
@@ -625,7 +625,7 @@ function shoot(sim, s, foe) {
   let dmg = 0;
   for (const so of s.soldiers) if (so.alive) dmg += so.atk;
   const f = FORMATIONS[s.formation], fb = FORMATIONS[foe.formation];
-  dmg *= s.atkMul * (f.ranged || 1) * (fb.arrowGuard || 1) * (0.6 + 0.4 * s.morale / 100) * 0.045;
+  dmg *= s.atkMul * (f.ranged || 1) * (fb.arrowGuard || 1) * (0.6 + 0.4 * s.morale / 100) * 0.039;
   if (buff(foe, 'smoke')) dmg *= 0.3;
   const ts = TERRAIN[terrainAt(sim.field, s.x, s.y)], tf = TERRAIN[terrainAt(sim.field, foe.x, foe.y)];
   if (ts && ts.range > 1) dmg *= 1.2;
