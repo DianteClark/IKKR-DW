@@ -555,15 +555,53 @@ function pickItem(x, slot, done) {
   mm = modal(SLOT_NAMES[slot], body, [['Close']], { dismiss: true });
 }
 
+const HL = { sort: 'idle', filter: 'all' };
 function heroesList() {
   const st = S.state, k = myK();
-  const hs = kingdomHeroes(st, k.id, true);
   let mm;
-  const body = h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(280px,1fr))' } }, hs.map((x) => h('div', {},
-    heroCard(st, x, { stats: true, badges: [x.trait], onClick: () => { mm.close(); heroModal(x.id); } }),
-    h('div', { class: 'row', style: { gap: '4px', marginTop: '3px' } }, h('span', { class: 'muted grow', style: { fontSize: '13px' } }, `at ${st.territories[x.loc].name}`),
-      btn('Show', () => { mm.close(); S.sel = x.loc; focus(x.loc); refreshUI(); }, 'small')))));
-  mm = sheet(`Your heroes (${hs.length}) · ${totalTroops(st, k.id)} troops`, body, [], { side: 'right' });
+  const render = () => {
+    const all = kingdomHeroes(st, k.id, true);
+    const wounded = (x) => x.hp < 70 || x.troops.length < squadCap(x, k) * 0.6;
+    let hs = all.filter((x) => HL.filter === 'all' || (HL.filter === 'idle' && !x.order) || (HL.filter === 'wounded' && wounded(x)) || (HL.filter === 'here' && S.sel != null && x.loc === S.sel));
+    const by = {
+      idle: (a, b) => (!!a.order - !!b.order) || b.level - a.level,
+      level: (a, b) => b.level - a.level || b.troops.length - a.troops.length,
+      troops: (a, b) => b.troops.length - a.troops.length,
+      wounded: (a, b) => (a.hp + a.troops.length * 4) - (b.hp + b.troops.length * 4),
+      land: (a, b) => st.territories[a.loc].name.localeCompare(st.territories[b.loc].name) || b.level - a.level,
+    }[HL.sort];
+    hs = hs.slice().sort(by);
+    const chipBtn = (label, on, fn) => btn(label, () => { fn(); sfx('click'); render(); }, 'tiny' + (on ? ' good' : ''));
+    const controls = h('div', { class: 'col', style: { gap: '4px' } },
+      h('div', { class: 'row wrap', style: { gap: '4px' } }, h('span', { class: 'muted', style: { fontSize: '12px', width: '40px' } }, 'Show'),
+        chipBtn(`All ${all.length}`, HL.filter === 'all', () => (HL.filter = 'all')),
+        chipBtn(`Idle ${all.filter((x) => !x.order).length}`, HL.filter === 'idle', () => (HL.filter = 'idle')),
+        chipBtn(`Wounded ${all.filter(wounded).length}`, HL.filter === 'wounded', () => (HL.filter = 'wounded')),
+        S.sel != null ? chipBtn(`At ${st.territories[S.sel].name}`, HL.filter === 'here', () => (HL.filter = 'here')) : null),
+      h('div', { class: 'row wrap', style: { gap: '4px' } }, h('span', { class: 'muted', style: { fontSize: '12px', width: '40px' } }, 'Sort'),
+        ...[['idle', 'Idle first'], ['level', 'Level'], ['troops', 'Troops'], ['wounded', 'Weakest'], ['land', 'Land']].map(([id, l]) => chipBtn(l, HL.sort === id, () => (HL.sort = id)))));
+    // group by land when sorted by land, with bulk orders for each group
+    const groups = new Map();
+    for (const x of hs) { const key = HL.sort === 'land' ? x.loc : 'all'; if (!groups.has(key)) groups.set(key, []); groups.get(key).push(x); }
+    const blocks = [];
+    for (const [loc, list] of groups) {
+      if (loc !== 'all') {
+        const editable = list.filter((x) => x.status === 'active' && x.lentTo < 0);
+        blocks.push(h('div', { class: 'row wrap hl-group' }, h('b', { class: 'grow' }, `${st.territories[loc].name} · ${list.length}`),
+          editable.length > 1 ? btn('All rest', () => { editable.forEach((x) => act({ type: 'order', hero: x.id, order: { type: 'rest' } })); toast(`${editable.length} heroes rest at ${st.territories[loc].name}`); render(); }, 'tiny good') : null,
+          editable.length > 1 && validTargets(st, editable[0]).length ? btn('All attack…', () => { mm.close(); S.sel = loc; focus(loc); startTarget(editable.map((x) => x.id), 'attack'); }, 'tiny danger') : null,
+          btn('Show', () => { mm.close(); S.sel = loc; focus(loc); refreshUI(); }, 'tiny ghost')));
+      }
+      blocks.push(h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(270px,1fr))' } }, list.map((x) => h('div', {},
+        heroCard(st, x, { stats: true, badges: [x.trait], onClick: () => { mm.close(); heroModal(x.id); } }),
+        h('div', { class: 'row', style: { gap: '4px', marginTop: '3px' } }, h('span', { class: 'muted grow ellipsis', style: { fontSize: '13px' } }, `at ${st.territories[x.loc].name}`),
+          btn('Show', () => { mm.close(); S.sel = x.loc; focus(x.loc); cam.x += (screen.w * 0.22) / cam.zoom; cam.clamp(); refreshUI(); drawMinimapUI(); }, 'tiny'))))));
+    }
+    const body = h('div', { class: 'col' }, controls, hs.length ? blocks : h('div', { class: 'muted' }, 'No heroes match.'));
+    if (mm) { const sc = mm.box.querySelector('.body'); const top = sc.scrollTop; sc.replaceChildren(body); sc.scrollTop = top; }
+    else mm = sheet(`Your heroes (${all.length}) · ${totalTroops(st, k.id)} troops`, body, [], { side: 'right' });
+  };
+  render();
 }
 
 // ---------- realm management ----------

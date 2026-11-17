@@ -382,3 +382,4 @@ body.side-open #toasts { left: calc(26vw + 6px); max-width: 48vw; }
 .sumcard { padding: 6px 8px; gap: 8px; align-items: center; }
 .sumcard .sum-ic { width: 26px; height: 26px; flex: none; display: grid; place-items: center; font-size: 18px; color: var(--gold); }
 .sumcard b.bad { color: var(--bad); } .sumcard b.good { color: var(--good); } .sumcard b.gold { color: var(--gold); }
+.hl-group { gap: 4px; padding: 4px 2px 2px; border-bottom: 1px solid rgba(255,216,107,.25); margin-top: 4px; }
