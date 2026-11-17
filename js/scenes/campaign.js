@@ -798,9 +798,10 @@ export function showTurnSummary(prevTurn, reports, summary = { events: [], notes
   const bad = (summary.events || []).some((e) => e.kid === myKid && ['quake', 'plague', 'revolt', 'overthrow', 'bandits', 'outbreak', 'famine'].includes(e.kind));
   if ((summary.events || []).some((e) => e.kind === 'overthrow' && e.kid === myKid)) { sfx('lost'); banner('OVERTHROWN!', 'bad', 'Your realm has fallen to revolution'); }
   sfx('turn');
-  modal(`Turn ${prevTurn} complete`, h('div', { class: 'col' },
+  modal(`${seasonOf(prevTurn)} of year ${yearOf(prevTurn)} ends`, h('div', { class: 'col' },
     items,
-    mineNotes.length ? h('div', { class: 'col', style: { gap: '3px' } }, mineNotes.map((n) => h('div', { class: n.kind === 'defect' || n.kind === 'famine' || n.kind === 'betrayal' ? 'bad' : n.kind === 'plot' ? 'gold' : '' }, '• ' + n.text))) : null,
+    mineNotes.length ? h('div', { class: 'col', style: { gap: '3px' } }, mineNotes.map((n) => h('div', { class: n.kind === 'defect' || n.kind === 'famine' || n.kind === 'betrayal' || n.kind === 'raid' ? 'bad' : n.kind === 'plot' || n.kind === 'heir' || n.kind === 'birth' ? 'gold' : n.kind === 'family' ? 'good' : '' }, ({ family: '♥ ', birth: '✦ ', heir: '★ ', raid: '⚠ ' })[n.kind] || '• ', n.text))) : null,
+    ...kingdomHeroes(st, myKid).filter((x) => !x.role && x.level >= ROLE_LEVEL).map((x) => h('div', { class: 'row gold', style: { gap: '6px' } }, h('span', { class: 'grow' }, `★ ${x.name} is ready to choose a calling.`), btn('Choose', () => heroModal(x.id), 'tiny good'))),
     events.length ? h('b', {}, 'Across the land') : null, events,
   ), [['Continue', () => {
     banner(`${seasonOf(st.turn)}, Year ${yearOf(st.turn)}`, bad ? 'bad' : 'blue', k.landless ? 'Your warband wanders' : k.name);
