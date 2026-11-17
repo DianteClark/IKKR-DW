@@ -5,17 +5,19 @@ import { FACTIONS, FACTION_IDS } from '../data/art.js';
 import { SPELLS } from '../data/spells.js';
 import { generateTerrain } from './mapgen.js';
 import { kingdomName, KINGDOM_COLORS } from './names.js';
+import { initNeutral, applyNeutralOrders, validNeutralOrder } from './neutral.js';
 import { makeItem, SLOTS } from './items.js';
 import {
   squadCap, recruitCost, squadPower, garrisonPower, unitLevel, HIRE_COST, EVOLVE_XP, LEVEL_XP, MAX_LEVEL,
-  newSoldier, TIERS, tierIndex, PROMOTE_ELITE_COST, STRATAGEMS, STRATAGEM_IDS,
+  newSoldier, TIERS, tierIndex, PROMOTE_ELITE_COST, STRATAGEMS, STRATAGEM_IDS, unitClass, CLASS_INFO,
 } from './rules.js';
 
 export const SIZES = {
   small: { territories: 24, kingdoms: 8, label: 'Small' },
   medium: { territories: 44, kingdoms: 15, label: 'Medium' },
   large: { territories: 70, kingdoms: 24, label: 'Large' },
-  huge: { territories: 100, kingdoms: 32, label: 'Huge archipelago' },
+  huge: { territories: 150, kingdoms: 40, label: 'Huge' },
+  enormous: { territories: 300, kingdoms: 72, label: 'Enormous' },
 };
 export const DIFFICULTY = { easy: { aggr: 0.8, bonus: 0.85, grace: 12 }, normal: { aggr: 1, bonus: 1, grace: 8 }, hard: { aggr: 1.2, bonus: 1.2, grace: 5 } };
 export const TRAITS = ['loyal', 'proud', 'cunning', 'honorable', 'greedy', 'fierce', 'calm', 'ambitious'];
@@ -135,7 +137,7 @@ export function createWorld(seed, players, opts = {}) {
     terrs[starts[i]].level = 1;
     state.players.push({ kingdom: k.id });
   });
-  const greatN = { small: 1, medium: 2, large: 3, huge: 4 }[size] || 2;
+  const greatN = { small: 1, medium: 2, large: 3, huge: 5, enormous: 9 }[size] || 2;
   // great kingdoms take the capitals farthest from every player
   const aiCaps = capitals.slice(starts.length);
   const farFromPlayers = (id) => Math.min(...starts.map((s) => dist(s, id)));
@@ -158,16 +160,17 @@ export function createWorld(seed, players, opts = {}) {
       terrs[rng.pick(frontier)].owner = k.id; quota[k.id]--; grew = true;
     }
   }
+  // whatever no realm claimed stays free: neutral hamlets between the powers (about a third of the world)
   for (const t of terrs) {
     if (t.owner >= 0) continue;
     const owners = t.nb.map((n) => terrs[n].owner).filter((o) => o >= 0 && state.kingdoms[o].player < 0 && !state.kingdoms[o].great && terrs.filter((x) => x.owner === o).length < 2);
-    if (owners.length && rng.chance(0.4)) t.owner = rng.pick(owners);
-    else {
-      const fits = FACTION_IDS.filter((f) => FACTIONS[f].biomes.includes(t.biome));
-      newKingdom(state, rng, { fid: fits.length ? rng.pick(fits) : rng.pick(FACTION_IDS), cap: t.id, name: villageName(t.id) });
-    }
+    if (owners.length && rng.chance(0.15)) t.owner = rng.pick(owners);
   }
-  for (const t of terrs) t.race = state.kingdoms[t.owner].fid;
+  for (const t of terrs) {
+    if (t.owner >= 0) { t.race = state.kingdoms[t.owner].fid; continue; }
+    const fits = FACTION_IDS.filter((f) => FACTIONS[f].biomes.includes(t.biome));
+    t.race = fits.length ? rng.pick(fits) : rng.pick(FACTION_IDS);
+  }
 
   const diff = DIFFICULTY[state.difficulty] || DIFFICULTY.normal;
   for (const k of state.kingdoms) {
@@ -200,6 +203,7 @@ export function createWorld(seed, players, opts = {}) {
     k.loadout = ['rally'];
   });
   for (let i = 0; i < Math.round(conf.territories / 10); i++) makeHero(state, rng, rng.pick(FACTION_IDS), -1, rng.pick(terrs).id, { status: 'vagabond' });
+  initNeutral(state, T, rng);
   log(state, 'The age of war begins.');
   return state;
 }
@@ -254,17 +258,33 @@ export function friendly(state, a, b) {
   return oa === b || ob === a || (oa >= 0 && oa === ob) || (oa >= 0 && allied(state, oa, b)) || (ob >= 0 && allied(state, ob, a));
 }
 
+// sea lanes need a Harbour (or flyers, or a wandering warband)
+export function isSeaLink(state, a, b) {
+  if (!state._sea) { state._sea = new Set(); for (const [x, y] of terrainOf(state).seaLinks || []) { state._sea.add(x + ':' + y); state._sea.add(y + ':' + x); } Object.defineProperty(state, '_sea', { enumerable: false, value: state._sea, writable: true }); }
+  return state._sea.has(a + ':' + b);
+}
+export function canSail(state, h) {
+  const k = state.kingdoms[h.kingdom];
+  return !!(k.landless || (k.buildings && k.buildings.harbour) || unitClass(h.ufid || h.fid, h.unit) === 'flying');
+}
+const reach = (state, h, from) => state.territories[from].nb.filter((n) => !isSeaLink(state, from, n) || canSail(state, h));
 export function validTargets(state, h) {
   const k = state.kingdoms[h.kingdom];
   const t = state.territories[h.loc];
   if (k.landless) return t.owner !== h.kingdom && !friendly(state, h.kingdom, t.owner) ? [t.id] : []; // a warband rises up where it stands
-  return t.nb.filter((n) => { const o = state.territories[n].owner; return o !== h.kingdom && !friendly(state, h.kingdom, o); });
+  return reach(state, h, t.id).filter((n) => { const o = state.territories[n].owner; return o !== h.kingdom && !friendly(state, h.kingdom, o); });
 }
 export function validMoves(state, h) {
   const k = state.kingdoms[h.kingdom];
   const t = state.territories[h.loc];
   if (k.landless) return t.nb; // wanderers go anywhere
-  return t.nb.filter((n) => { const o = state.territories[n].owner; return o === h.kingdom || friendly(state, h.kingdom, o); });
+  const safe = (n) => { const o = state.territories[n].owner; return o < 0 || o === h.kingdom || friendly(state, h.kingdom, o); };
+  const one = reach(state, h, t.id).filter(safe);
+  if (unitClass(h.ufid || h.fid, h.unit) !== 'mounted') return one;
+  // riders cover two lands in a season through safe ground
+  const two = new Set(one);
+  for (const n of one) for (const m of reach(state, h, n)) if (m !== t.id && safe(m)) two.add(m);
+  return [...two];
 }
 export function validSpyTargets(state, h) {
   const k = state.kingdoms[h.kingdom];
@@ -276,7 +296,11 @@ export function troopOptions(state, h) {
   const k = state.kingdoms[h.kingdom];
   const maxL = TIERS[tierIndex(k)].maxUnitLevel;
   const out = [];
-  for (const fid of k.troopRaces) FACTIONS[fid].units.forEach((u, i) => { if (unitLevel(fid, i) <= maxL) out.push({ fid, ui: i }); });
+  for (const fid of k.troopRaces) FACTIONS[fid].units.forEach((u, i) => {
+    if (unitLevel(fid, i) > maxL) return;
+    const cls = unitClass(fid, i), need = CLASS_INFO[cls].building;
+    out.push({ fid, ui: i, cls, locked: need && !(k.buildings && k.buildings[need]) ? need : null });
+  });
   return out;
 }
 
@@ -288,6 +312,7 @@ export function setOrder(state, heroId, order) {
   if (order && order.type === 'attack' && !validTargets(state, h).includes(order.target)) return false;
   if (order && order.type === 'move' && !validMoves(state, h).includes(order.target)) return false;
   if (order && order.type === 'spy' && !validSpyTargets(state, h).includes(order.target)) return false;
+  if (order && ['plunder', 'protect', 'explore', 'court'].includes(order.type) && !validNeutralOrder(state, h, order)) return false;
   h.order = order;
   return true;
 }
@@ -314,7 +339,7 @@ export function unequip(state, kid, heroId, slot) {
 export function changeUnit(state, heroId, ufid, unit) {
   const h = hero(state, heroId);
   if (!h || (h.unit === unit && h.ufid === ufid)) return false;
-  if (!troopOptions(state, h).some((o) => o.fid === ufid && o.ui === unit)) return false;
+  if (!troopOptions(state, h).some((o) => o.fid === ufid && o.ui === unit && !o.locked)) return false;
   h.ufid = ufid; h.unit = unit; h.troops = [];
   return true;
 }
@@ -331,7 +356,7 @@ export function joinKingdom(state, h, kid, loyalty = 55) {
   const k = state.kingdoms[kid];
   h.status = 'active'; h.kingdom = kid; h.loyalty = loyalty; h.order = null; h.captor = -1; h.secret = -1; h.lentTo = -1;
   if (!k.troopRaces.includes(h.fid)) { k.troopRaces.push(h.fid); log(state, `${k.name} can now raise ${FACTIONS[h.fid].race} troops.`, kid); }
-  if (!k.landless && state.territories[h.loc].owner !== kid) { const own = kingdomTerritories(state, kid); if (own.length) h.loc = (own.find((t) => t.id === k.capital) || own[0]).id; }
+  if (!k.landless && state.territories[h.loc].owner >= 0 && state.territories[h.loc].owner !== kid) { const own = kingdomTerritories(state, kid); if (own.length) h.loc = (own.find((t) => t.id === k.capital) || own[0]).id; }
 }
 
 // promote a named Elite soldier into a full hero
@@ -616,7 +641,7 @@ export function proposedMajority(state, kid) {
 }
 function checkVictory(state) {
   if (state.over) return;
-  const owners = new Set(state.territories.map((t) => t.owner));
+  const owners = new Set(state.territories.map((t) => t.owner).filter((o) => o >= 0));
   if (owners.size === 1) { state.over = { winner: [...owners][0], type: 'solo', members: [...owners] }; return; }
   // a landless human warband keeps the war going
   const wanderers = state.players.map((p) => state.kingdoms[p.kingdom]).filter((k) => k.alive && k.landless).map((k) => k.id);
@@ -638,8 +663,10 @@ function checkVictory(state) {
 export function applyOrders(state) {
   const rng = rngFor(state, 4242);
   const results = [];
+  applyNeutralOrders(state, rngFor(state, 4343), results);
   for (const h of state.heroes) {
     if (h.status !== 'active' || !h.order) continue;
+    if (h.order.type === 'protect') continue;
     const k = state.kingdoms[h.kingdom];
     const o = h.order;
     if (o.type === 'move' && validMoves(state, h).includes(o.target)) h.loc = o.target;

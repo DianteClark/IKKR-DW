@@ -16,7 +16,7 @@ export function borders(state, a, b) {
 }
 export function dominant(state) {
   const counts = new Map();
-  for (const t of state.territories) counts.set(t.owner, (counts.get(t.owner) || 0) + 1);
+  for (const t of state.territories) if (t.owner >= 0) counts.set(t.owner, (counts.get(t.owner) || 0) + 1);
   let best = -1, bc = 0;
   for (const [k, c] of counts) if (c > bc) { bc = c; best = k; }
   return bc >= state.territories.length * 0.33 ? best : -1;

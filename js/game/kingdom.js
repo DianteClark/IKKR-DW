@@ -5,7 +5,7 @@ import {
   STRATAGEMS, STRATAGEM_IDS,
 } from './rules.js';
 import { SEASON_FOOD, seasonOf } from './family.js';
-import { kingdomHeroes, kingdomTerritories, totalTroops, log, clamp, rngFor, overlordOf } from './world.js';
+import { kingdomHeroes, kingdomTerritories, totalTroops, log, clamp, rngFor, overlordOf, isSeaLink } from './world.js';
 
 export function economyPreview(state, k) {
   const lands = kingdomTerritories(state, k.id);
@@ -147,7 +147,8 @@ export function setLoadout(state, kid, ids) {
 export function aiDevelop(state, k, rng) {
   const s = promotionStatus(state, k.id);
   if (s && s.ok && s.afford && k.gold > s.cost * 1.3) promoteRealm(state, k.id);
-  const want = ['spies', 'pits', 'granary', 'academy', 'council'];
+  const coastal = state.territories.some((t) => t.owner === k.id && t.nb.some((n) => isSeaLink(state, t.id, n)));
+  const want = [coastal ? 'harbour' : null, 'stables', 'spies', 'pits', 'granary', 'beastpit', 'academy', 'magetower', 'aerie', 'council'].filter(Boolean);
   for (const b of want) if (!k.buildings[b] && tierIndex(k) >= BUILDINGS[b].tier && k.gold > BUILDINGS[b].cost * 2) { build(state, k.id, b); break; }
   if (k.food < 30) k.policy.rations = 'half'; else if (k.morale < 35) k.policy.rations = 'feast'; else k.policy.rations = 'normal';
   if (k.stability < 30) k.policy.tax = 'low'; else if (k.gold < 150) k.policy.tax = 'high'; else k.policy.tax = 'normal';

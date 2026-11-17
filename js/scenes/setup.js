@@ -23,7 +23,8 @@ const SIZES = [
   { value: 'small', label: 'Small', lands: '~24 lands', time: '~1 hour', desc: 'A quick war. Great for learning and 2-player games.' },
   { value: 'medium', label: 'Medium', lands: '~44 lands', time: '2–3 hours', desc: 'The classic campaign across every biome.' },
   { value: 'large', label: 'Large', lands: '~70 lands', time: 'Long', desc: 'Some 25 realms, more bandits and world events.' },
-  { value: 'huge', label: 'Huge archipelago', lands: '~100 lands', time: 'Epic', desc: 'Island kingdoms linked by sea lanes — ships carry your armies.' },
+  { value: 'huge', label: 'Huge', lands: '~150 lands', time: 'Epic', desc: 'A mainland and island chains. Build a Harbour to cross the sea lanes.' },
+  { value: 'enormous', label: 'Enormous', lands: '300+ lands', time: 'A saga', desc: 'Whole continents of 70+ lands, archipelagos and bridges. Saves as you go — play it over weeks.' },
 ];
 
 function header(title, step, total, onBack, right) {

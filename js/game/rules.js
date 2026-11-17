@@ -19,6 +19,25 @@ export const RANK_NAMES = [['Recruit', 'Seasoned'], ['Veteran', 'Hardened'], ['E
 export const EVOLVE_XP = { 1: [2, 5], 2: [4, 9] }; // [xp for rank 1, xp to evolve]
 
 export function unitLevel(fid, ui) { return Math.min(6, Math.round(ui * 6 / Math.max(1, FACTIONS[fid].units.length - 1))); }
+// troop classes: foot and ranged troops can be raised anywhere; the rest need the right building
+const C = { f: 'foot', r: 'ranged', m: 'mounted', y: 'flying', c: 'caster', b: 'beast' };
+const UNIT_CLASS_STR = {
+  castle: 'frycmm', rampart: 'yffrbcb', tower: 'fybcybb', inferno: 'frbffyb', necropolis: 'ffbyycm', stronghold: 'fymmcbb',
+  enclave: 'brfbcbb', orcs: 'rfffrff', dwarves: 'fffcmmb', conflux: 'ybccc',
+};
+export const CLASS_INFO = {
+  foot: { name: 'Infantry', building: null, perk: 'Sturdy and cheap.' },
+  ranged: { name: 'Ranged', building: null, perk: 'Shoots from range.' },
+  mounted: { name: 'Mounted', building: 'stables', perk: 'Rides two lands per season through safe ground.' },
+  flying: { name: 'Flying', building: 'aerie', perk: 'Crosses sea lanes without ships.' },
+  caster: { name: 'Caster', building: 'magetower', perk: 'Wields battle magic.' },
+  beast: { name: 'Beast', building: 'beastpit', perk: 'Huge and hard-hitting.' },
+};
+export function unitClass(fid, ui) {
+  if ((RANGED[fid] || []).includes(ui)) return 'ranged';
+  const s = UNIT_CLASS_STR[fid] || '';
+  return C[s[ui]] || 'foot';
+}
 export function isRanged(fid, ui) { return (RANGED[fid] || []).includes(ui); }
 export function hasUpgradeArt(fid, ui) { return !FACTIONS[fid].units[ui].tint2; }
 export function unitName(fid, ui, stage) {
@@ -95,7 +114,7 @@ export function squadPower(hero, items, morale = 60) {
   p += 18 + hero.level * 6;
   return p;
 }
-export function garrisonPower(terr) { return 25 + terr.level * 30; }
+export function garrisonPower(terr) { return 25 + terr.level * 30 + (terr.owner < 0 ? (terr.militia || 0) * 7 : 0); }
 
 // ---------------- formations ----------------
 export const FORMATIONS = {
@@ -178,6 +197,11 @@ export const BUILDINGS = {
   academy: { name: 'War Academy', cost: 600, tier: 1, desc: '+2 command points for stratagems; heroes learn faster.' },
   granary: { name: 'Granaries', cost: 350, tier: 1, desc: '+25% food and protection from famine.' },
   council: { name: 'War Council', cost: 900, tier: 2, desc: 'Bring a 4th stratagem into battle.' },
+  stables: { name: 'Stables', cost: 300, tier: 0, desc: 'Heroes may lead mounted troops, who ride two lands per season.' },
+  harbour: { name: 'Harbour', cost: 250, tier: 0, desc: 'Ships carry your heroes across sea lanes.' },
+  beastpit: { name: 'Beast Pit', cost: 500, tier: 1, desc: 'Heroes may lead great beasts and monsters.' },
+  magetower: { name: 'Mage Tower', cost: 600, tier: 1, desc: 'Heroes may lead casters and spellblades.' },
+  aerie: { name: 'Aerie', cost: 700, tier: 1, desc: 'Heroes may lead flyers, who cross sea lanes on their own.' },
 };
 
 export const POLICIES = {

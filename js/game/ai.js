@@ -1,6 +1,7 @@
 // Orders for computer-run kingdoms.
 import { kingdomHeroes, kingdomTerritories, setOrder, restPrice, rngFor, powerAt, friendly, validTargets, DIFFICULTY } from './world.js';
 import { squadCap, squadPower, developCost } from './rules.js';
+import { aiWildsOrder } from './neutral.js';
 
 function frontierDistance(state, kid) {
   const T = state.territories;
@@ -35,6 +36,11 @@ export function aiOrders(state, kid) {
     if ((h.troops.length < cap * 0.65 && k.gold >= restPrice(state, h) * 0.4) || h.hp < 45) { setOrder(state, h.id, { type: 'rest' }); continue; }
     free.add(h);
   }
+  // the wilds: keep guarding hamlets, explore sites, court wanderers, plunder if you're a raider
+  for (const h of [...free]) {
+    if (h.order && h.order.type === 'protect' && state.territories[h.loc].owner < 0) { free.delete(h); continue; }
+    if (rng() < (raider ? 0.6 : 0.4) && aiWildsOrder(state, h, rng)) free.delete(h);
+  }
   const byLoc = new Map();
   for (const h of free) { if (!byLoc.has(h.loc)) byLoc.set(h.loc, []); byLoc.get(h.loc).push(h); }
   for (const [loc, group] of byLoc) {
@@ -67,6 +73,11 @@ export function aiOrders(state, kid) {
     if (fd[h.loc] > 1) {
       const step = t.nb.filter((n) => state.territories[n].owner === kid).sort((a, b) => fd[a] - fd[b])[0];
       if (step != null && fd[step] < fd[h.loc]) { setOrder(state, h.id, { type: 'move', target: step }); continue; }
+    }
+    // wander into neighbouring wilds that hold something worth doing
+    if (rng() < 0.25 && h.troops.length >= squadCap(h, k) * 0.7) {
+      const wild = t.nb.filter((n) => state.territories[n].owner < 0 && ((state.sites || []).some((s) => s.tid === n && s.status === 'active') || state.heroes.some((v) => v.status === 'vagabond' && v.loc === n)));
+      if (wild.length) { setOrder(state, h.id, { type: 'move', target: rng.pick(wild) }); continue; }
     }
     setOrder(state, h.id, { type: h.troops.length < squadCap(h, k) && k.gold > restPrice(state, h) ? 'rest' : 'drill' });
   }
