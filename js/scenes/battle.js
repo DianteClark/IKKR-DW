@@ -8,7 +8,7 @@ import { img } from '../engine/assets.js';
 import { hashStr } from '../engine/rng.js';
 import { drawUnit, drawHero, drawSpriteRef, DUNGEON_TILES } from '../data/art.js';
 import { SPELLS } from '../data/spells.js';
-import { createBattle, step, command, aiThink, battleResult, snapshot, applySnapshot, liveCount, DT, stratagemTargets, planRoute, routeProblem, SKILLS, queuePoints, canClimb, ladderSpot } from '../battle/sim.js';
+import { serializeSim, deserializeSim, createBattle, step, command, aiThink, battleResult, snapshot, applySnapshot, liveCount, DT, stratagemTargets, planRoute, routeProblem, SKILLS, queuePoints, canClimb, ladderSpot } from '../battle/sim.js';
 const FORMS = ['wedge', 'line', 'square']; // Loose was retired: three formations, one clear cycle
 import { renderGround, drawFieldOverlay, postRef, TS, nearestPost, nearestRoadPoint, terrainAt, TERRAIN } from '../battle/field.js';
 import { createFx } from '../battle/fx.js';
@@ -19,6 +19,7 @@ import { line } from '../game/dialogue.js';
 import { portrait, unitIcon } from '../campaign/widgets.js';
 import { sfx, music } from '../engine/audio.js';
 import { prefs, buzz } from '../engine/prefs.js';
+import { saveBattle, clearBattle } from '../game/save.js';
 import { net } from '../net/net.js';
 
 const cam = new Camera();
@@ -68,10 +69,13 @@ window.__dw = Object.assign(window.__dw || {}, { B, cam, sendCmd: (c) => send(c)
 const SPELL = Object.fromEntries(SPELLS.map((s) => [s.id, s]));
 const stratIcon = (id, scale = 2) => { const s = SPELL[STRATAGEMS[id].icon]; return s && s.icon ? sprite(s.icon, 0, 0, 16, 16, scale) : null; };
 
-// args: { state, battle, control:{att,def}, me } (host/single) or { client:true, setup, items, me, state }
+// args: { state, battle, control:{att,def}, me, key?, saveCtx? } (host/single) or { client:true, setup, items, me, state }
+//   or { resumeBattle: <record.battle>, state, me, key? } to pick up a single-player battle saved mid-fight
 registerScene('battle', {
   enter(args) {
-    Object.assign(B, { kills: new Map(), sel: null, selected: [], box: false, drag: null, pick: null, freeze: 0, slow: 0, duel: null, acc: 0, render: new Map(), fx: [], seenEv: 0, paused: false, speed: 1, ended: false, started: false, aim: null, queue: false, auto: false });
+    const R = args.resumeBattle || null;
+    if (R) args = { ...args, setup: R.setup, battle: R.b, saveCtx: R.ctx, me: args.me ?? R.me ?? 0 };
+    Object.assign(B, { resumed: !!R, battle: args.battle || null, saveCtx: args.saveCtx ?? null, key: args.key ?? null, _savedAt: 0, kills: new Map(), sel: null, selected: [], box: false, drag: null, pick: null, freeze: 0, slow: 0, duel: null, acc: 0, render: new Map(), fx: [], seenEv: 0, paused: false, speed: 1, ended: false, started: false, aim: null, queue: false, auto: false });
     let setup = args.setup;
     if (!setup) {
       const st = args.state, b = args.battle;
@@ -96,6 +100,7 @@ registerScene('battle', {
       };
       B.state = st;
     }
+    if (R) B.state = args.state || null;
     B.setup = setup;
     B.client = !!args.client;
     if (B.client) B.state = args.state || null;
@@ -105,8 +110,10 @@ registerScene('battle', {
     const rgb = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
     const [a, d] = [rgb(B.colors.att), rgb(B.colors.def)];
     if (Math.hypot(a[0] - d[0], a[1] - d[1], a[2] - d[2]) < 130) B.colors.def = a[2] > 150 ? '#f5c630' : '#3a7bf0';
-    B.sim = createBattle({ ...setup, items: B.state ? B.state.items : (args.items || {}) });
+    const simSetup = { ...setup, items: B.state ? B.state.items : (args.items || {}) };
+    B.sim = R ? deserializeSim(simSetup, R.sim) : createBattle(simSetup);
     B.sim.ai = { att: setup.control.att === 'ai', def: setup.control.def === 'ai' };
+    if (R) { B.kills = new Map(R.kills || []); B.speed = R.speed || 1; B.seenEv = B.sim.evSeq; }
     B.ground = renderGround(B.sim.field);
     if (B.setup.season === 'Autumn' && !['sand', 'lava', 'ice', 'christmas'].includes(B.setup.biome)) autumnizeCanvas(B.ground);
     B.juice = createFx();
@@ -118,9 +125,13 @@ registerScene('battle', {
     music.start('battle');
     fitCamera();
     buildUI();
-    intro();
+    B._hide = () => { if (document.visibilityState === 'hidden') saveNow(true); };
+    B._pagehide = () => saveNow(true);
+    document.addEventListener('visibilitychange', B._hide); window.addEventListener('pagehide', B._pagehide);
+    if (R) resumeIntro(); else intro();
   },
   exit() {
+    document.removeEventListener('visibilitychange', B._hide); window.removeEventListener('pagehide', B._pagehide);
     net.off('cmd'); net.off('snap'); net.off('battleEnd'); net.off('battleGo');
     if (B._down) { canvas.removeEventListener('pointerdown', B._down); canvas.removeEventListener('pointermove', B._move); canvas.removeEventListener('pointerup', B._up); }
   },
@@ -140,6 +151,7 @@ registerScene('battle', {
       }
       if (sim.winner && !B.ended) { if (net.role === 'host') net.send({ t: 'snap', s: snapshot(sim) }); B.ended = true; setTimeout(() => finish(), 1400); }
     }
+    if (B.started && !B.ended && game.time - B._savedAt > 5) saveNow(false);
     consumeEvents();
     updateRender(dt);
     B.juice.update(dt);
@@ -1019,6 +1031,7 @@ function finish() {
 
 function endBattle(result) {
   B.ended = true;
+  if (canSave()) clearBattle(B.state.cid, B.key);
   const sim = B.sim;
   const won = B.side ? result.winner === B.side : null;
   sfx(won === false ? 'defeat' : 'victory'); buzz(won === false ? 'lose' : 'win');
@@ -1046,6 +1059,23 @@ function endBattle(result) {
   setTimeout(() => modal(won == null ? (result.winner === 'att' ? 'Attackers win' : 'Defenders win') : won ? 'Victory!' : 'Defeat',
     h('div', { class: 'col recap' }, result.retreated ? h('div', { class: 'muted' }, `${result.retreated === 'att' ? 'The attackers' : 'The defenders'} retreated.`) : null, lines),
     [['Continue', () => go('campaign', { resume: B.client ? true : result }), 'primary']]), 900);
+}
+
+// ---------- mid-battle saves (single player campaign only) ----------
+function canSave() { return net.role === 'single' && !B.client && !B.practice && B.state && B.state.cid && B.sim && B.battle; }
+function saveNow(sync) {
+  B._savedAt = game.time;
+  if (!canSave() || !B.started || B.ended || B.sim.winner) return;
+  const data = { v: 1, setup: B.setup, sim: serializeSim(B.sim), b: B.battle, ctx: B.saveCtx, me: B.me, kills: [...B.kills], speed: B.speed, place: B.setup.place, t: B.sim.t };
+  saveBattle(B.state.cid, B.key, data, B.state, { sync });
+}
+function resumeIntro() {
+  const st = B.setup;
+  const left = Math.max(0, Math.round(240 - B.sim.t));
+  modal(`Battle of ${st.place}`, h('div', { class: 'col' },
+    h('div', {}, 'The battle was saved mid-fight. Your squads stand where you left them.'),
+    h('div', { class: 'muted', style: { fontSize: '12px' } }, `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')} left on the clock.`)),
+  [['Resume', () => { B.started = true; sfx('horn'); banner('BATTLE RESUMED', '', st.place); refreshHUD(true); }, 'primary']]);
 }
 
 // the other player dropped mid-battle: their squads fight on under AI control (host), the client waits for a resync

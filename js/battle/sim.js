@@ -947,4 +947,27 @@ export function applySnapshot(sim, snap) {
   for (const e of snap.e) if (e.seq > sim.evSeq) { sim.events.push(e); sim.evSeq = e.seq; }
 }
 
+// ---------- full save / restore (single-player mid-battle saves) ----------
+// The field is rebuilt from the setup's seed; everything that changes during the fight is stored.
+const SKIP = new Set(['field', 'rng', 'gates', 'events']);
+export function serializeSim(sim) {
+  const o = {};
+  for (const k of Object.keys(sim)) if (!SKIP.has(k)) o[k] = sim[k];
+  o.rngState = sim.rng.state ? sim.rng.state() : 0;
+  o.gateHp = sim.gates.map((g) => g.hp);
+  o.posts = sim.field.posts.map((p) => [p.owner, p.prog, p.by ?? null, p.fort || null]);
+  o.blocked = sim.field.blocked.slice();
+  return JSON.parse(JSON.stringify(o));
+}
+export function deserializeSim(setup, data) {
+  const sim = createBattle(setup);
+  for (const k of Object.keys(data)) if (!['rngState', 'gateHp', 'posts', 'blocked'].includes(k) && !SKIP.has(k)) sim[k] = data[k];
+  if (sim.rng.setState) sim.rng.setState(data.rngState || 0);
+  (data.gateHp || []).forEach((hp, i) => { if (sim.gates[i]) sim.gates[i].hp = hp; });
+  (data.posts || []).forEach((q, i) => { const p = sim.field.posts[i]; if (!p) return; p.owner = q[0]; p.prog = q[1]; p.by = q[2]; p.fort = q[3]; });
+  sim.field.blocked = (data.blocked || []).slice();
+  sim.events = [];
+  return sim;
+}
+
 export { unitName };

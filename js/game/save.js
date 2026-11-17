@@ -155,3 +155,43 @@ export function seatOfKey(state, key) {
 // legacy API (kept so older call sites still work)
 export function hasSave() { try { return !!localStorage.getItem(LEGACY); } catch { return false; } }
 export function clearSave() {}
+
+// ---------- mid-battle saves (single player) ----------
+// A battle in progress is kept as `battle` on the campaign's record: { at, setup, sim, b, ctx, ... } (see scenes/battle.js).
+// Any ordinary campaign save rewrites the record without it, so a stale battle can never outlive the campaign moving on.
+// On page hide we also mirror it to localStorage synchronously (IndexedDB writes may not finish while the page is dying).
+const BATTLE_LS = 'ikkr-dw-battle:';
+const recIdOf = (cid, key) => cid + ':' + (key ? hashKey(key).slice(0, 8) : 'solo');
+export async function saveBattle(cid, key, data, state = null, { sync = false } = {}) {
+  if (!cid || !data) return false;
+  const id = recIdOf(cid, key);
+  const battle = { ...data, at: Date.now() };
+  if (sync) { try { localStorage.setItem(BATTLE_LS + id, JSON.stringify(battle)); } catch {} }
+  const old = await getRecord(id);
+  if (!old && !state) return false;
+  const rec = old ? { ...old } : { id, seat: 0, key: key || null };
+  if (state) rec.state = JSON.parse(JSON.stringify(state));
+  rec.battle = battle; rec.updated = Date.now();
+  const ok = await tx('readwrite', (s) => s.put(rec));
+  if (!ok) { try { localStorage.setItem(LS_PREFIX + id, JSON.stringify(rec)); } catch {} }
+  return !!ok;
+}
+// the battle in progress for this campaign (newest of the IndexedDB copy and the page-hide mirror), or null
+export async function loadBattle(cid, key = null) {
+  if (!cid) return null;
+  const id = recIdOf(cid, key);
+  const rec = await getRecord(id);
+  let ls = null; try { ls = JSON.parse(localStorage.getItem(BATTLE_LS + id) || 'null'); } catch {}
+  const a = rec && rec.battle;
+  // a mirror older than the record's last ordinary save is stale (the campaign moved on)
+  if (ls && rec && !a && rec.updated > ls.at) ls = null;
+  if (a && ls) return ls.at > a.at ? ls : a;
+  return a || ls || null;
+}
+export async function clearBattle(cid, key = null) {
+  if (!cid) return;
+  const id = recIdOf(cid, key);
+  try { localStorage.removeItem(BATTLE_LS + id); } catch {}
+  const rec = await getRecord(id);
+  if (rec && rec.battle) { delete rec.battle; await tx('readwrite', (s) => s.put(rec)); }
+}
