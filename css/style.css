@@ -339,3 +339,6 @@ input.text:focus { outline: none; box-shadow: 0 0 0 2px var(--gold); }
 .bpanel .btn.tiny { padding: 0 7px; font-size: 13px; }
 .bpanel-name { font-weight: 700; max-width: 104px; }
 .bpanel.hint { pointer-events: none; color: #c9c0d8; font-size: 12px; white-space: normal; text-align: center; }
+
+/* campaign minimap */
+.minimap { position: absolute; right: calc(8px + var(--sar)); bottom: calc(8px + var(--sab, 0px)); image-rendering: pixelated; border: 3px solid #2a2236; outline: 2px solid #b8894a; border-radius: 3px; background: #1a5f9e; box-shadow: 0 3px 10px rgba(0,0,0,.5); touch-action: none; z-index: 5; }

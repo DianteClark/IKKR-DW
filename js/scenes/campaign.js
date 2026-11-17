@@ -25,7 +25,7 @@ import { economyPreview, edictCost, canEdict, promotionStatus, loadoutOptions, l
 import { alliesOf, vassalsOf, opinion, realmPower, dominant, willingness } from '../game/diplomacy.js';
 import { EVENT_INFO } from '../game/events.js';
 import { captureScene, decisionScene } from '../game/dialogue.js';
-import { renderTerrain, renderOverlay, drawTowns, drawHeroes, drawOrders, drawAnimated, TS } from '../campaign/mapview.js';
+import { renderTerrain, drawTerrain, drawOverlay, drawSites, drawTowns, drawHeroes, drawOrders, drawAnimated, drawSeason, captureFx, renderMinimap, updateMinimap, hitTest, TS } from '../campaign/mapview.js';
 import { portrait, unitIcon, itemIcon, heroCard, orderLabel, kingdomBadge, unitCard } from '../campaign/widgets.js';
 import { saveCampaign, getRecord, prettyCode, stampCampaign } from '../game/save.js';
 import { sfx, music } from '../engine/audio.js';
@@ -65,7 +65,8 @@ registerScene('campaign', {
       S.seed = S.state.seed + ':' + S.state.size;
       S.T = terrainOf(S.state);
       S.terrainCanvas = renderTerrain(S.T);
-      S.overlayKey = '';
+      S.overlayKey = ''; S.owners = null; S.heroLocs = new Map(); S.travel = new Map();
+      S.minimap = renderMinimap(S.T, S.state);
     }
     cam.bounds = { x: 0, y: 0, w: S.T.W * TS, h: S.T.H * TS, pad: 40 };
     cam.min = Math.min(screen.w / (S.T.W * TS), screen.h / (S.T.H * TS)) * 0.95;
@@ -92,17 +93,26 @@ registerScene('campaign', {
   render() {
     const st = S.state; if (!st) return;
     const key = st.territories.map((t) => t.owner).join(',') + '|' + st.kingdoms.map((k) => k.color).join(',');
-    if (key !== S.overlayKey) { S.overlay = renderOverlay(S.T, st); S.overlayKey = key; }
+    if (key !== S.overlayKey) {
+      // lands that changed hands get a light sweep; the minimap follows
+      if (S.owners) st.territories.forEach((t, i) => { if (S.owners[i] !== t.owner) captureFx(st, t.id); });
+      S.owners = st.territories.map((t) => t.owner);
+      S.overlayKey = key;
+      if (S.minimap) { updateMinimap(S.minimap, S.T, st); drawMinimapUI(); }
+    }
+    trackTravel(st);
     cam.apply();
-    ctx.drawImage(S.terrainCanvas, 0, 0);
     const vw = screen.w / cam.zoom, vh = screen.h / cam.zoom;
-    drawAnimated(ctx, S.T, game.time, { x: cam.x - vw / 2, y: cam.y - vh / 2, w: vw, h: vh });
-    ctx.drawImage(S.overlay, 0, 0);
+    const view = { x: cam.x - vw / 2, y: cam.y - vh / 2, w: vw, h: vh };
+    drawTerrain(ctx, S.T, view);
+    drawAnimated(ctx, S.T, game.time, view);
+    drawOverlay(ctx, S.T, st, view);
     const pulse = 0.5 + 0.5 * Math.sin(game.time * 5);
     if (S.target) for (const tid of S.target.valid) ring(st.territories[tid], S.target.kind === 'attack' ? '#ff4a3a' : S.target.kind === 'spy' ? '#c48bff' : '#ffffff', 22 + pulse * 3);
     if (S.sel != null) ring(st.territories[S.sel], '#ffd25a', 26 + pulse * 2);
-    drawTowns(ctx, st, game.time);
-    drawHeroes(ctx, st, game.time);
+    drawSites(ctx, st, S.T, game.time, view);
+    drawTowns(ctx, st, game.time, view);
+    drawHeroes(ctx, st, game.time, S.travel, S.T);
     drawOrders(ctx, st, net.role === 'single' ? null : st.players[S.me].kingdom, game.time);
     // event markers over towns
     for (const t of st.territories) {
@@ -115,6 +125,7 @@ registerScene('campaign', {
       ctx.fillStyle = 'rgba(10,8,16,.75)'; ctx.fillRect(t.cx * TS - 2, t.cy * TS - 58 + bob, 20, 20);
       ctx.drawImage(im, 0, 0, im.width, im.height, t.cx * TS, t.cy * TS - 56 + bob, 16, 16);
     }
+    drawSeason(ctx, S.T, seasonOf(st.turn), game.time, view);
     // names in screen space
     ctx.setTransform(screen.dpr, 0, 0, screen.dpr, 0, 0);
     ctx.font = '600 12px Pixelify, MiKroll, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
@@ -129,23 +140,28 @@ registerScene('campaign', {
       ctx.fillStyle = k && k.id === myK().id ? '#ffd86b' : '#f7efe0'; ctx.fillText(t.name, Math.round(p.x), Math.round(p.y) + 2);
     }
   },
-  onPan(dx, dy) { cam.x -= dx / cam.zoom; cam.y -= dy / cam.zoom; cam.clamp(); },
-  onPinch(cx, cy, f, mx, my) { cam.zoomAt(cx, cy, f); cam.x -= mx / cam.zoom; cam.y -= my / cam.zoom; cam.clamp(); },
-  onGestureEnd() { cam.snapZoom(); cam.clamp(); },
+  onPan(dx, dy) { cam.x -= dx / cam.zoom; cam.y -= dy / cam.zoom; cam.clamp(); drawMinimapUI(); },
+  onPinch(cx, cy, f, mx, my) { cam.zoomAt(cx, cy, f); cam.x -= mx / cam.zoom; cam.y -= my / cam.zoom; cam.clamp(); drawMinimapUI(); },
+  onGestureEnd() { cam.snapZoom(); cam.clamp(); drawMinimapUI(); },
   onTap(sx, sy) {
     if (S.busy) return;
     const w = cam.toWorld(sx, sy);
-    const tid = territoryAt(w.x, w.y);
+    const hit = hitTest(S.T, S.state, w.x, w.y);
+    const tid = !hit ? null : hit.kind === 'hero' ? hit.tid ?? hero(S.state, hit.id).loc : hit.kind === 'site' ? ((S.state.sites || []).find((s) => s.id === hit.id) || {}).tid ?? null : hit.id;
     if (S.target) {
       if (tid != null && S.target.valid.includes(tid)) {
         for (const id of S.target.heroes) act({ type: 'order', hero: id, order: { type: S.target.kind, target: tid } });
         const nm = S.state.territories[tid].name;
         sfx(S.target.kind === 'attack' ? 'horn' : 'march');
         toast(S.target.kind === 'attack' ? `Attack ordered on ${nm}` : S.target.kind === 'spy' ? `Spies sent to ${nm}` : `Marching to ${nm}`);
-      }
-      S.target = null; refreshUI();
+        S.target = null; refreshUI();
+      } else if (tid != null) {
+        toast(S.target.kind === 'move' ? 'Not reachable this season — pick a glowing land' : 'Pick one of the glowing lands', 'gold');
+      } else { S.target = null; refreshUI(); }
       return;
     }
+    if (hit && hit.kind === 'site') { const s = (S.state.sites || []).find((x) => x.id === hit.id); if (s) toast(SITES[s.kind].name + (s.status !== 'active' ? ' (' + s.status + ')' : ''), 'gold'); }
+    if (hit && hit.kind === 'hero') { const x = hero(S.state, hit.id); if (x && x.kingdom === myK().id) { S.sel = tid; refreshUI(); sfx('open'); return; } }
     S.sel = tid; if (tid != null) sfx('open'); refreshUI();
   },
   onResize() { buildUI(); },
@@ -164,6 +180,28 @@ function territoryAt(wx, wy) {
   const id = S.T.terr[cy * S.T.W + cx];
   return id >= 0 ? id : null;
 }
+// heroes that changed land walk along the road to their new home over ~1.6s
+function trackTravel(st) {
+  const now = game.time;
+  for (const h of st.heroes) {
+    if (h.status !== 'active') { S.heroLocs.delete(h.id); continue; }
+    const was = S.heroLocs.get(h.id);
+    if (was != null && was !== h.loc && st.territories[was].nb.includes(h.loc)) S.travel.set(h.id, { from: was, to: h.loc, t: 0, t0: now });
+    S.heroLocs.set(h.id, h.loc);
+  }
+  for (const [id, tr] of S.travel) { tr.t = Math.min(1, (now - tr.t0) / 1.6); if (tr.t >= 1) S.travel.delete(id); }
+}
+function drawMinimapUI() {
+  if (!ui.mini || !S.minimap) return;
+  const c = ui.mini, x = c.getContext('2d');
+  x.imageSmoothingEnabled = false;
+  x.clearRect(0, 0, c.width, c.height);
+  x.drawImage(S.minimap, 0, 0, c.width, c.height);
+  const sx = c.width / (S.T.W * TS), sy = c.height / (S.T.H * TS);
+  const vw = screen.w / cam.zoom, vh = screen.h / cam.zoom;
+  x.strokeStyle = '#ffd86b'; x.lineWidth = 1.5;
+  x.strokeRect((cam.x - vw / 2) * sx, (cam.y - vh / 2) * sy, vw * sx, vh * sy);
+}
 function focus(tid) { const t = S.state.territories[tid]; cam.x = t.cx * TS + 8; cam.y = t.cy * TS + 8; cam.clamp(); }
 
 // ---------- UI ----------
@@ -174,6 +212,14 @@ function buildUI() {
   ui.top = mount(h('div', { class: 'topbar' }));
   ui.side = mount(h('div', { class: 'side', style: { display: 'none' } }));
   ui.bottom = mount(h('div', { class: 'bottombar' }));
+  // minimap: tap to jump anywhere (essential on huge and enormous maps)
+  const mw = S.T.W > 150 ? 168 : 128, mh = Math.round(mw * S.T.H / S.T.W);
+  ui.mini = mount(h('canvas', { class: 'minimap', width: mw * 2, height: mh * 2, style: { width: mw + 'px', height: mh + 'px' } }));
+  const jump = (e) => { const r = ui.mini.getBoundingClientRect(); cam.x = (e.clientX - r.left) / r.width * S.T.W * TS; cam.y = (e.clientY - r.top) / r.height * S.T.H * TS; cam.clamp(); drawMinimapUI(); };
+  ui.mini.addEventListener('pointerdown', (e) => { e.stopPropagation(); jump(e); ui.mini._drag = true; });
+  ui.mini.addEventListener('pointermove', (e) => { if (ui.mini._drag) jump(e); });
+  ui.mini.addEventListener('pointerup', () => { ui.mini._drag = false; });
+  drawMinimapUI();
   refreshUI();
 }
 const sign = (n) => (n >= 0 ? '+' + n : '' + n);
@@ -220,6 +266,7 @@ export function refreshUI() {
     return;
   }
   ui.side.style.bottom = '';
+  if (ui.mini) ui.mini.style.display = S.sel == null ? '' : 'none';
   if (S.sel == null) { ui.side.style.display = 'none'; return; }
   ui.side.style.display = '';
   ui.side.innerHTML = '';

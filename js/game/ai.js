@@ -55,7 +55,9 @@ export function aiOrders(state, kid) {
       const ratio = ours / Math.max(1, powerAt(state, n));
       const grudge = ownerK ? Math.max(0, -(k.rel[ownerK.id] || 0)) / 200 : 0;
       const bias = (ownerK && ownerK.player >= 0 ? 0.92 : 1) * (1 + t.level * 0.05) * (1 + grudge) * (ownerK && (ownerK.kind === 'bandit' || ownerK.kind === 'monster') ? 1.1 : 1);
-      const score = ratio * bias;
+      // free hamlets are poor prizes early on: most realms court or guard them before conquering them
+      const wild = !ownerK ? Math.min(1, 0.3 + state.turn * 0.004) : 1;
+      const score = ratio * bias * wild;
       if (score > bestScore) { bestScore = score; best = n; }
     }
     let attackers = group;
@@ -76,7 +78,7 @@ export function aiOrders(state, kid) {
     }
     // wander into neighbouring wilds that hold something worth doing
     if (rng() < 0.25 && h.troops.length >= squadCap(h, k) * 0.7) {
-      const wild = t.nb.filter((n) => state.territories[n].owner < 0 && ((state.sites || []).some((s) => s.tid === n && s.status === 'active') || state.heroes.some((v) => v.status === 'vagabond' && v.loc === n)));
+      const wild = t.nb.filter((n) => state.territories[n].owner < 0 && ((state.sites || []).some((s) => s.tid === n && s.status === 'active') || state.heroes.some((v) => v.status === 'vagabond' && v.loc === n) || (!raider && !state.territories[n].protect && rng() < 0.3)));
       if (wild.length) { setOrder(state, h.id, { type: 'move', target: rng.pick(wild) }); continue; }
     }
     setOrder(state, h.id, { type: h.troops.length < squadCap(h, k) && k.gold > restPrice(state, h) ? 'rest' : 'drill' });

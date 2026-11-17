@@ -24,7 +24,7 @@ export const isNeutral = (t) => t.owner < 0;
 export function initNeutral(state, T, rng) {
   for (const t of state.territories) {
     t.favor = {};
-    if (t.owner < 0) { t.militia = rng.int(3, 7) + t.level * 2; t.level = Math.min(t.level, 1); }
+    if (t.owner < 0) { t.militia = rng.int(5, 9) + t.level * 2; t.level = Math.min(t.level, 1); }
   }
   state.sites = [];
   const spots = (T && T.siteSpots) || [];
@@ -192,7 +192,7 @@ export function neutralTick(state, rng, notes) {
       const guard = heroesAt(state, t.id, t.protect.kid).some((x) => x.order && x.order.type === 'protect');
       if (!guard) t.protect = null;
     }
-    if (rng() < 0.15) t.militia = Math.min(6 + t.level * 3, (t.militia || 0) + 1);
+    if (rng() < 0.2) t.militia = Math.min(9 + t.level * 3, (t.militia || 0) + 1);
     if (t.level < 1 && !t.ruined && rng() < 0.04) t.level++;
     for (const kid in t.favor) t.favor[kid] *= 0.97;
   }

@@ -122,7 +122,7 @@ export function squadPower(hero, items, morale = 60) {
   p += 18 + hero.level * 6;
   return p;
 }
-export function garrisonPower(terr) { return 25 + terr.level * 30 + (terr.owner < 0 ? (terr.militia || 0) * 7 : 0); }
+export function garrisonPower(terr) { return 25 + terr.level * 30 + (terr.owner < 0 ? (terr.militia || 0) * 10 : 0); }
 
 // ---------------- formations ----------------
 export const FORMATIONS = {
