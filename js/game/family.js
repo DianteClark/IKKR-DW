@@ -4,7 +4,9 @@
 // and when they reach Elite they come of age as a hero with a subtle mix of their parents' strengths.
 import { FACTIONS } from '../data/art.js';
 import { hero, makeHero, log, isHumanKingdom } from './world.js';
-import { EVOLVE_XP } from './rules.js';
+import { EVOLVE_XP, canLead } from './rules.js';
+// heirs live in a parent's squad, or as a ward at their side when that squad is made of beasts
+const kin = (x) => [...(x.troops || []), ...(x.wards || [])];
 import { namesFor } from '../data/givennames.js';
 
 export const SEASONS = ['Spring', 'Summer', 'Autumn', 'Winter'];
@@ -21,7 +23,7 @@ export function childrenOf(state, h) {
   const kids = [];
   for (const x of state.heroes) {
     if (x.parents && x.parents.includes(h.id) && x.status !== 'dead') kids.push({ name: x.name, hero: x });
-    for (const s of x.troops || []) if (s.heir && s.heir.parents.includes(h.id)) kids.push({ name: s.name, soldier: s, with: x });
+    for (const s of kin(x)) if (s.heir && s.heir.parents.includes(h.id)) kids.push({ name: s.name, soldier: s, with: x, ward: !(x.troops || []).includes(s) });
   }
   return kids;
 }
@@ -54,7 +56,7 @@ export function childNames(state, fid, gender, n = 6, rng = null, kid = null) {
   // avoid names already used in this realm (parents, siblings, comrades); other realms may share names
   const mine = state.heroes.filter((x) => kid == null || x.kingdom === kid);
   const used = new Set(mine.map((x) => x.name.split(' ')[0]));
-  for (const x of mine) for (const s of x.troops || []) if (s.name) used.add(s.name.split(' ')[0]);
+  for (const x of mine) for (const s of kin(x)) if (s.name) used.add(s.name.split(' ')[0]);
   const pool = namesFor(fid, gender);
   const free = pool.filter((nm) => !used.has(nm));
   const list = (free.length >= n ? free : pool).slice();
@@ -70,7 +72,7 @@ export function nameChild(state, kid, bid, gender, name) {
   if (!pb) return false;
   const clean = String(name || '').replace(/[^\p{L}\p{N} '\-]/gu, '').trim().slice(0, 18);
   if (!clean || (gender !== 'm' && gender !== 'f')) return false;
-  for (const x of state.heroes) for (const s of x.troops || []) if (s.heir && s.heir.bid === bid) {
+  for (const x of state.heroes) for (const s of kin(x)) if (s.heir && s.heir.bid === bid) {
     s.name = clean; s.heir.gender = gender; delete s.heir.pending;
     log(state, `${pb.parents.join(' and ')} named their ${gender === 'f' ? 'daughter' : 'son'} ${clean}.`, kid, 'family');
   }
@@ -99,21 +101,24 @@ function bear(state, rng, mother, notes) {
   }
   // the child trains under whichever parent is home and has room, else the mother
   const home = parents.find((p) => p.status === 'active' && p.kingdom === mother.kingdom && p.troops.length < 45) || mother;
-  home.troops.push(s);
+  if (canLead(home.ufid || home.fid, home.unit)) home.troops.push(s);
+  else (home.wards = home.wards || []).push(s); // a child is not raised as a griffin
   const k = state.kingdoms[mother.kingdom];
   const text = human
-    ? `${parents.map((p) => p.name).join(' and ')} welcomed a child! Choose a name — they will train in ${home.name}'s squad.`
-    : `${parents.map((p) => p.name).join(' and ')} welcomed ${s.heir.gender === 'f' ? 'a daughter' : 'a son'}, ${s.name}. They will train in ${home.name}'s squad.`;
+    ? `${parents.map((p) => p.name).join(' and ')} welcomed a child! Choose a name — they will be raised ${(home.wards || []).includes(s) ? 'at ' + home.name + '\'s side' : 'in ' + home.name + '\'s squad'}.`
+    : `${parents.map((p) => p.name).join(' and ')} welcomed ${s.heir.gender === 'f' ? 'a daughter' : 'a son'}, ${s.name}. They will be raised ${(home.wards || []).includes(s) ? 'at ' + home.name + '\'s side' : 'in ' + home.name + '\'s squad'}.`;
   log(state, text, mother.kingdom, 'family');
   if (k && isHumanKingdom(state, k.id)) notes.push({ kid: k.id, kind: 'birth', text });
 }
 
 function comeOfAge(state, rng, holder, idx, notes) {
-  const s = holder.troops[idx];
+  const list = idx.ward ? holder.wards : holder.troops;
+  const s = list[idx.i];
   const heir = s.heir;
-  holder.troops.splice(idx, 1);
+  list.splice(idx.i, 1);
+  const leads = canLead(holder.ufid || holder.fid, holder.unit);
   const kid = holder.kingdom;
-  const nh = makeHero(state, rng, heir.fid, kid, holder.loc, { name: s.name, gender: heir.gender, unit: holder.unit, ufid: holder.ufid || holder.fid, troops: 0, level: 2, trait: heir.trait });
+  const nh = makeHero(state, rng, heir.fid, kid, holder.loc, { name: s.name, gender: heir.gender, unit: leads ? holder.unit : 0, ufid: leads ? holder.ufid || holder.fid : heir.fid, troops: 0, level: 2, trait: heir.trait });
   for (const k of ['atk', 'def', 'int']) nh[k] = Math.max(nh[k], Math.round((nh[k] + heir.stats[k]) / 2) + 1);
   nh.lead = Math.min(16, Math.max(nh.lead, Math.round((nh.lead + heir.stats.lead) / 2)));
   nh.loyalty = 95; nh.parents = heir.parents.slice(); nh.born = heir.born;
@@ -126,7 +131,7 @@ function comeOfAge(state, rng, holder, idx, notes) {
 export function familyTick(state, rng, notes) {
   // births the player never named get the suggested name after a season
   for (const pb of [...(state.pendingBirths || [])]) if (state.turn - pb.turn >= 1) {
-    let s0 = null; for (const x of state.heroes) for (const s of x.troops || []) if (s.heir && s.heir.bid === pb.bid) s0 = s;
+    let s0 = null; for (const x of state.heroes) for (const s of kin(x)) if (s.heir && s.heir.bid === pb.bid) s0 = s;
     if (s0) nameChild(state, pb.kid, pb.bid, s0.heir.gender, s0.name); else state.pendingBirths = state.pendingBirths.filter((b) => b !== pb);
   }
   // births
@@ -164,17 +169,20 @@ export function familyTick(state, rng, notes) {
   }
   // heirs train every season and come of age at Elite
   for (const h of state.heroes) {
-    if (!h.troops) continue;
-    for (let i = h.troops.length - 1; i >= 0; i--) {
-      const s = h.troops[i];
-      if (!s.heir) continue;
-      if (s.s < 3 && h.status === 'active') {
-        s.xp += 1;
-        const [rx, ex] = EVOLVE_XP[s.s];
-        if (!s.r && s.xp >= rx) s.r = 1;
-        if (s.xp >= ex) { s.xp = 0; s.r = 0; s.s++; }
+    for (const ward of [false, true]) {
+      const list = ward ? h.wards : h.troops;
+      if (!list) continue;
+      for (let i = list.length - 1; i >= 0; i--) {
+        const s = list[i];
+        if (!s.heir) continue;
+        if (s.s < 3 && h.status === 'active') {
+          s.xp += 1;
+          const [rx, ex] = EVOLVE_XP[s.s];
+          if (!s.r && s.xp >= rx) s.r = 1;
+          if (s.xp >= ex) { s.xp = 0; s.r = 0; s.s++; }
+        }
+        if (s.s === 3 && h.status === 'active' && h.kingdom >= 0) comeOfAge(state, rng, h, { i, ward }, notes);
       }
-      if (s.s === 3 && h.status === 'active' && h.kingdom >= 0) comeOfAge(state, rng, h, i, notes);
     }
   }
 }

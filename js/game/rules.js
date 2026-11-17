@@ -33,6 +33,9 @@ export const CLASS_INFO = {
   caster: { name: 'Caster', building: 'magetower', perk: 'Wields battle magic.' },
   beast: { name: 'Beast', building: 'beastpit', perk: 'Huge and hard-hitting.' },
 };
+// beasts and mindless things fight in squads and can become named Elites, but never lead as heroes
+const BEASTS = { castle: [2], rampart: [4, 6], tower: [1, 2, 5], inferno: [2], necropolis: [2], enclave: [0, 3, 5], dwarves: [6] };
+export function canLead(fid, ui) { return !(BEASTS[fid] || []).includes(ui); }
 export function unitClass(fid, ui) {
   if ((RANGED[fid] || []).includes(ui)) return 'ranged';
   const s = UNIT_CLASS_STR[fid] || '';

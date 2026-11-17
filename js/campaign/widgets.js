@@ -35,6 +35,7 @@ export function kingdomBadge(k, opts = {}) {
     opts.race ? h('span', { class: 'tag' }, FACTIONS[k.fid].name) : null);
 }
 
+const plural = (n) => (/(s|x|ch|sh)$/i.test(n) ? n + 'es' : /[^aeiou]y$/i.test(n) ? n.slice(0, -1) + 'ies' : /(man)$/i.test(n) ? n.slice(0, -3) + 'men' : /(wolf)$/i.test(n) ? n.slice(0, -1) + 'ves' : n + 's');
 export function heroCard(state, hero, opts = {}) {
   const k = hero.kingdom >= 0 ? state.kingdoms[hero.kingdom] : null;
   const ts = troopSummary(hero, k);
@@ -57,7 +58,7 @@ export function heroCard(state, hero, opts = {}) {
         order),
       h('div', { class: 'row', style: { gap: '6px' } },
         unitIcon(uf(hero), hero.unit, stage, 1.5),
-        h('span', { class: 'sub ellipsis grow' }, `${unitName(uf(hero), hero.unit, stage)}`),
+        h('span', { class: 'sub ellipsis grow' }, `Leads ${plural(unitName(uf(hero), hero.unit, stage))}`),
         h('span', { class: 'sub', style: { fontWeight: 700, color: hero.troops.length < ts.cap ? '#ffd86b' : '#f7efe0' } }, `${hero.troops.length}/${ts.cap}`)),
       h('div', { class: 'bars' },
         h('span', {}, 'SQD'), bar(hero.troops.length / Math.max(1, ts.cap), 'thin'),

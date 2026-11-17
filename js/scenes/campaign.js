@@ -18,7 +18,7 @@ import { runAI } from '../game/ai.js';
 import { applyAction } from '../game/actions.js';
 import {
   squadCap, developCost, territoryIncome, territoryFood, heroTotals, unitName, FORMATIONS, FORMATION_IDS, HIRE_COST, isRanged, LEVEL_XP,
-  soldierStats, soldierTitle, unitLevel, TIERS, tierIndex, BUILDINGS, POLICIES, EDICTS, STRATAGEMS, PROMOTE_ELITE_COST, commandPool, recruitCost, CLASS_INFO, ROLES, ROLE_LEVEL,
+  soldierStats, soldierTitle, unitLevel, TIERS, tierIndex, BUILDINGS, POLICIES, EDICTS, STRATAGEMS, PROMOTE_ELITE_COST, commandPool, recruitCost, CLASS_INFO, ROLES, ROLE_LEVEL, canLead,
 } from '../game/rules.js';
 import { SLOTS, SLOT_NAMES, itemStatText, rarityColor } from '../game/items.js';
 import { economyPreview, edictCost, canEdict, promotionStatus, loadoutOptions, loadoutSlots } from '../game/kingdom.js';
@@ -447,7 +447,8 @@ export function heroModal(id) {
             h('div', { class: 'col', style: { gap: '1px', minWidth: 0 } },
               h('span', { class: 'ellipsis', style: { fontWeight: 700, color: s.s === 3 ? '#ffd86b' : undefined } }, soldierTitle(uf, x.unit, s)),
               h('span', { class: 'muted', style: { fontSize: '12px' } }, `HP ${Math.round(ss.hp)} · ATK ${ss.atk.toFixed(1)} · DEF ${ss.def.toFixed(1)}`),
-              s.s === 3 && editable ? btn(`Raise to hero ${PROMOTE_ELITE_COST}g`, () => { if (act({ type: 'promoteElite', hero: x.id, idx: i })) { sfx('levelup'); toast(`${s.name} now leads their own squad!`, 'good'); render(); } else toast('Not enough gold'); }, 'tiny good') : null));
+              s.s === 3 && editable && !canLead(uf, x.unit) ? h('span', { class: 'muted', style: { fontSize: '11px' } }, 'Beasts fight, but cannot lead') : null,
+              s.s === 3 && editable && canLead(uf, x.unit) ? btn(`Raise to hero ${PROMOTE_ELITE_COST}g`, () => { if (act({ type: 'promoteElite', hero: x.id, idx: i })) { sfx('levelup'); toast(`${s.name} now leads their own squad!`, 'good'); render(); } else toast('Not enough gold'); }, 'tiny good') : null));
         })));
     } else if (tab === 'unit') {
       const opts = troopOptions(st, x);
@@ -491,7 +492,7 @@ export function heroModal(id) {
         h('b', {}, `Children (${kids.length})`),
         kids.length ? h('div', { class: 'col', style: { gap: '4px' } }, kids.map((c) => c.hero
           ? h('div', { class: 'card tap', onClick: () => { m.close(); heroModal(c.hero.id); } }, portrait(c.hero, 2), h('span', { class: 'grow' }, `${c.hero.name} · hero, Lv ${c.hero.level}`))
-          : h('div', { class: 'card' }, unitIcon(c.with.ufid || c.with.fid, c.with.unit, c.soldier.s, 2), h('div', { class: 'col grow', style: { gap: 0 } }, h('b', {}, c.name), h('span', { class: 'muted', style: { fontSize: '12px' } }, `Training in ${c.with.name}'s squad · stage ${c.soldier.s} of 3`))))) : h('div', { class: 'muted' }, 'None yet.'),
+          : h('div', { class: 'card' }, c.ward ? h('span', { class: 'chip gold' }, c.soldier.heir.gender === 'f' ? '♀' : '♂') : unitIcon(c.with.ufid || c.with.fid, c.with.unit, c.soldier.s, 2), h('div', { class: 'col grow', style: { gap: 0 } }, h('b', {}, c.name), h('span', { class: 'muted', style: { fontSize: '12px' } }, `${c.ward ? 'Raised at ' + c.with.name + '\'s side' : 'Training in ' + c.with.name + '\'s squad'} · stage ${c.soldier.s} of 3`))))) : h('div', { class: 'muted' }, 'None yet.'),
         opts.length ? h('b', {}, 'Arrange a marriage') : null,
         opts.length ? h('div', { class: 'row wrap' }, opts.map((o) => btn(`${o.name} · Lv ${o.level}`, () => { if (act({ type: 'wed', a: x.id, b: o.id })) { sfx('levelup'); toast(`${x.name} and ${o.name} are wed!`, 'good'); render(); } }, 'small'))) : null,
         editable && !sp && !opts.length ? h('div', { class: 'muted', style: { fontSize: '13px' } }, x.level < MARRY_LEVEL ? `Reaches marrying age at level ${MARRY_LEVEL}.` : 'No unmarried hero of the opposite gender in your realm is ready to wed.') : null);

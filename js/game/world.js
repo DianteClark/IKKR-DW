@@ -11,7 +11,7 @@ import { initNeutral, applyNeutralOrders, validNeutralOrder } from './neutral.js
 import { makeItem, SLOTS } from './items.js';
 import {
   squadCap, recruitCost, squadPower, garrisonPower, unitLevel, HIRE_COST, EVOLVE_XP, LEVEL_XP, MAX_LEVEL,
-  newSoldier, TIERS, tierIndex, PROMOTE_ELITE_COST, STRATAGEMS, STRATAGEM_IDS, unitClass, CLASS_INFO, ROLE_LEVEL, ROLES,
+  newSoldier, TIERS, tierIndex, PROMOTE_ELITE_COST, STRATAGEMS, STRATAGEM_IDS, unitClass, CLASS_INFO, ROLE_LEVEL, ROLES, canLead,
 } from './rules.js';
 
 export const SIZES = {
@@ -375,7 +375,7 @@ export function promoteElite(state, kid, heroId, troopIdx) {
   const h = hero(state, heroId), k = state.kingdoms[kid];
   if (!h || h.kingdom !== kid || k.gold < PROMOTE_ELITE_COST) return null;
   const s = h.troops[troopIdx];
-  if (!s || s.s !== 3) return null;
+  if (!s || s.s !== 3 || !canLead(h.ufid || h.fid, h.unit)) return null;
   const rng = rngFor(state, heroId * 3 + troopIdx);
   k.gold -= PROMOTE_ELITE_COST;
   h.troops.splice(troopIdx, 1);
@@ -390,7 +390,9 @@ export function promoteElite(state, kid, heroId, troopIdx) {
 // ---------- troop growth ----------
 const ELITE_NAMES = ['Brann', 'Kesh', 'Orla', 'Tamsin', 'Vex', 'Rurik', 'Mira', 'Duro', 'Ilse', 'Gorr', 'Sefa', 'Lukan', 'Yeva', 'Hask', 'Nira', 'Borin', 'Tova', 'Kael', 'Runa', 'Zed'];
 const ELITE_TAGS = ['Steelheart', 'the Unbroken', 'Quickblade', 'Stonewall', 'the Lucky', 'Ravenshield', 'Grimtooth', 'the Fox', 'Bloodaxe', 'Lightfoot'];
+const BEAST_NAMES = ['Grimclaw', 'Stormwing', 'Ashmane', 'Ironhide', 'Nightfang', 'Thornback', 'Old Scar', 'Redeye', 'Frostpelt', 'Skyrender', 'Bonecrusher', 'Mossjaw', 'Emberhoof', 'Duskwing', 'Gravelgut', 'Silvertusk'];
 export function gainTroopXp(h, amount, rng) {
+  const beast = !canLead(h.ufid || h.fid, h.unit);
   const promos = { rank: 0, evolve: 0, elite: 0 };
   for (const s of h.troops) {
     if (s.s === 3) continue;
@@ -400,7 +402,7 @@ export function gainTroopXp(h, amount, rng) {
     if (s.xp >= ex) {
       s.xp = 0; s.r = 0;
       if (s.s === 1) { s.s = 2; promos.evolve++; }
-      else { s.s = 3; if (!s.heir) s.name = (rng ? rng.pick(ELITE_NAMES) + ' ' + rng.pick(ELITE_TAGS) : 'Elite'); promos.elite++; }
+      else { s.s = 3; if (!s.heir) s.name = beast ? (rng ? rng.pick(BEAST_NAMES) : 'Elite') : (rng ? rng.pick(ELITE_NAMES) + ' ' + rng.pick(ELITE_TAGS) : 'Elite'); promos.elite++; }
     }
   }
   return promos;
