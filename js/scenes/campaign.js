@@ -856,12 +856,12 @@ function intro() {
   S.state.introShown = true;
   const k = myK();
   modal(`Welcome, ${hero(S.state, k.ruler)?.name || 'ruler'}`, h('div', { class: 'col' },
-    h('div', {}, `You rule the village of ${S.state.territories[k.capital].name}. Every other land belongs to a rival.`),
-    h('div', {}, '• Tap your town to command heroes: attack, move, rest (heal, recruit and train) or explore the wilds.'),
-    h('div', {}, '• Grow from Village to Kingdom to Empire to unlock troops, stratagems and buildings.'),
-    h('div', {}, '• Keep morale, food and stability up or face famine and revolt.'),
-    h('div', {}, '• Make allies, demand fealty, lend heroes — and beware of traitors.'),
-    h('div', {}, '• You lose only when your last hero falls.'),
+    h('div', {}, `You rule the village of ${S.state.territories[k.capital].name}. Free hamlets lie between you and your rivals.`),
+    h('div', {}, '• Tap a land, then give each hero an order: attack, move, rest & train, or act in the wilds.'),
+    h('div', {}, '• Follow the Goals chip at the top-left: it teaches the game as you play.'),
+    h('div', {}, '• Gather 5 heroes and your village becomes a kingdom. Grow it into an empire.'),
+    h('div', {}, '• Tap gold, food, morale or stability to see why they change each season.'),
+    h('div', {}, '• Attacking another realm is an act of war. You lose only when your last hero falls.'),
   ), [['To war!', () => { sfx('horn'); banner('Spring, Year 1', 'blue', k.name); }, 'primary']]);
 }
 

@@ -13,6 +13,9 @@ A mobile-first browser strategy game: conquer a world of rival kingdoms with her
 - **Living world:** quakes, wildfires, plague, floods, harvests, famine, bandits, monster outbreaks, raids from wild lairs, revolts and overthrows.
 - **Diplomacy:** alliances (player-to-player too), vassals, coalitions, lending heroes, defection and battlefield treachery.
 - **Battles:** real time from above. Orders are always obeyed; tap or drag to command, select all or box-select, see each route. Formations, stratagems, hero duels, collapsing roads and floods, sieges and island battles.
+- **Stories and rivalries:** heroes swear vows (avenge kin, reclaim a homeland, beat a nemesis, recover a relic) and earn titles; whoever beats your hero becomes their nemesis.
+- **Living politics:** rulers have temperaments, attacking a realm is an act of war (they declare war or sue for peace), trade caravans travel friendly roads, sieges can starve a town into surrender, choice events ask you to decide, weather changes each season, and fog of war hides what your realm can't see.
+- **Learn as you play:** early goals, season summaries with "Show me", tap any resource to see why it changed, hero filters, and a Hall of Fame with achievements and heirs of past champions.
 - **Saves:** every campaign has a campaign code and saves each season. Back up and import campaigns. Two-player campaigns are saved on both phones with private seat keys; either player can host the resume.
 - **Two players:** peer-to-peer campaigns with room codes (PeerJS).
 

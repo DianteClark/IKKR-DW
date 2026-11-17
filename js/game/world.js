@@ -9,14 +9,14 @@ import { namesFor } from '../data/givennames.js';
 import { randomBanner } from '../engine/banner.js';
 import { initNeutral, applyNeutralOrders, validNeutralOrder } from './neutral.js';
 import { actOfWar } from './diplomacy.js';
-import { onBattle } from './stories.js';
+import { onBattle, nemesisPairs } from './stories.js';
 import { raidableHere, resolveRaid } from './trade.js';
 import { weatherAtId } from './weather.js';
 import { applySieges, canBesiege } from './siege.js';
 import { makeItem, SLOTS } from './items.js';
 import {
   squadCap, recruitCost, squadPower, garrisonPower, unitLevel, HIRE_COST, EVOLVE_XP, LEVEL_XP, MAX_LEVEL,
-  newSoldier, TIERS, tierIndex, PROMOTE_ELITE_COST, STRATAGEMS, STRATAGEM_IDS, unitClass, CLASS_INFO, ROLE_LEVEL, ROLES, canLead, TEMPER_IDS,
+  newSoldier, TIERS, tierIndex, PROMOTE_ELITE_COST, STRATAGEMS, STRATAGEM_IDS, unitClass, CLASS_INFO, ROLE_LEVEL, ROLES, canLead, FORMATIONS, TEMPER_IDS,
 } from './rules.js';
 
 export const SIZES = {
@@ -233,6 +233,7 @@ export function createWorld(seed, players, opts = {}) {
 
 // older saves: give every hero a face that matches their gender
 export function fixPortraits(state) {
+  for (const h of state.heroes) if (!FORMATIONS[h.formation]) h.formation = 'line'; // Loose was retired
   for (const h of state.heroes) if (!portraitFits(h.fid, h.gender, h.portrait)) h.portrait = (h.portrait % 20) + (h.gender === 'f' ? 20 : 0);
   // older saves: AI realms get a temperament
   for (const k of state.kingdoms) if (k.player < 0 && !k.temper) k.temper = TEMPER_IDS[(k.id * 7 + state.seed) % TEMPER_IDS.length];
@@ -492,6 +493,7 @@ export function prepareBattle(state, b) {
     b.defenders = heroesAt(state, b.tid, b.foe).map((h) => h.id);
     if (!b.defenders.length) return null;
     b.level = 0; b.biome = t.biome; b.siege = false; b.landless = false;
+    b.nemesis = nemesisPairs(state, b);
     return b;
   }
   if (!b.attackers.length || t.owner === b.att) return null;
@@ -503,6 +505,7 @@ export function prepareBattle(state, b) {
   const attK = state.kingdoms[b.att];
   b.landless = !!attK.landless;
   b.siege = t.level >= 2 && !attK.landless;
+  b.nemesis = nemesisPairs(state, b);
   return b;
 }
 
@@ -738,6 +741,8 @@ export function proposedMajority(state, kid) {
 function checkVictory(state) {
   if (state.over) return;
   const owners = new Set(state.territories.map((t) => t.owner).filter((o) => o >= 0));
+  // free hamlets left in numbers still stand between you and the throne
+  if (state.territories.filter((t) => t.owner < 0).length > state.territories.length * 0.15) { const humansAlive = state.players.filter((p) => state.kingdoms[p.kingdom].alive); if (state.players.length && !humansAlive.length) state.over = { winner: -1, type: 'defeat', members: [] }; return; }
   if (owners.size === 1) { state.over = { winner: [...owners][0], type: 'solo', members: [...owners] }; return; }
   // a landless human warband keeps the war going
   const wanderers = state.players.map((p) => state.kingdoms[p.kingdom]).filter((k) => k.alive && k.landless).map((k) => k.id);

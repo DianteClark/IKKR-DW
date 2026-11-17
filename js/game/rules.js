@@ -132,7 +132,6 @@ export const FORMATIONS = {
   wedge: { name: 'Wedge', beats: 'line', desc: 'Charge: +attack. Beats Line.', atk: 1.12, def: 0.95, spd: 1.05, time: 3 },
   line: { name: 'Line', beats: 'square', desc: 'Wide front: ranged +25%. Beats Square.', atk: 1.0, def: 1.0, spd: 1.0, ranged: 1.25, time: 2.5 },
   square: { name: 'Square', beats: 'wedge', desc: 'Shield wall: +defense. Beats Wedge.', atk: 0.92, def: 1.22, spd: 0.85, time: 3.5 },
-  loose: { name: 'Loose', beats: null, desc: 'Fast; arrows hurt less, melee hurts more.', atk: 1.0, def: 0.88, spd: 1.3, arrowGuard: 0.65, time: 1.5 },
 };
 export const FORMATION_IDS = Object.keys(FORMATIONS);
 export function formationEdge(a, b) {
