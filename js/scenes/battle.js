@@ -76,14 +76,15 @@ registerScene('battle', {
       const A = st.kingdoms[b.att], D = b.def >= 0 ? st.kingdoms[b.def] : null;
       const atk = b.attackers.map((id) => hero(st, id)), dfd = b.defenders.map((id) => hero(st, id));
       setup = {
-        seed: hashStr(`${st.seed}:${st.turn}:${b.tid}:${b.att}`), biome: (seasonOf(st.turn) === 'Winter' && (t.biome === 'grass' || t.biome === 'marsh')) ? 'ice' : t.biome, season: seasonOf(st.turn), level: t.level, place: t.name, siege: !!b.siege,
+        seed: hashStr(`${st.seed}:${st.turn}:${b.tid}:${b.att}`), biome: (seasonOf(st.turn) === 'Winter' && !['sand', 'lava', 'ice', 'christmas'].includes(t.biome)) ? 'ice' : t.biome, season: seasonOf(st.turn), level: b.skirmish ? 0 : t.level, place: t.name, siege: !!b.siege,
         attackers: JSON.parse(JSON.stringify(atk)), defenders: JSON.parse(JSON.stringify(dfd)),
         attFid: A.fid, defFid: D ? D.fid : (t.race || 'castle'), attName: A.name, defName: D ? D.name : (t.owner < 0 ? `Free folk of ${t.name}` : 'Town guard'),
         attKid: A.id, defKid: D ? D.id : -1, attMorale: A.morale, defMorale: D ? D.morale : 60,
         attLoadout: (A.loadout || []).slice(), defLoadout: D ? (D.loadout || []).slice() : [],
         attPool: commandPool(atk, tierIndex(A), A.buildings.academy), defPool: D ? commandPool(dfd, tierIndex(D), D.buildings.academy) : 4,
         colors: { att: A.color, def: D ? D.color : '#9aa7b8' }, control: args.control,
-        garrison: { squads: dfd.length ? 1 : 2 + Math.min(2, t.level), size: dfd.length ? 4 + t.level * 2 : 6 + t.level * 3 },
+        garrison: b.skirmish ? { squads: 0, size: 0 } : { squads: dfd.length ? 1 : 2 + Math.min(2, t.level), size: dfd.length ? 4 + t.level * 2 : 6 + t.level * 3 },
+        skirmish: !!b.skirmish,
         intel: hasIntel(st, A.id, b.tid),
         land: landInfo(st, b.tid),
         reinforce: { att: allyReinforcements(st, A.id, b), def: D ? allyReinforcements(st, D.id, b) : [] },
@@ -102,7 +103,7 @@ registerScene('battle', {
     B.sim = createBattle({ ...setup, items: B.state ? B.state.items : (args.items || {}) });
     B.sim.ai = { att: setup.control.att === 'ai', def: setup.control.def === 'ai' };
     B.ground = renderGround(B.sim.field);
-    if (B.setup.season === 'Autumn' && (B.setup.biome === 'grass' || B.setup.biome === 'marsh')) autumnizeCanvas(B.ground);
+    if (B.setup.season === 'Autumn' && !['sand', 'lava', 'ice', 'christmas'].includes(B.setup.biome)) autumnizeCanvas(B.ground);
     B.juice = createFx();
     if (net.role === 'host') {
       net.send({ t: 'battleStart', setup, items: B.state.items });
@@ -888,7 +889,7 @@ function reserveRow(side) {
   const paint = () => {
     row.innerHTML = '';
     row.append(h('span', { class: 'muted' }, 'Reserve:'));
-    row.append(btn('None', () => { for (const q of mine) if (q.state === 'reserve') send({ type: 'reserve', squad: q.id }); setTimeout(paint, 60); }, 'tiny' + (mine.some((q) => q.state === 'reserve') ? '' : ' sel')));
+    row.append(btn('None', () => { for (const q of mine) if (q.state === 'reserve') { send({ type: 'reserve', squad: q.id }); if (B.client) q.state = 'idle'; } setTimeout(paint, 60); }, 'tiny' + (mine.some((q) => q.state === 'reserve') ? '' : ' sel')));
     for (const q of mine) row.append(btn(q.name.split(' ')[0], () => {
       for (const o of mine) if (o.state === 'reserve' && o.id !== q.id) send({ type: 'reserve', squad: o.id });
       send({ type: 'reserve', squad: q.id }); if (B.client) q.state = q.state === 'reserve' ? 'idle' : 'reserve'; setTimeout(paint, 60);

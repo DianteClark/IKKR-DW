@@ -10,7 +10,8 @@ import { TIERS, tierIndex } from './rules.js';
 
 export function endTurn(state) {
   const rng = rngFor(state, 999);
-  const notes = [];
+  const notes = [...(state.newsQueue || [])];
+  state.newsQueue = [];
   decayMarks(state);
   for (const t of state.territories) if (t.ruined > 0) t.ruined--;
   for (const k of state.kingdoms) economyTick(state, k, rng, notes);

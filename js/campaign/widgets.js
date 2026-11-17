@@ -32,7 +32,7 @@ export function kingdomBadge(k, opts = {}) {
   return h('span', { class: 'row', style: { gap: '5px', minWidth: 0 } },
     k.banner ? (() => { const el = bannerEl(k.banner, 0.65); el.style.flex = 'none'; return el; })() : h('span', { class: 'swatch', style: { background: k.color } }),
     h('span', { class: 'ellipsis', style: { fontWeight: 600 } }, k.name),
-    opts.race ? h('span', { class: 'tag' }, FACTIONS[k.fid].name) : null);
+    opts.race ? h('span', { class: 'tag' }, FACTIONS[k.fid].race) : null);
 }
 
 const plural = (n) => (/(s|x|ch|sh)$/i.test(n) ? n + 'es' : /[^aeiou]y$/i.test(n) ? n.slice(0, -1) + 'ies' : /(man)$/i.test(n) ? n.slice(0, -3) + 'men' : /(wolf)$/i.test(n) ? n.slice(0, -1) + 'ves' : n + 's');
@@ -86,7 +86,7 @@ export function unitCard(fid, ui, stage = 1, statsObj = {}, opts = {}) {
 export function orderLabel(state, o) {
   if (!o) return '';
   const t = o.target != null && state.territories[o.target] ? state.territories[o.target].name : '';
-  return ({ attack: '⚔ ' + t, move: '→ ' + t, rest: 'Rest & recruit', drill: 'Drill', recruit: 'Recruit', spy: 'Spy ' + t, lend: 'Lent', plunder: 'Plunder', protect: 'Protect hamlet', explore: 'Explore site', court: 'Courting' })[o.type] || o.type;
+  return ({ attack: '⚔ ' + t, move: '→ ' + t, rest: 'Rest & recruit', drill: 'Drill', recruit: 'Recruit', spy: 'Spy ' + t, lend: 'Lent', plunder: 'Plunder', protect: 'Protect hamlet', explore: 'Explore site', court: 'Courting', skirmish: '⚔ Heroes' })[o.type] || o.type;
 }
 
 export function factionBadge(fid, scale = 1) {

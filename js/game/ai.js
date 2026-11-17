@@ -2,6 +2,8 @@
 import { kingdomHeroes, kingdomTerritories, setOrder, restPrice, rngFor, powerAt, friendly, validTargets, DIFFICULTY } from './world.js';
 import { squadCap, squadPower, developCost } from './rules.js';
 import { aiWildsOrder } from './neutral.js';
+import { atWar } from './diplomacy.js';
+import { skirmishTargets, heroesAt } from './world.js';
 
 function frontierDistance(state, kid) {
   const T = state.territories;
@@ -36,6 +38,15 @@ export function aiOrders(state, kid) {
     if ((h.troops.length < cap * 0.65 && k.gold >= restPrice(state, h) * 0.4) || h.hp < 45) { setOrder(state, h.id, { type: 'rest' }); continue; }
     free.add(h);
   }
+  // enemies met in the same land: fight them if at war (or a raider) and clearly stronger
+  for (const h of [...free]) {
+    for (const foe of skirmishTargets(state, h)) {
+      if (!atWar(state, kid, foe) && !raider) continue;
+      const mine = heroesAt(state, h.loc, kid).filter((x) => free.has(x));
+      const ours = mine.reduce((s, x) => s + squadPower(x, items, k.morale), 0), theirs = heroesAt(state, h.loc, foe).reduce((s, x) => s + squadPower(x, items, 60), 0);
+      if (ours > theirs * 1.3) { for (const x of mine) { setOrder(state, x.id, { type: 'skirmish', target: foe }); free.delete(x); } break; }
+    }
+  }
   // the wilds: keep guarding hamlets, explore sites, court wanderers, plunder if you're a raider
   for (const h of [...free]) {
     if (h.order && h.order.type === 'protect' && state.territories[h.loc].owner < 0) { free.delete(h); continue; }
@@ -51,13 +62,14 @@ export function aiOrders(state, kid) {
     for (const n of targets) {
       const t = state.territories[n];
       const ownerK = t.owner >= 0 ? state.kingdoms[t.owner] : null;
-      if (ownerK && ownerK.player >= 0 && state.turn < diff.grace) continue; // grace period for new players
+      const war = ownerK && atWar(state, kid, ownerK.id);
+      if (ownerK && ownerK.player >= 0 && state.turn < diff.grace && !war) continue; // grace period for new players (unless they started a war)
       const ratio = ours / Math.max(1, powerAt(state, n));
       const grudge = ownerK ? Math.max(0, -(k.rel[ownerK.id] || 0)) / 200 : 0;
       const bias = (ownerK && ownerK.player >= 0 ? 0.92 : 1) * (1 + t.level * 0.05) * (1 + grudge) * (ownerK && (ownerK.kind === 'bandit' || ownerK.kind === 'monster') ? 1.1 : 1);
       // free hamlets are poor prizes early on: most realms court or guard them before conquering them
       const wild = !ownerK ? Math.min(1, 0.3 + state.turn * 0.004) : 1;
-      const score = ratio * bias * wild;
+      const score = ratio * bias * wild * (war ? 1.6 : 1);
       if (score > bestScore) { bestScore = score; best = n; }
     }
     let attackers = group;

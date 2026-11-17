@@ -369,3 +369,7 @@ input.text:focus { outline: none; box-shadow: 0 0 0 2px var(--gold); }
 .bpanel-name { display: inline-flex; flex-direction: column; line-height: 1.05; }
 .bpanel-ter { font-size: 10px; color: #9fd0ff; font-weight: 600; }
 .btn.tiny.dim { opacity: .55; }
+.bottombar .gold-btn { color: var(--gold); flex-shrink: 0; }
+
+.bottombar.narrow { max-width: calc(54vw - 16px); overflow-x: auto; scrollbar-width: none; }
+.bottombar.narrow .btn { padding-left: 8px; padding-right: 8px; font-size: 14px; }

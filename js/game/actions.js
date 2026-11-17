@@ -3,7 +3,7 @@ import { wed, nameChild } from './family.js';
 import { ROLES, ROLE_LEVEL } from './rules.js';
 import { setOrder, hireVagabond, equip, unequip, decideCaptive, changeUnit, hero, promoteElite } from './world.js';
 import { setPolicy, issueEdict, promoteRealm, build, setLoadout } from './kingdom.js';
-import { propose, respondProposal, breakTreaty, lendHero, recallHero } from './diplomacy.js';
+import { propose, respondProposal, breakTreaty, lendHero, recallHero, offerPeace } from './diplomacy.js';
 import { developCost } from './rules.js';
 
 export function applyAction(state, playerIdx, a) {
@@ -34,6 +34,7 @@ export function applyAction(state, playerIdx, a) {
     case 'build': return build(state, kid, a.building);
     case 'loadout': return setLoadout(state, kid, a.ids);
     case 'propose': return propose(state, kid, a.to, a.kind);
+    case 'peace': return offerPeace(state, kid, a.to, Math.max(0, a.gold | 0));
     case 'respond': { const p = state.proposals.find((x) => x.id === a.id); if (!p || p.to !== kid) return false; return respondProposal(state, a.id, a.accept); }
     case 'break': return breakTreaty(state, kid, a.other);
     case 'lend': return lendHero(state, kid, a.hero, a.ally, a.turns || 3);

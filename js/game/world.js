@@ -8,6 +8,7 @@ import { kingdomName, KINGDOM_COLORS } from './names.js';
 import { namesFor } from '../data/givennames.js';
 import { randomBanner } from '../engine/banner.js';
 import { initNeutral, applyNeutralOrders, validNeutralOrder } from './neutral.js';
+import { actOfWar } from './diplomacy.js';
 import { makeItem, SLOTS } from './items.js';
 import {
   squadCap, recruitCost, squadPower, garrisonPower, unitLevel, HIRE_COST, EVOLVE_XP, LEVEL_XP, MAX_LEVEL,
@@ -297,6 +298,19 @@ export function validMoves(state, h) {
   for (const n of one) for (const m of reach(state, h, n)) if (m !== t.id && safe(m)) two.add(m);
   return [...two];
 }
+// realms whose heroes stand in the same land as this hero and could be fought right there (an act of war)
+export function skirmishTargets(state, h) {
+  if (!h || h.status !== 'active' || h.lentTo >= 0) return [];
+  const t = state.territories[h.loc];
+  const out = new Set();
+  for (const x of state.heroes) {
+    if (x.status !== 'active' || x.loc !== h.loc || x.kingdom === h.kingdom || x.kingdom < 0) continue;
+    if (friendly(state, h.kingdom, x.kingdom) || x.lentTo >= 0) continue;
+    if (t.owner === x.kingdom) continue; // that's a normal attack on their land
+    out.add(x.kingdom);
+  }
+  return [...out];
+}
 export function validSpyTargets(state, h) {
   const k = state.kingdoms[h.kingdom];
   if (!k.buildings.spies) return [];
@@ -323,6 +337,7 @@ export function setOrder(state, heroId, order) {
   if (order && order.type === 'attack' && !validTargets(state, h).includes(order.target)) return false;
   if (order && order.type === 'move' && !validMoves(state, h).includes(order.target)) return false;
   if (order && order.type === 'spy' && !validSpyTargets(state, h).includes(order.target)) return false;
+  if (order && order.type === 'skirmish' && !skirmishTargets(state, h).includes(order.target)) return false;
   if (order && ['plunder', 'protect', 'explore', 'court'].includes(order.type) && !validNeutralOrder(state, h, order)) return false;
   h.order = order;
   return true;
@@ -428,6 +443,13 @@ export function collectBattles(state) {
     if (!groups.has(key)) groups.set(key, { att: h.kingdom, tid: h.order.target, attackers: [] });
     groups.get(key).attackers.push(h.id);
   }
+  // fights between heroes who meet in the same land (no land changes hands)
+  for (const h of state.heroes) {
+    if (h.status !== 'active' || !h.order || h.order.type !== 'skirmish') continue;
+    const key = h.kingdom + ':s' + h.loc + ':' + h.order.target;
+    if (!groups.has(key)) groups.set(key, { att: h.kingdom, tid: h.loc, attackers: [], skirmish: true, foe: h.order.target });
+    groups.get(key).attackers.push(h.id);
+  }
   // lent heroes join their host's attacks on nearby lands
   for (const h of state.heroes) {
     if (h.status !== 'active' || h.lentTo < 0) continue;
@@ -440,6 +462,15 @@ export function collectBattles(state) {
 export function prepareBattle(state, b) {
   const t = state.territories[b.tid];
   b.attackers = b.attackers.filter((id) => { const h = hero(state, id); return h && h.status === 'active' && (h.kingdom === b.att || h.lentTo === b.att); });
+  if (b.skirmish) {
+    b.attackers = b.attackers.filter((id) => hero(state, id).loc === b.tid);
+    if (!b.attackers.length || friendly(state, b.att, b.foe)) return null;
+    b.def = b.foe;
+    b.defenders = heroesAt(state, b.tid, b.foe).map((h) => h.id);
+    if (!b.defenders.length) return null;
+    b.level = 0; b.biome = t.biome; b.siege = false; b.landless = false;
+    return b;
+  }
   if (!b.attackers.length || t.owner === b.att) return null;
   if (t.owner >= 0 && friendly(state, b.att, t.owner)) return null;
   b.def = t.owner;
@@ -458,7 +489,7 @@ export function battleOdds(state, b, intel) {
   const attK = state.kingdoms[b.att], defK = b.def >= 0 ? state.kingdoms[b.def] : null;
   const ap = b.attackers.reduce((s, id) => s + squadPower(hero(state, id), items, attK.morale), 0) * (1 + tierIndex(attK) * 0.04);
   const dp = b.defenders.reduce((s, id) => s + squadPower(hero(state, id), items, defK ? defK.morale : 60), 0)
-    + garrisonPower(state.territories[b.tid]) * (b.defenders.length ? 0.6 : 1.2) * (b.siege ? 1.25 : 1);
+    + (b.skirmish ? 0 : garrisonPower(state.territories[b.tid]) * (b.defenders.length ? 0.6 : 1.2) * (b.siege ? 1.25 : 1));
   let p = 1 / (1 + Math.exp(-8.8 * (ap / (ap + dp) - 0.5)));
   if (!intel) p = Math.round(p * 5) / 5;
   return Math.max(0.03, Math.min(0.97, p));
@@ -533,6 +564,24 @@ export function applyBattle(state, b, result) {
     if (isHumanKingdom(state, captorK)) state.pendingCaptives.push(h.id);
   };
 
+  if (b.def >= 0 && defK && defK.kind === 'realm' && !(state.wars || []).some((w) => (w.a === b.att && w.b === b.def) || (w.a === b.def && w.b === b.att))) {
+    actOfWar(state, b.att, b.def, b.skirmish ? `an ambush at ${t.name}` : `the attack on ${t.name}`, state._notes || null);
+  }
+  if (b.skirmish) {
+    // nobody's land changes hands: the losers fall back home or are taken
+    const losers = attWon ? b.defenders : b.attackers, captor = attWon ? b.att : b.def;
+    for (const id of losers) {
+      const h = hero(state, id); if (!h || h.status !== 'active' || report.defected.includes(id)) continue;
+      const home = retreatSpot(state, h, b.tid);
+      if (h._defeated && (home == null || rng() < 0.5)) capture(h, captor);
+      else if (home != null) { h.loc = home; report.retreated.push(h.id); }
+    }
+    log(state, `${attK.name} ${attWon ? 'routed' : 'was driven off by'} ${defK.name}'s heroes at ${t.name}.`, -1, 'skirmish');
+    report.skirmish = true;
+    for (const h of state.heroes) delete h._defeated;
+    checkKingdoms(state);
+    return report;
+  }
   if (attWon) {
     t.owner = b.att; t.ruined = 2; t.level = Math.max(0, t.level - 1);
     if (attK.landless) { attK.landless = false; attK.capital = t.id; log(state, `${attK.name} rose from the wilds and seized ${t.name}!`, attK.id, 'uprising'); }

@@ -9,7 +9,7 @@ import { SPELLS } from '../data/spells.js';
 import {
   terrainOf, hero, heroesAt, kingdomHeroes, kingdomTerritories, captivesOf, vagabondsIn, validTargets, validMoves, validSpyTargets,
   restPrice, applyOrders, collectBattles, prepareBattle, autoResolve, applyBattle, isHumanKingdom, powerAt, troopOptions, battleOdds,
-  hasIntel, friendly, overlordOf, treaty, proposedMajority, totalTroops, fixPortraits,
+  hasIntel, friendly, overlordOf, treaty, proposedMajority, totalTroops, fixPortraits, skirmishTargets,
 } from '../game/world.js';
 import { endTurn } from '../game/turn.js';
 import { neutralActions, sitesIn, SITES, plunderYield } from '../game/neutral.js';
@@ -22,7 +22,7 @@ import {
 } from '../game/rules.js';
 import { SLOTS, SLOT_NAMES, itemStatText, rarityColor } from '../game/items.js';
 import { economyPreview, edictCost, canEdict, promotionStatus, loadoutOptions, loadoutSlots } from '../game/kingdom.js';
-import { alliesOf, vassalsOf, opinion, realmPower, dominant, willingness } from '../game/diplomacy.js';
+import { alliesOf, vassalsOf, opinion, realmPower, dominant, willingness, atWar, warsOf } from '../game/diplomacy.js';
 import { EVENT_INFO } from '../game/events.js';
 import { captureScene, decisionScene } from '../game/dialogue.js';
 import { renderTerrain, drawTerrain, drawOverlay, drawSites, drawTowns, drawHeroes, drawOrders, drawAnimated, drawSeason, captureFx, renderMinimap, updateMinimap, hitTest, drawLandOutline, drawGuards, setSeason, TS } from '../campaign/mapview.js';
@@ -221,6 +221,17 @@ function goHome() {
   S.sel = tid; sfx('open'); refreshUI(); drawMinimapUI();
 }
 function bannerIcon(k) { const el = k.banner ? bannerEl(k.banner, 0.8) : h('span', { class: 'swatch', style: { background: k.color } }); el.style.flex = 'none'; el.style.marginTop = '-4px'; return el; }
+// jump to the next hero without orders and open their land
+function nextIdle() {
+  const st = S.state, k = myK();
+  const idle = kingdomHeroes(st, k.id).filter((x) => !x.order);
+  if (!idle.length) return;
+  S.idleI = ((S.idleI ?? -1) + 1) % idle.length;
+  const x = idle[S.idleI];
+  focus(x.loc); cam.x += (screen.w * 0.22) / cam.zoom; cam.clamp();
+  S.sel = x.loc; sfx('open'); refreshUI(); drawMinimapUI();
+  toast(`${x.name} awaits orders`);
+}
 function showBorders() { try { return localStorage.getItem('ikkr-dw-borders') === '1'; } catch { return false; } }
 function focus(tid) { const t = S.state.territories[tid]; cam.x = t.cx * TS + 8; cam.y = t.cy * TS + 8; cam.clamp(); }
 
@@ -270,9 +281,10 @@ export function refreshUI() {
   const prisoners = captivesOf(st, k.id).length;
   add(ui.bottom,
     btn('⌂', goHome, 'small home-btn'),
+    idle ? btn(`Idle ${idle}`, nextIdle, 'small gold-btn') : null,
     btn('Heroes', heroesList, 'small'),
     btn('Realm', realmSheet, 'small'),
-    btn(incoming ? `Diplomacy (${incoming})` : 'Diplomacy', diplomacySheet, 'small' + (incoming ? ' primary' : '')),
+    btn(`Diplomacy${incoming ? ` (${incoming})` : ''}${warsOf(st, k.id).length ? ' ⚔' : ''}`, diplomacySheet, 'small' + (incoming ? ' primary' : '')),
     prisoners ? btn(`Prisoners (${prisoners})`, showCaptives, 'small') : null,
     btn('Chronicle', chronicle, 'small'),
   );
@@ -288,6 +300,7 @@ export function refreshUI() {
   }
   ui.side.style.bottom = '';
   if (ui.mini) ui.mini.style.display = S.sel == null ? '' : 'none';
+  if (ui.bottom) ui.bottom.classList.toggle('narrow', S.sel != null || !!S.target);
   if (S.sel == null) { ui.side.style.display = 'none'; return; }
   ui.side.style.display = '';
   ui.side.innerHTML = '';
@@ -392,6 +405,12 @@ function heroBlock(x) {
     btn('Drill', () => o({ type: 'drill' }), 'small' + (is('drill') ? ' sel' : '')),
     spies.length ? btn(is('spy') ? `Spy → ${st.territories[x.order.target].name}` : 'Spy', () => startTarget([x.id], 'spy'), 'small' + (is('spy') || picking('spy') ? ' sel' : '')) : null,
     x.order ? btn('Clear', () => o(null), 'small') : null);
+  const foes = skirmishTargets(st, x);
+  const fightRow = foes.length ? h('div', { class: 'row wrap', style: { gap: '4px', margin: '-4px 0 8px' } }, foes.map((fk) => {
+    const F = st.kingdoms[fk], on = x.order && x.order.type === 'skirmish' && x.order.target === fk, war = atWar(st, k.id, fk);
+    const go = () => { o(on ? null : { type: 'skirmish', target: fk }); if (!on) { sfx('horn'); toast(`${x.name} will attack ${F.name}'s heroes here`); } };
+    return btn(`⚔ ${F.name.split(' of ').pop()}'s heroes${war ? '' : ' (act of war)'}`, () => (on || war ? go() : confirm('Attack them here?', `${F.name}'s heroes are not your enemies yet. Attacking them is an act of war: they will declare war on you or sue for peace.`, 'Attack', 'Cancel', 'danger').then((ok) => ok && go())), 'small danger' + (on ? ' sel' : ''));
+  })) : null;
   const wild = neutralActions(st, x);
   const wildRow = wild.length ? h('div', { class: 'row wrap', style: { gap: '4px', margin: '-4px 0 8px' } }, wild.map((a) => {
     const order = { type: a.type, site: a.site, target: a.target };
@@ -399,7 +418,7 @@ function heroBlock(x) {
     const label = a.label + (a.risk != null && a.risk < 1 ? ` · ${Math.round(a.risk * 100)}%` : '');
     return btn(label, () => { o(on ? null : order); if (!on) { sfx('click'); toast(a.desc); } }, 'small ' + (a.type === 'plunder' ? 'danger' : a.type === 'protect' ? 'good' : '') + (on ? ' sel' : ''));
   })) : null;
-  return h('div', {}, card, actions, wildRow);
+  return h('div', {}, card, actions, fightRow, wildRow);
 }
 
 function startTarget(ids, kind) {
@@ -626,7 +645,7 @@ function diplomacySheet(focusKid) {
       incoming.length ? h('b', {}, 'Offers to you') : null,
       incoming.map((p) => {
         const from = st.kingdoms[p.from];
-        const what = p.type === 'vassal' ? 'demands you swear fealty (pay a fifth of your income in tribute)' : `offers an ${p.type}`;
+        const what = p.type === 'vassal' ? 'demands you swear fealty (pay a fifth of your income in tribute)' : p.type === 'peace' ? (p.gold > 0 ? `sues for peace and offers ${p.gold}g` : p.gold < 0 ? `will make peace for ${-p.gold}g` : 'offers peace') : `offers an ${p.type}`;
         return h('div', { class: 'card col', style: { alignItems: 'stretch' } }, h('div', { class: 'row wrap' }, kingdomBadge(from, { race: true }), h('span', {}, what)),
           h('div', { class: 'row' }, btn('Accept', () => { act({ type: 'respond', id: p.id, accept: true }); sfx('coin'); render(); refreshUI(); }, 'small good'), btn('Refuse', () => { act({ type: 'respond', id: p.id, accept: false }); render(); refreshUI(); }, 'small danger')));
       }),
@@ -636,7 +655,10 @@ function diplomacySheet(focusKid) {
         const op = opinion(st, o.id, k.id);
         const pw = realmPower(st, o.id) / Math.max(1, realmPower(st, k.id));
         const acts = [];
-        if (!k.landless && o.kind !== 'monster') {
+        const war = atWar(st, k.id, o.id);
+        if (war && o.kind !== 'monster') acts.push(btn('Offer peace', () => { const r = act({ type: 'peace', to: o.id, gold: 0 }); toast(r === 'accepted' ? `${o.name} accepts peace.` : r === 'pending' ? 'Offer sent' : `${o.name} refuses. Try again with gold or after a victory.`, r === 'accepted' ? 'good' : 'bad'); render(); refreshUI(); }, 'small good'),
+          btn(`Peace for ${Math.max(100, Math.round(k.gold * 0.25))}g`, () => { const g = Math.max(100, Math.round(k.gold * 0.25)); if (k.gold < g) return toast('Not enough gold'); const r = act({ type: 'peace', to: o.id, gold: g }); toast(r === 'accepted' ? `${o.name} takes the gold and makes peace.` : r === 'pending' ? 'Offer sent' : `${o.name} refuses.`, r === 'accepted' ? 'good' : 'bad'); render(); refreshUI(); }, 'small'));
+        if (!k.landless && o.kind !== 'monster' && !war) {
           if (!t) {
             acts.push(btn('Propose alliance', () => { const r = act({ type: 'propose', to: o.id, kind: 'alliance' }); toast(r === 'accepted' ? `${o.name} accepts!` : r === 'pending' ? 'Offer sent' : `${o.name} refuses.`, r === 'accepted' ? 'good' : r === 'pending' ? '' : 'bad'); sfx(r === 'accepted' ? 'victory' : 'click'); render(); refreshUI(); }, 'small'));
             if (tierIndex(k) >= 2 && pw < 0.6) acts.push(btn('Demand fealty', () => { const r = act({ type: 'propose', to: o.id, kind: 'vassal' }); toast(r === 'accepted' ? `${o.name} bends the knee!` : r === 'pending' ? 'Demand sent' : `${o.name} defies you!`, r === 'accepted' ? 'good' : 'bad'); render(); refreshUI(); }, 'small danger'));
@@ -644,7 +666,7 @@ function diplomacySheet(focusKid) {
         }
         const wl = t ? null : willingness(st, o.id, k.id, 'alliance');
         return h('div', { class: 'card col', style: { alignItems: 'stretch', borderColor: o.id === focusKid ? '#ffd86b' : undefined } },
-          h('div', { class: 'row wrap', style: { gap: '6px' } }, kingdomBadge(o, { race: true }), relationChip(k.id, o.id), o.kind !== 'realm' ? chip(o.kind === 'bandit' ? 'Bandits' : o.kind === 'monster' ? 'Monsters' : 'Rebels', 'bad') : null, o.player >= 0 ? chip('Player', 'blue') : null),
+          h('div', { class: 'row wrap', style: { gap: '6px' } }, kingdomBadge(o, { race: true }), war ? chip('At war', 'bad') : relationChip(k.id, o.id), o.kind !== 'realm' ? chip(o.kind === 'bandit' ? 'Bandits' : o.kind === 'monster' ? 'Monsters' : 'Rebels', 'bad') : null, o.player >= 0 ? chip('Player', 'blue') : null),
           h('div', { class: 'muted', style: { fontSize: '13px' } }, `${kingdomTerritories(st, o.id).length} lands · strength ${pw > 1.5 ? 'far stronger' : pw > 1.1 ? 'stronger' : pw > 0.8 ? 'even' : pw > 0.5 ? 'weaker' : 'far weaker'} · opinion ${Math.round(op)}${wl != null ? ` · ${wl > 0.5 ? 'open to an alliance' : wl > 0.3 ? 'unsure' : 'unwilling'}` : ''}`),
           acts.length ? h('div', { class: 'row wrap' }, acts) : null);
       }));

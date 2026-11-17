@@ -83,6 +83,14 @@ export function respondProposal(state, id, accept) {
   const p = state.proposals.find((x) => x.id === id);
   if (!p) return false;
   state.proposals = state.proposals.filter((x) => x.id !== id);
+  if (p.type === 'peace') {
+    // gold > 0: the offerer pays; gold < 0: the receiver pays to end it
+    if (accept) { const pay = p.gold || 0; const F = state.kingdoms[p.from], T = state.kingdoms[p.to];
+      if (pay > 0 && F.gold >= pay) { F.gold -= pay; T.gold += pay; } else if (pay < 0 && T.gold >= -pay) { T.gold += pay; F.gold -= pay; }
+      makePeace(state, p.from, p.to); }
+    else log(state, `${state.kingdoms[p.to].name} rejected peace with ${state.kingdoms[p.from].name}.`, -1, 'war');
+    return true;
+  }
   if (accept) makeTreaty(state, p.from, p.to, p.type, p.from);
   else { bump(state, p.from, p.to, p.type === 'vassal' ? -30 : -10); log(state, `${state.kingdoms[p.to].name} rejected ${state.kingdoms[p.from].name}'s ${p.type === 'vassal' ? 'demand for fealty' : 'offer of ' + p.type}.`, -1, 'diplomacy'); }
   return true;
@@ -220,4 +228,52 @@ export function diplomacyTick(state, rng, notes) {
   }
   // AI answers to human proposals that the AI received are instant (propose); stale human-received proposals expire
   state.proposals = state.proposals.filter((p) => state.turn - p.turn <= 2 && state.kingdoms[p.from].alive && state.kingdoms[p.to].alive);
+}
+
+// ---------------- war ----------------
+// Attacking a realm's land or its heroes is an act of war. The wronged realm either declares war (and comes for
+// you) or, if it is weaker, sues for peace. War makes AI realms prefer your lands; peace ends it.
+export const atWar = (state, a, b) => (state.wars || []).some((w) => (w.a === a && w.b === b) || (w.a === b && w.b === a));
+export function warsOf(state, kid) { return (state.wars || []).filter((w) => w.a === kid || w.b === kid).map((w) => (w.a === kid ? w.b : w.a)); }
+export function actOfWar(state, by, against, what, notes) {
+  if (!notes) notes = (state.newsQueue = state.newsQueue || []);
+  if (by < 0 || against < 0 || by === against) return;
+  const A = state.kingdoms[by], V = state.kingdoms[against];
+  if (!A || !V || !V.alive) return;
+  bump(state, against, by, -30);
+  for (const k of state.kingdoms) if (k.alive && k.id !== by && k.id !== against && allied(state, k.id, against)) bump(state, k.id, by, -12);
+  if (atWar(state, by, against)) return;
+  state.wars = state.wars || [];
+  const pV = realmPower(state, against), pA = realmPower(state, by);
+  if (!isHumanKingdom(state, against) && V.kind === 'realm' && pV < pA * 0.7) {
+    // too weak to fight back: offers gold for peace
+    state.wars.push({ a: by, b: against, since: state.turn, cause: what });
+    const gold = Math.max(60, Math.round(V.gold * 0.3));
+    if (isHumanKingdom(state, by)) {
+      state.proposals.push({ id: state.nextId++, from: against, to: by, type: 'peace', gold, turn: state.turn });
+      if (notes) notes.push({ kid: by, kind: 'diplomacy', text: `${V.name} is outmatched and offers ${gold}g for peace.` });
+    } else if (willingness(state, by, against, 'truce') > 0.3) { V.gold -= gold; A.gold += gold; makePeace(state, by, against); }
+    log(state, `${A.name} committed an act of war against ${V.name} (${what}).`, against, 'war');
+    return;
+  }
+  state.wars.push({ a: by, b: against, since: state.turn, cause: what });
+  log(state, `${V.name} declares war on ${A.name} after ${what}!`, -1, 'war');
+  if (notes && isHumanKingdom(state, by)) notes.push({ kid: by, kind: 'war', text: `${V.name} declares war on you after ${what}! Expect them to come for your lands.` });
+  if (notes && isHumanKingdom(state, against)) notes.push({ kid: against, kind: 'war', text: `You are at war with ${A.name} after ${what}.` });
+}
+export function makePeace(state, a, b) {
+  state.wars = (state.wars || []).filter((w) => !((w.a === a && w.b === b) || (w.a === b && w.b === a)));
+  bump(state, a, b, 15); bump(state, b, a, 15);
+  log(state, `${state.kingdoms[a].name} and ${state.kingdoms[b].name} made peace.`, -1, 'diplomacy');
+  for (const h of state.heroes) if (h.order && h.order.type === 'skirmish' && ((h.kingdom === a && h.order.target === b) || (h.kingdom === b && h.order.target === a))) h.order = null;
+}
+// a player asks for peace: the other side weighs strength, grudges and how long the war has run
+export function offerPeace(state, from, to, gold = 0) {
+  if (!atWar(state, from, to)) return 'refused';
+  if (isHumanKingdom(state, to)) { state.proposals.push({ id: state.nextId++, from, to, type: 'peace', gold: -gold, turn: state.turn }); return 'pending'; }
+  const w = (state.wars || []).find((x) => (x.a === from && x.b === to) || (x.a === to && x.b === from));
+  const pT = realmPower(state, to), pF = realmPower(state, from);
+  const s = 0.35 + opinion(state, to, from) / 200 + (pF > pT ? 0.25 : -0.1) + Math.min(0.3, (state.turn - w.since) * 0.03) + gold / Math.max(200, state.kingdoms[to].gold + 200);
+  if (s > 0.5 && state.kingdoms[from].gold >= gold) { state.kingdoms[from].gold -= gold; state.kingdoms[to].gold += gold; makePeace(state, from, to); return 'accepted'; }
+  return 'refused';
 }

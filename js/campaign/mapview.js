@@ -106,7 +106,8 @@ function prep(T) {
 // Paint a rectangle of cells [cx0, cx0+cw) x [cy0, cy0+ch) into its own canvas. Paints a margin around it and crops,
 // using only global-coordinate randomness, so neighbouring chunks line up seamlessly.
 // ---- seasons: temperate land follows the year; deserts, tundra, lava and caves never change ----
-const SEASONAL = new Set(['grass', 'marsh']);
+// every land but the hot ones (desert, ashlands) and the always-frozen ones goes through the year
+const SEASONAL = new Set(['grass', 'marsh', 'deepmarsh', 'dirt', 'cave', 'dungeon']);
 const ICE_I = () => BIOME_IDS.indexOf('ice');
 export function seasonalBiome(T, season) {
   if (T._sb && T._sb.season === season) return T._sb.arr;
@@ -197,8 +198,10 @@ export function renderRegion(T, cx0, cy0, cw, ch) {
         if (px < 0 || py < 0 || px >= PW || py >= c.height || M[py * PW + px]) continue;
         const o = (py * PW + px) * 4, lum = d[o] * 0.3 + d[o + 1] * 0.59 + d[o + 2] * 0.11;
         if (lum < 70) continue;
-        const v = lum / 255, crack = hashI(px + wx0 * TS, py + wy0 * TS) % 53 === 0;
-        const t = crack ? [160, 200, 226] : [205 + 34 * v, 228 + 22 * v, 242 + 12 * v];
+        // smooth ice: soft broad sheen from noise, a few hairline cracks, no tile grid
+        const gx = px + wx0 * TS, gy = py + wy0 * TS;
+        const sheen = (hashI((gx / 6) | 0, (gy / 6) | 0) % 9) / 9, crack = hashI(gx, gy) % 61 === 0;
+        const t = crack ? [168, 206, 230] : [214 + 22 * sheen, 236 + 12 * sheen, 248 + 6 * sheen];
         d[o] = t[0]; d[o + 1] = t[1]; d[o + 2] = t[2];
       }
     }
@@ -419,7 +422,7 @@ export function renderMinimap(T, state) {
 const AUTUMN_GRASS = [200, 160, 60];
 function seasonCol(T, i, bcol) {
   const sb = seasonalBiome(T, T.season || 'Summer');
-  if (T.season === 'Autumn' && SEASONAL.has(BIOME_IDS[T.biome[i]])) return bcol === null ? AUTUMN_GRASS : AUTUMN_GRASS.map((v) => v * 0.55 + 30);
+  if (T.season === 'Autumn' && SEASONAL.has(BIOME_IDS[T.biome[i]])) return bcol === null ? AUTUMN_GRASS : AUTUMN_GRASS.map((v) => v * 0.8 + 20);
   return bcol ? bcol[sb[i]] : null;
 }
 export function updateMinimap(c, T, state) {
@@ -427,7 +430,7 @@ export function updateMinimap(c, T, state) {
   const x = c.getContext('2d');
   const id = x.createImageData(T.W, T.H), d = id.data;
   const hex = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
-  const bcol = BIOME_IDS.map((b) => hex(BIOMES[b].col).map((v) => v * 0.55 + 30));
+  const bcol = BIOME_IDS.map((b) => hex(BIOMES[b].col).map((v) => v * 0.8 + 20));
   const kcol = state ? state.kingdoms.map((k) => hex(k.color || '#888888')) : [];
   const owners = state ? state.territories.map((t) => t.owner) : null;
   for (let i = 0; i < T.W * T.H; i++) {
@@ -436,7 +439,7 @@ export function updateMinimap(c, T, state) {
     else {
       const t = T.terr[i], o = owners && t >= 0 ? owners[t] : -1;
       col = seasonCol(T, i, bcol);
-      if (o >= 0 && kcol[o]) col = [col[0] * 0.35 + kcol[o][0] * 0.65, col[1] * 0.35 + kcol[o][1] * 0.65, col[2] * 0.35 + kcol[o][2] * 0.65];
+      if (o >= 0 && kcol[o]) col = [col[0] * 0.6 + kcol[o][0] * 0.4, col[1] * 0.6 + kcol[o][1] * 0.4, col[2] * 0.6 + kcol[o][2] * 0.4]; // the season shows through
       if (T.feat[i]) col = col.map((v) => v * 0.85);
       // land borders a shade darker
       const xx = i % T.W;
@@ -701,11 +704,11 @@ export function townRef(state, t) {
 }
 // what a land's settlement looks like: 'hamlet' | 'village' | 'walled' | 'town' | 'ruin'
 export function settlementKind(state, t) {
-  if (t.ruined > 0) return 'ruin';
   const k = t.owner >= 0 ? state.kingdoms[t.owner] : null;
   const tier = k ? k.tier || 'village' : 'neutral';
-  if (tier === 'kingdom' || tier === 'empire') return (k.capital === t.id || t.level >= 2) ? 'town' : 'walled';
-  return t.level >= 1 ? 'village' : 'hamlet';
+  const base = (tier === 'kingdom' || tier === 'empire') ? ((k.capital === t.id || t.level >= 2) ? 'town' : 'walled') : (t.level >= 1 ? 'village' : 'hamlet');
+  // only a castle becomes a castle ruin; a sacked village stays a (burning) village
+  return t.ruined > 0 && base === 'town' ? 'ruin' : base;
 }
 const HAMLET_SLOTS = [[-12, -1], [11, -5], [-1, -17]];
 const VILLAGE_SLOTS = [[-24, 0], [0, 2], [22, -3], [-14, -16], [10, -19], [30, -17]];
@@ -778,6 +781,11 @@ export function drawTowns(ctx, state, time, view) {
         // side walls and a front wall with a gate gap
         for (let j = 0; j < 3; j++) { ctx.drawImage(walls, 0, 16 + j * 16, 16, 16, ax - 48, ay - 42 + j * 14, 16, 16); ctx.drawImage(walls, 0, 16 + j * 16, 16, 16, ax + 32, ay - 42 + j * 14, 16, 16); }
         for (const i of [-2, -1, 1, 2]) ctx.drawImage(walls, i < 0 ? (i === -2 ? 16 : 32) : (i === 2 ? 48 : 32), 0, 16, 16, ax - 8 + i * 16, ay - 2, 16, 16);
+      }
+      if (t.ruined > 0) { // freshly sacked: scorched and burning for a couple of seasons
+        ctx.fillStyle = 'rgba(30,18,14,.35)'; ctx.beginPath(); ctx.ellipse(ax + 2, ay - 8, kind === 'hamlet' ? 22 : 34, kind === 'hamlet' ? 12 : 18, 0, 0, Math.PI * 2); ctx.fill();
+        drawLandmark(ctx, 'campfire', ax - 6, ay - 18, time, t.id);
+        if (!far) { smoke(ctx, ax - 2, ay - 20, time, t.id * 3); smoke(ctx, ax + 8, ay - 14, time, t.id * 5); }
       }
       const top = pieces.reduce((m, p) => (p[3] < m[3] ? p : m), pieces[0] || [0, 0, 0, 0]);
       if (pieces.length && !far) smoke(ctx, ax + top[2] - 2, ay + top[3] - 15, time, t.id * 7);
