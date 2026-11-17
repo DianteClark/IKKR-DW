@@ -33,22 +33,35 @@ registerScene('lobby', {
 });
 
 // ---------- host ----------
-async function hostFlow() {
+// the host sets up the war first (map, difficulty, fog, people), then opens the room
+function settingsLine(o) {
+  const SZ = { small: 'Small', medium: 'Medium', large: 'Large', huge: 'Huge', enormous: 'Enormous' };
+  const DF = { easy: 'Story', normal: 'Normal', hard: 'Brutal' };
+  return `${SZ[o.size] || o.size} map · ${DF[o.difficulty] || o.difficulty} · fog of war ${o.fog === false ? 'off' : 'on'}`;
+}
+function hostFlow() {
+  clearUI();
+  mount(newGameOptions((o) => {
+    L.opts = o;
+    clearUI();
+    mount(factionPicker('Choose your people (you are player 1)', (fid) => { L.hostFid = fid; openRoom(); }, hostFlow));
+  }, () => go('lobby'), { ...(L.opts || {}), title: 'Two-player war: map & difficulty', size: (L.opts && L.opts.size) || 'small' }));
+}
+async function openRoom() {
   screen(h('h2', {}, 'Creating room…'));
   let code;
   try { code = await net.host(); } catch (e) { return fail(e); }
   net.onClose = () => lost();
   screen(h('h2', {}, 'Room code'), h('div', { class: 'title', style: { letterSpacing: '8px' } }, code),
+    h('div', { class: 'chip gold' }, settingsLine(L.opts)),
     h('div', { class: 'muted' }, 'Tell the other player to tap Multiplayer → enter this code → Join.'),
     h('div', {}, 'Waiting for player 2…'), btn('Cancel', () => { net.close(); go('lobby'); }, 'small'));
   net.on('peerJoined', () => {
     toast('Player 2 joined!', 'good');
     net.on('fid', (m) => { L.peerFid = m.fid; L.peerBanner = m.banner || null; maybeCreate(); });
     net.on('picks', (m) => { L.peerPicked = m.ids; L.peerHash = m.hash || null; maybeBegin(); });
-    clearUI();
-    const pickFid = () => { clearUI(); mount(factionPicker('Choose your people (you are player 1)', (fid) => { L.hostFid = fid; screen(h('h2', {}, 'Waiting for player 2 to choose…')); maybeCreate(); })); };
-    const opts = newGameOptions((o) => { L.opts = o; pickFid(); }, null, { title: 'Map & difficulty', size: 'small' });
-    if (opts instanceof Node) mount(opts); else pickFid();
+    setTimeout(() => net.send({ t: 'settings', text: settingsLine(L.opts) }), 200);
+    screen(h('h2', {}, 'Player 2 joined!'), h('div', { class: 'chip gold' }, settingsLine(L.opts)), h('div', {}, 'Waiting for them to choose their people…'));
   });
 }
 
@@ -102,6 +115,7 @@ async function joinFlow(code) {
   try { await net.join(code); } catch (e) { return fail(e); }
   net.onClose = () => lost();
   if (L.resuming) return;
+  net.on('settings', (m) => { toast(`Host's war: ${m.text}`, 'gold'); const el = document.getElementById('host-settings'); if (el) el.textContent = m.text; });
   clearUI();
   mount(factionPicker('Choose your people (you are player 2)', (fid) => { net.send({ t: 'fid', fid, banner: loadMyBanner() }); screen(h('h2', {}, 'Waiting for player 1…')); }));
 }
