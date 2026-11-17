@@ -16,12 +16,12 @@ preloadLandmarks();
 
 const UNDERGROUND = new Set(['dungeon', 'cave']);
 const BY_BIOME = {
-  grass: ['plains', 'river', 'forest', 'pass', 'ruins', 'lake'],
+  grass: ['plains', 'river', 'forest', 'pass', 'ruins', 'lake', 'islands'],
   dirt: ['plains', 'pass', 'river', 'ruins'],
-  sand: ['plains', 'coast', 'ruins', 'pass'],
-  ice: ['pass', 'plains', 'lake'],
+  sand: ['plains', 'coast', 'ruins', 'pass', 'islands'],
+  ice: ['pass', 'plains', 'lake', 'islands'],
   christmas: ['plains', 'forest', 'lake'],
-  marsh: ['river', 'lake', 'forest'],
+  marsh: ['river', 'lake', 'forest', 'islands'],
   deepmarsh: ['river', 'lake', 'forest'],
   lava: ['pass', 'plains', 'ruins'],
 };
@@ -66,7 +66,7 @@ export function makeField(seed, biome, nOutposts = 5, opts = {}) {
     for (const [x, y] of slots) { if (posts.length >= n + 2) break; if (okPos(x, y, 7)) add(x, y, ownerAt(x)); }
   } else {
     let tries = 0;
-    const minD = Math.max(6.5, Math.sqrt((W * H) / (n + 2)) * 0.62);
+    const minD = Math.max(template === 'islands' ? 8 : 6.5, Math.sqrt((W * H) / (n + 2)) * (template === 'islands' ? 0.7 : 0.62));
     while (posts.length < n + 2 && tries++ < 1500) {
       let x = rng.int(10, W - 10), y = rng.int(4, H - 5);
       if (template === 'river') { const rx = riverX(y); if (Math.abs(x - rx) < 5) continue; }
@@ -156,6 +156,16 @@ export function makeField(seed, biome, nOutposts = 5, opts = {}) {
   } else if (template === 'coast') {
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (y > H * 0.74 + (noise(x / 6, 3) - 0.5) * 6 && corridor[y * W + x] > 1.5) water[y * W + x] = 1;
   }
+  else if (template === 'islands') {
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      let land = false;
+      for (const p of P) {
+        const r = (p.main ? 5.2 : p.camp ? 4.6 : 3.4) + (noise(x / 3.5, y / 3.5) - 0.5) * 2.2;
+        if (Math.hypot((x + 0.5 - p.x) * 0.9, (y + 0.5 - p.y) * 1.1) < r) { land = true; break; }
+      }
+      if (!land && x > 2 && x < W - 3 && y > 1 && y < H - 2) water[y * W + x] = 1;
+    }
+  }
   // small ponds on plains/ruins
   if ((template === 'plains' || template === 'ruins') && biome !== 'lava') {
     for (let k = 0; k < 2; k++) {
@@ -180,7 +190,7 @@ export function makeField(seed, biome, nOutposts = 5, opts = {}) {
       // void everywhere except rooms/corridors
       if (c > 1.2) voidc[i] = 1;
     } else {
-      if (c > 2.6 && fv > 0.64) feat[i] = 1;
+      if (c > (template === 'islands' ? 1.6 : 2.4) && fv > (template === 'plains' ? 0.56 : 0.6)) feat[i] = 1;
       else if ((c > 3.4 && fv < 0.2 && (y < 4 || y > H - 5 || x > W - 10 || x < 8)) || (c > 3.8 && fv < 0.25)) feat[i] = 2;
     }
   }
@@ -278,7 +288,8 @@ export function makeField(seed, biome, nOutposts = 5, opts = {}) {
     const houseRow = { sand: 16, lava: 16, ice: 48, christmas: 48, marsh: 32, deepmarsh: 32 }[biome] ?? 0;
     for (const p of P) {
       if (p.camp) continue;
-      ring(p, p.main ? 3.6 : 1.8, p.main ? 6 : 3.4, (x, y) => props.push({ x, y, src: STRUCT, sx: 48 + rng.int(0, houseRow === 32 ? 4 : 8) * 16, sy: houseRow, shadow: true }), p.main ? 5 : rng.int(1, 2));
+      // the town gets a tidy cluster of houses; outposts stay clean so bases read clearly
+      if (p.main) ring(p, 3.4, 5.4, (x, y) => props.push({ x, y, src: STRUCT, sx: 48 + rng.int(0, houseRow === 32 ? 4 : 8) * 16, sy: houseRow, shadow: true }), 4);
       if (!p.main && rng.chance(0.6)) ring(p, 1.5, 2.6, (x, y) => anim.push({ x, y, k: 'rallyflag' }), 1);
     }
     if (template === 'ruins') {
