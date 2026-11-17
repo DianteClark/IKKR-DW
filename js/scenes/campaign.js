@@ -1,3 +1,4 @@
+import { buzz } from '../engine/prefs.js';
 import { battlePeerLost } from './battle.js';
 import { howToModal } from './howto.js';
 let mm0 = null;
@@ -304,6 +305,7 @@ export function refreshUI() {
   const prisoners = captivesOf(st, k.id).length;
   add(ui.bottom,
     btn('⌂', goHome, 'small home-btn'),
+    net.role !== 'single' ? btn('💬', chatSheet, 'small home-btn') : null,
     idle ? btn(`Idle ${idle}`, nextIdle, 'small gold-btn') : null,
     btn('Heroes', heroesList, 'small'),
     btn('Realm', realmSheet, 'small'),
@@ -904,6 +906,7 @@ export function showCaptives() {
 function setupNet() {
   // connection drops (screen locked, network blip): the game waits and reconnects instead of ending
   net.onClose = () => connectionLost();
+  net.on('chat', (m) => showChat(m.text, false));
   net.on('peerRejoined', () => {
     // host: player 2 is back — send them everything
     if (S.lostModal) { S.lostModal.close(); S.lostModal = null; }
@@ -943,6 +946,18 @@ function setupNet() {
   }
 }
 
+// quick chat between the two players
+export const QUICK = ['Ready!', 'Give me a minute', 'Truce?', 'Allies?', 'Nice one!', 'You will pay for that', 'Good game', '👋'];
+export function showChat(text, mine) {
+  const el = h('div', { class: 'chat-bubble' + (mine ? ' mine' : '') }, (mine ? 'You: ' : 'Ally: ').replace('Ally', 'Player ' + (S.me === 0 ? 2 : 1)), text);
+  document.getElementById('ui').appendChild(el);
+  if (!mine) { sfx('click'); buzz('tap'); }
+  setTimeout(() => el.classList.add('out'), 3800); setTimeout(() => el.remove(), 4400);
+}
+function chatSheet() {
+  let mm;
+  mm = modal('Quick message', h('div', { class: 'row wrap', style: { gap: '6px' } }, QUICK.map((q) => btn(q, () => { net.send({ t: 'chat', text: q }); showChat(q, true); mm.close(); }, 'small'))), [['Close']], { dismiss: true });
+}
 function scenes_campaign() { return game.scene && game.scene.__name === 'campaign' ? game.scene : null; }
 function connectionLost() {
   if (net.role === 'single') return;
