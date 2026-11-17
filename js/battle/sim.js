@@ -485,6 +485,8 @@ function hitSquad(sim, e, dmg, src, raw) {
   defAvg = (defAvg / n) * e.defMul * FORMATIONS[e.formation].def * (e.reform ? 0.8 : 1) * (buff(e, 'exposed') ? 0.7 : 1);
   if (!raw) dmg = dmg / (1 + defAvg * 0.11);
   if (sim.field.posts.some((p) => p.fort && p.fort.side === e.side && Math.hypot(p.x - e.x, p.y - e.y) < CAP_R + 0.5)) dmg *= 0.6;
+  // defenders fight harder on their own ground
+  else if (e.side === 'def' && sim.field.posts.some((p) => p.owner === 'def' && Math.hypot(p.x - e.x, p.y - e.y) < CAP_R + 1)) dmg *= 0.72;
   if (dmg > 0.05) sim.lastAction = sim.t;
   if (dmg >= 1.5) ev(sim, { k: 'hit', id: e.id, d: Math.round(dmg) });
   let left = dmg;
@@ -554,7 +556,7 @@ export function aiThink(sim, side) {
       // defenders take the fight to the enemy: hunt squads near our land (ranged harassers first), retake lost posts
       const guard = s.hero == null;
       const home = posts[s.home];
-      const threats = enemies.filter((e) => e.state !== 'rout' && posts.some((p) => p.owner === 'def' && dist(e, p) < 8));
+      const threats = enemies.filter((e) => e.state !== 'rout' && posts.some((p) => p.owner === 'def' && dist(e, p) < 6));
       threats.sort((a, b) => (b.ranged - a.ranged) || (dist(a, s) - dist(b, s)));
       let tgt = threats[0];
       if (guard) tgt = enemies.filter((e) => dist(e, home) < 7).sort((a, b) => dist(a, s) - dist(b, s))[0];
