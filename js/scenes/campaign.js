@@ -12,12 +12,13 @@ import {
   hasIntel, friendly, overlordOf, treaty, proposedMajority, totalTroops,
 } from '../game/world.js';
 import { endTurn } from '../game/turn.js';
+import { neutralActions, sitesIn, SITES, plunderYield } from '../game/neutral.js';
 import { seasonOf, yearOf, SEASON_FOOD, childrenOf, wedOptions, MARRY_LEVEL } from '../game/family.js';
 import { runAI } from '../game/ai.js';
 import { applyAction } from '../game/actions.js';
 import {
   squadCap, developCost, territoryIncome, territoryFood, heroTotals, unitName, FORMATIONS, FORMATION_IDS, HIRE_COST, isRanged, LEVEL_XP,
-  soldierStats, soldierTitle, unitLevel, TIERS, tierIndex, BUILDINGS, POLICIES, EDICTS, STRATAGEMS, PROMOTE_ELITE_COST, commandPool, recruitCost,
+  soldierStats, soldierTitle, unitLevel, TIERS, tierIndex, BUILDINGS, POLICIES, EDICTS, STRATAGEMS, PROMOTE_ELITE_COST, commandPool, recruitCost, CLASS_INFO,
 } from '../game/rules.js';
 import { SLOTS, SLOT_NAMES, itemStatText, rarityColor } from '../game/items.js';
 import { economyPreview, edictCost, canEdict, promotionStatus, loadoutOptions, loadoutSlots } from '../game/kingdom.js';
@@ -187,14 +188,14 @@ export function refreshUI() {
   const incoming = st.proposals.filter((p) => p.to === k.id).length;
   ui.top.innerHTML = '';
   add(ui.top,
-    h('span', { class: 'chip row tap', style: { gap: '5px', maxWidth: '30vw' }, onClick: realmSheet },
+    h('span', { class: 'chip row tap', style: { gap: '5px', maxWidth: '26vw', minWidth: 0, flexShrink: 1 }, onClick: realmSheet },
       h('span', { class: 'swatch', style: { background: k.color } }), h('span', { class: 'ellipsis' }, k.landless ? 'Warband of ' + (hero(st, k.ruler) || {}).name : k.name),
       h('span', { class: 'tag gold' }, k.landless ? 'Landless' : TIERS[tierIndex(k)].name)),
     h('span', { class: 'chip gold', title: 'Gold' }, `${k.gold}g `, h('small', { class: eco.gold >= 0 ? 'good' : 'bad' }, sign(eco.gold))),
     h('span', { class: 'chip', title: 'Food' }, `🌾${Math.round(k.food)} `, h('small', { class: eco.food >= 0 ? 'good' : 'bad' }, sign(eco.food))),
     h('span', { class: 'chip ' + (k.morale < 35 ? 'bad' : ''), title: 'Morale' }, `☺${Math.round(k.morale)}`),
     h('span', { class: 'chip ' + (k.stability < 30 ? 'bad' : ''), title: 'Stability' }, `⚖${Math.round(k.stability)}`),
-    h('span', { class: 'chip muted', title: 'One turn is one season' }, `${seasonOf(st.turn)} · Y${yearOf(st.turn)}`),
+    h('span', { class: 'chip muted', title: `${seasonOf(st.turn)}, year ${yearOf(st.turn)}` }, `${seasonOf(st.turn).slice(0, 3)} Y${yearOf(st.turn)}`),
     h('span', { class: 'grow' }),
     btn('☰', menu, 'small'),
     btn(waiting ? waiting : idle ? `End Turn (${idle})` : 'End Turn', endTurnPressed, 'primary small'),
@@ -233,10 +234,27 @@ function territoryPanel(tid) {
   const stars = '★'.repeat(t.level) + '☆'.repeat(3 - t.level);
   const rel = owner && owner.id !== k.id ? relationChip(k.id, owner.id) : null;
   add(body,
-    h('div', { class: 'row wrap', style: { gap: '6px' } }, kingdomBadge(owner, { race: true }), rel),
+    h('div', { class: 'row wrap', style: { gap: '6px' } }, kingdomBadge(owner, { race: true, none: 'Free hamlet' }), rel,
+      !owner ? chip(`Militia ${t.militia || 0}`) : null,
+      !owner && (t.favor || {})[k.id] ? chip(`${(t.favor[k.id] > 0 ? 'Trusts you' : 'Hates you')}`, t.favor[k.id] > 0 ? 'good' : 'bad') : null,
+      !owner && t.protect ? chip(`Protected by ${st.kingdoms[t.protect.kid].name.split(' of ').pop()} ${t.protect.turns}/3`, t.protect.kid === k.id ? 'good' : 'gold') : null),
+    !owner ? h('div', { class: 'muted', style: { fontSize: '13px' } }, 'Free folk who answer to no crown. Take it by force, plunder it, or send a hero to protect it until it chooses to join you.') : null,
     h('div', { class: 'muted' }, `${BIOMES[t.biome].name} · ${stars}${t.ruined ? ' · ruined' : ''} · +${territoryIncome(t)}g · 🌾${territoryFood(t)}`),
     (t.fx || []).length ? h('div', { class: 'row wrap' }, t.fx.map((f) => chip(`${(EVENT_INFO[f.kind] || {}).name || f.kind} (${f.turns})`, 'bad'))) : null,
   );
+  const sites = sitesIn(st, tid);
+  if (sites.length) {
+    add(body, h('h3', {}, 'Sites'));
+    for (const s of sites) {
+      const S0 = SITES[s.kind];
+      const done = s.status !== 'active' && s.kind !== 'shrine' && s.kind !== 'grove';
+      add(body, h('div', { class: 'card', style: { padding: '5px 8px', opacity: done ? 0.6 : 1 } },
+        h('div', { class: 'col grow', style: { gap: '1px', minWidth: 0 } },
+          h('b', {}, S0.name + (s.kind === 'mine' && s.owner >= 0 ? ` · ${st.kingdoms[s.owner].name.split(' of ').pop()}` : '')),
+          h('span', { class: 'muted', style: { fontSize: '12px' } }, done ? (s.status === 'claimed' ? 'Claimed' : 'Cleared') : S0.desc)),
+        s.power && !done ? chip(`Guard ~${Math.round(s.power / 25) * 25}`, 'bad') : null));
+    }
+  }
   const myHere = kingdomHeroes(st, k.id).filter((x) => x.loc === tid);
   if (mine) {
     if (t.level < 3) add(body, btn(`Develop town (${developCost(t)}g)`, () => { if (!act({ type: 'develop', tid })) toast('Not enough gold'); else sfx('coin'); }, 'small'));
@@ -260,16 +278,16 @@ function territoryPanel(tid) {
         btn('All drill', () => myHere.forEach((x) => act({ type: 'order', hero: x.id, order: { type: 'drill' } })), 'small')));
     }
   }
-  if (!mine && owner) {
-    const def = heroesAt(st, tid, owner.id);
+  if (!mine && (owner || !k.landless)) {
+    const def = owner ? heroesAt(st, tid, owner.id) : [];
     const intel = hasIntel(st, k.id, tid);
     add(body, h('div', { class: 'row' }, h('span', {}, intel ? `Defenders: ${def.length} hero${def.length === 1 ? '' : 'es'} + town guard` : `Defenders: ${def.length ? '?' : 'town guard only'}`), intel ? chip('Scouted', 'good') : null),
       h('div', { class: 'muted' }, `Estimated strength ${intel ? Math.round(powerAt(st, tid)) : '~' + Math.round(powerAt(st, tid) / 50) * 50}`));
     if (intel) for (const d of def) add(body, heroCard(st, d, { order: false, stats: true, badges: [FORMATIONS[d.formation].name] }));
     const near = kingdomHeroes(st, k.id).filter((x) => validTargets(st, x).includes(tid));
     if (near.length) {
-      const odds = battleOdds(st, { att: k.id, def: owner.id, tid, attackers: near.map((x) => x.id), defenders: def.map((x) => x.id), siege: t.level >= 2 && !k.landless }, intel);
-      add(body, oddsBar(odds, { left: 'All your heroes nearby', right: owner.name.split(' of ').pop() }, intel));
+      const odds = battleOdds(st, { att: k.id, def: owner ? owner.id : -1, tid, attackers: near.map((x) => x.id), defenders: def.map((x) => x.id), siege: t.level >= 2 && !k.landless }, intel);
+      add(body, oddsBar(odds, { left: 'All your heroes nearby', right: owner ? owner.name.split(' of ').pop() : 'Militia' }, intel));
       add(body, h('h3', {}, k.landless ? 'Rise up here' : 'Send heroes'));
       for (const x of near) {
         const set = x.order && x.order.type === 'attack' && x.order.target === tid;
@@ -278,7 +296,7 @@ function territoryPanel(tid) {
       const notSet = near.filter((x) => !(x.order && x.order.type === 'attack' && x.order.target === tid));
       if (notSet.length > 1) add(body, btn('Send all', () => { notSet.forEach((x) => act({ type: 'order', hero: x.id, order: { type: 'attack', target: tid } })); sfx('horn'); }, 'danger small'));
     }
-    if (owner.id !== k.id && !k.landless) add(body, btn('Diplomacy…', () => diplomacySheet(owner.id), 'small'));
+    if (owner && owner.id !== k.id && !k.landless) add(body, btn('Diplomacy…', () => diplomacySheet(owner.id), 'small'));
   }
   return h('div', { class: 'panel' },
     h('div', { class: 'row' }, h('h2', { class: 'grow' }, t.name), btn('✕', () => { S.sel = null; refreshUI(); }, 'small')),
@@ -300,7 +318,14 @@ function heroBlock(x) {
     btn('Drill', () => o({ type: 'drill' }), 'small' + (is('drill') ? ' sel' : '')),
     spies.length ? btn('Spy', () => startTarget([x.id], 'spy'), 'small' + (is('spy') ? ' sel' : '')) : null,
     x.order ? btn('Clear', () => o(null), 'small') : null);
-  return h('div', {}, card, actions);
+  const wild = neutralActions(st, x);
+  const wildRow = wild.length ? h('div', { class: 'row wrap', style: { gap: '4px', margin: '-4px 0 8px' } }, wild.map((a) => {
+    const order = { type: a.type, site: a.site, target: a.target };
+    const on = x.order && x.order.type === a.type && (a.site == null || x.order.site === a.site) && (a.target == null || x.order.target === a.target);
+    const label = a.label + (a.risk != null && a.risk < 1 ? ` · ${Math.round(a.risk * 100)}%` : '');
+    return btn(label, () => { o(on ? null : order); if (!on) { sfx('click'); toast(a.desc); } }, 'small ' + (a.type === 'plunder' ? 'danger' : a.type === 'protect' ? 'good' : '') + (on ? ' sel' : ''));
+  })) : null;
+  return h('div', {}, card, actions, wildRow);
 }
 
 function startTarget(ids, kind) {
@@ -359,16 +384,19 @@ export function heroModal(id) {
       const byRace = {};
       for (const o of opts) (byRace[o.fid] = byRace[o.fid] || []).push(o);
       content = h('div', { class: 'col' },
-        h('div', { class: 'muted', style: { fontSize: '13px' } }, `Any troops your realm can raise. ${TIERS[tierIndex(k)].name}s can field up to tier ${TIERS[tierIndex(k)].maxUnitLevel + 1}. Win land or recruit heroes of other races to unlock theirs. Changing type disbands the squad.`),
+        h('div', { class: 'muted', style: { fontSize: '13px' } }, `Mounted ride two lands a season, flyers cross the sea, casters and beasts hit hard — each needs its building. Any troops your realm can raise. ${TIERS[tierIndex(k)].name}s can field up to tier ${TIERS[tierIndex(k)].maxUnitLevel + 1}. Win land or recruit heroes of other races to unlock theirs. Changing type disbands the squad.`),
         Object.entries(byRace).map(([fid, list]) => h('div', { class: 'col', style: { gap: '4px' } },
           h('b', {}, FACTIONS[fid].race + (fid === x.fid ? ' · race match' : '')),
           h('div', { class: 'row wrap', style: { gap: '6px' } }, list.map((o) => {
             const ss = soldierStats(o.fid, o.ui, { s: 1, r: 0 });
             const sel = o.fid === uf && o.ui === x.unit;
-            return unitCard(o.fid, o.ui, 1, { hp: ss.hp, atk: ss.atk, def: ss.def, cost: recruitCost(o.fid, o.ui) }, { sel, onClick: () => {
+            const card = unitCard(o.fid, o.ui, 1, { hp: ss.hp, atk: ss.atk, def: ss.def, cost: recruitCost(o.fid, o.ui) }, { sel, onClick: () => {
               if (sel || !editable) return;
+              if (o.locked) return toast(`${CLASS_INFO[o.cls].name} troops need ${BUILDINGS[o.locked].name}. Build it in Realm → Build.`, 'gold');
               confirm('Change unit type?', `${x.name} disbands the current squad and will lead ${unitName(o.fid, o.ui, 1)} instead. Rest to recruit them.`, 'Change', 'Cancel', 'danger').then((ok) => { if (ok) { act({ type: 'unit', hero: x.id, ufid: o.fid, unit: o.ui }); render(); } });
             } });
+            return h('div', { class: 'col', style: { gap: '2px', opacity: o.locked && !sel ? 0.55 : 1, alignItems: 'center' } }, card,
+              h('span', { class: 'tag', style: { fontSize: '11px' } }, o.locked && !sel ? `🔒 ${BUILDINGS[o.locked].name}` : CLASS_INFO[o.cls].name));
           })))));
     } else if (tab === 'gear') {
       content = h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(170px,1fr))' } }, SLOTS.map((slot) => {

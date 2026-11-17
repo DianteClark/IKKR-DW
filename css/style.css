@@ -316,3 +316,10 @@ input.text:focus { outline: none; box-shadow: 0 0 0 2px var(--gold); }
 .log div.diplomacy { color: var(--blue); }
 .battle-left .card { min-height: 0; }
 .topbar .chip small { font-size: 12px; }
+
+/* topbar fits narrow phones */
+.topbar { gap: 4px; }
+.topbar .chip { padding: 0 2px; font-size: 14px; flex-shrink: 0; }
+.topbar .chip.row { flex-shrink: 1; min-width: 0; overflow: hidden; }
+.topbar .btn { flex-shrink: 0; white-space: nowrap; }
+@media (max-width: 760px) { .topbar .chip { font-size: 13px; } .topbar .chip small { display: none; } }

@@ -83,7 +83,7 @@ export function attachGestures(el, getHandler) {
     const dx = e.clientX - p.x, dy = e.clientY - p.y;
     p.x = e.clientX; p.y = e.clientY;
     if (pts.size === 1) {
-      if (!moved && Math.hypot(e.clientX - startX, e.clientY - startY) > 9) { moved = true; h && h.onPanStart && h.onPanStart(startX, startY); }
+      if (!moved && Math.hypot(e.clientX - startX, e.clientY - startY) > 14) { moved = true; h && h.onPanStart && h.onPanStart(startX, startY); }
       if (moved && h && h.onPan) h.onPan(dx, dy, e.clientX, e.clientY);
     } else if (pts.size === 2) {
       const d = dist(), m = mid();
@@ -96,7 +96,8 @@ export function attachGestures(el, getHandler) {
     pts.delete(e.pointerId);
     const h = getHandler();
     if (pts.size === 0) {
-      if (!moved && performance.now() - downAt < 500 && h && h.onTap) h.onTap(e.clientX, e.clientY);
+      // generous taps: finger jitter under 14px and presses up to 1.5s still count; a cancelled touch never taps
+      if (!moved && e.type !== 'pointercancel' && performance.now() - downAt < 1500 && h && h.onTap) h.onTap(e.clientX, e.clientY);
       if (moved && h && h.onGestureEnd) h.onGestureEnd(e.clientX, e.clientY);
     }
   };

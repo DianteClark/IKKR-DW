@@ -84,7 +84,7 @@ export function unitCard(fid, ui, stage = 1, statsObj = {}, opts = {}) {
 export function orderLabel(state, o) {
   if (!o) return '';
   const t = o.target != null && state.territories[o.target] ? state.territories[o.target].name : '';
-  return ({ attack: '⚔ ' + t, move: '→ ' + t, rest: 'Rest & recruit', drill: 'Drill', recruit: 'Recruit', spy: 'Spy ' + t, lend: 'Lent' })[o.type] || o.type;
+  return ({ attack: '⚔ ' + t, move: '→ ' + t, rest: 'Rest & recruit', drill: 'Drill', recruit: 'Recruit', spy: 'Spy ' + t, lend: 'Lent', plunder: 'Plunder', protect: 'Protect hamlet', explore: 'Explore site', court: 'Courting' })[o.type] || o.type;
 }
 
 export function factionBadge(fid, scale = 1) {
