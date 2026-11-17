@@ -7,7 +7,8 @@ import { img } from '../engine/assets.js';
 import { hashStr } from '../engine/rng.js';
 import { drawUnit, drawHero, drawSpriteRef, DUNGEON_TILES } from '../data/art.js';
 import { SPELLS } from '../data/spells.js';
-import { createBattle, step, command, aiThink, battleResult, snapshot, applySnapshot, liveCount, DT, stratagemTargets, planRoute, routeProblem, SKILLS, queuePoints } from '../battle/sim.js';
+import { createBattle, step, command, aiThink, battleResult, snapshot, applySnapshot, liveCount, DT, stratagemTargets, planRoute, routeProblem, SKILLS, queuePoints, canClimb, ladderSpot } from '../battle/sim.js';
+const FORMS = ['wedge', 'line', 'square']; // Loose was retired: three formations, one clear cycle
 import { renderGround, drawFieldOverlay, postRef, TS, nearestPost, nearestRoadPoint, terrainAt, TERRAIN } from '../battle/field.js';
 import { createFx } from '../battle/fx.js';
 import { formationSlots, FORMATIONS, FORMATION_IDS, STRATAGEMS, commandPool, tierIndex, formationEdge } from '../game/rules.js';
@@ -68,7 +69,7 @@ const stratIcon = (id, scale = 2) => { const s = SPELL[STRATAGEMS[id].icon]; ret
 // args: { state, battle, control:{att,def}, me } (host/single) or { client:true, setup, items, me, state }
 registerScene('battle', {
   enter(args) {
-    Object.assign(B, { sel: null, selected: [], box: false, drag: null, pick: null, freeze: 0, slow: 0, duel: null, acc: 0, render: new Map(), fx: [], seenEv: 0, paused: false, speed: 1, ended: false, started: false, aim: null, queue: false, auto: false });
+    Object.assign(B, { kills: new Map(), sel: null, selected: [], box: false, drag: null, pick: null, freeze: 0, slow: 0, duel: null, acc: 0, render: new Map(), fx: [], seenEv: 0, paused: false, speed: 1, ended: false, started: false, aim: null, queue: false, auto: false });
     let setup = args.setup;
     if (!setup) {
       const st = args.state, b = args.battle;
@@ -85,6 +86,7 @@ registerScene('battle', {
         colors: { att: A.color, def: D ? D.color : '#9aa7b8' }, control: args.control,
         garrison: b.skirmish ? { squads: 0, size: 0 } : { squads: dfd.length ? 1 : 2 + Math.min(2, t.level), size: dfd.length ? 4 + t.level * 2 : 6 + t.level * 3 },
         skirmish: !!b.skirmish,
+        nemesis: Array.isArray(b.nemesis) ? b.nemesis : [], // [[attackerHeroId, defenderHeroId], …] from the campaign's grudges
         intel: hasIntel(st, A.id, b.tid),
         land: landInfo(st, b.tid),
         reinforce: { att: allyReinforcements(st, A.id, b), def: D ? allyReinforcements(st, D.id, b) : [] },
@@ -149,7 +151,7 @@ registerScene('battle', {
   },
   onPinch(cx, cy, f, mx, my) { B.drag = null; cam.zoomAt(cx, cy, f); cam.x -= mx / cam.zoom; cam.y -= my / cam.zoom; cam.clamp(); },
   onGestureEnd(x, y) { dragEnd(x, y); },
-  onResize() { fitCamera(); },
+  onResize() { B._fitOnly = true; fitCamera(); B._fitOnly = false; },
 });
 
 const LEFT = 92;
@@ -162,6 +164,18 @@ function fitCamera() {
   cam.min = cam.zoom; cam.max = Math.max(cam.zoom * 4, 3);
   cam.bounds = { x: -LEFT / cam.zoom, y: -44 / cam.zoom, w: W + (LEFT + RIGHT()) / cam.zoom, h: H + 44 / cam.zoom };
   cam.x = W / 2 - ((LEFT - RIGHT()) / 2) / cam.zoom; cam.y = H / 2 - 20 / cam.zoom;
+  // start close enough to read the troops (a tile ~22 CSS px), centred on your army; pinch out for the whole field
+  if (B.side && !B._fitOnly) {
+    const z = Math.max(cam.zoom, Math.min(cam.max, 1.4));
+    if (z > cam.zoom * 1.1) {
+      const mine = B.sim.squads.filter((q) => q.side === B.side && q.state !== 'reserve' && q.state !== 'reinforce');
+      const foeMain = F.posts.find((p) => p.main) || F.posts[0];
+      const ax = mine.length ? mine.reduce((a, q) => a + q.x, 0) / mine.length : W / TS / 2, ay = mine.length ? mine.reduce((a, q) => a + q.y, 0) / mine.length : H / TS / 2;
+      // look a little toward the objective
+      const tx = (ax * 0.7 + foeMain.x * 0.3) * TS, ty = (ay * 0.7 + foeMain.y * 0.3) * TS;
+      cam.zoom = z; cam.x = tx - ((LEFT - RIGHT()) / 2) / cam.zoom; cam.y = ty; cam.clamp();
+    }
+  }
 }
 
 // ---------- render state ----------
@@ -216,6 +230,7 @@ function consumeEvents() {
     const sq = (id) => sim.squads.find((s) => s.id === id);
     const mineSide = (side) => B.side && side === B.side;
     if (e.k === 'die') {
+      if (e.by != null && e.by >= 0) B.kills.set(e.by, (B.kills.get(e.by) || 0) + 1);
       const s = sq(e.id), r = B.render.get(e.id); if (!s || !r) continue;
       const i = s.soldiers.findIndex((x) => x.idx === e.idx), p = r.soldiers[i];
       if (p) { B.fx.push({ k: 'corpse', x: p.x, y: p.y, fid: s.fid, unit: s.unit, stage: s.soldiers[i].s, flip: Math.cos(s.dir) < 0, age: 0, life: 6 }); J.dust(p.x, p.y); }
@@ -302,6 +317,26 @@ function consumeEvents() {
         sfx(mineSide(w && w.side) ? 'capture' : 'lost');
         if (w) banner(`${w.name.toUpperCase()} WINS THE DUEL`, mineSide(w.side) ? 'good' : B.side ? 'bad' : '', l ? `${l.name} is wounded` : '');
       }
+    } else if (e.k === 'gateHit') {
+      if ((B._gateT || 0) < game.time) { B._gateT = game.time + 0.45; J.sparks(e.x * TS, e.y * TS, '#ffd86b'); J.shake(1.5, 0.12); sfx('hit'); }
+    } else if (e.k === 'gateBroken') {
+      J.shockwave(e.x * TS, e.y * TS, '#ffb347'); J.shake(7, 0.6); B.freeze = Math.max(B.freeze, 0.15); sfx('quake');
+      for (let i = 0; i < 8; i++) J.smoke(e.x * TS + (Math.random() - 0.5) * 30, e.y * TS + (Math.random() - 0.5) * 20);
+      banner('THE GATE FALLS!', B.side === 'att' ? 'good' : B.side === 'def' ? 'bad' : '', 'The way into the keep is open');
+    } else if (e.k === 'ladder') {
+      const s = sq(e.id); J.dust(e.x * TS, e.y * TS); sfx('march');
+      if (s && B.side && s.side !== B.side) toast('Ladders on the walls! Shoot the climbers', 'bad');
+    } else if (e.k === 'ladderFail') {
+      const s = sq(e.id); if (s && mineSide(s.side)) toast(`${s.name} can't reach that stretch of wall`, 'bad');
+    } else if (e.k === 'overWall') {
+      const s = sq(e.id); J.shockwave(e.x * TS, e.y * TS, '#ffd86b');
+      if (s) J.floatText(e.x * TS, e.y * TS - 24, 'OVER THE WALL!', mineSide(s.side) ? '#8fd06b' : '#ff6a5a');
+    } else if (e.k === 'nemesisMeet') {
+      const a = sq(e.a), b = sq(e.b);
+      if (a && b) { J.floatText(e.x * TS, e.y * TS - 30, 'NEMESIS!', '#ff6a5a'); toast(`${a.name.split(' ')[0]}: “${b.name.split(' ')[0]}! You again!”`, mineSide(a.side) ? 'gold' : 'bad'); sfx('clash'); }
+    } else if (e.k === 'nemesis') {
+      const w = sim.squads.find((q) => q.id === e.ws), l = sim.squads.find((q) => q.id === e.ls);
+      if (w && l) banner('A GRUDGE SETTLED', mineSide(w.side) ? 'good' : B.side ? 'bad' : '', `${w.name} bests ${l.name}`);
     } else if (e.k === 'arrive') {
       const s = sq(e.id); if (s && mineSide(s.side)) { const r = B.render.get(s.id); if (r) B.fx.push({ k: 'ring', x: r.x * TS, y: r.y * TS, age: 0, life: 0.45, col: '#8fd06b' }); }
     } else if (e.k === 'disengage') {
@@ -370,11 +405,12 @@ function draw() {
       ctx.beginPath(); ctx.arc(p.x * TS, p.y * TS - hh - 6, 5, -Math.PI / 2, -Math.PI / 2 + p.prog * Math.PI * 2); ctx.stroke();
     }
   }
+  drawSiege(time);
   const list = [];
   for (const f of B.fx) if (f.k === 'corpse') list.push({ y: f.y - 1, f });
   for (const s of sim.squads) {
     const r = B.render.get(s.id); if (!r || HIDDEN(s)) continue;
-    const anim = s.state === 'fight' || s.state === 'shoot' ? 'attack' : s.state === 'move' || s.state === 'rout' ? 'walk' : s.state === 'confused' ? 'hit' : 'idle';
+    const anim = s.state === 'fight' || s.state === 'shoot' || s.state === 'siege' ? 'attack' : s.state === 'move' || s.state === 'rout' || s.state === 'climb' ? 'walk' : s.state === 'confused' ? 'hit' : 'idle';
     const flip = Math.cos(s.dir) < 0;
     s.soldiers.forEach((so, i) => { if (so.alive) list.push({ y: r.soldiers[i].y, s, so, p: r.soldiers[i], anim, flip, i, flash: r.flash }); });
     if (s.heroAlive) list.push({ y: r.hy, s, hero: true, p: { x: r.hx, y: r.hy }, anim, flip });
@@ -384,8 +420,17 @@ function draw() {
     const r = B.render.get(s.id);
     const rad = 1.1 + Math.sqrt(liveCount(s)) * 0.12;
     const isSel = B.selected.includes(s.id);
-    ctx.fillStyle = B.colors[s.side]; ctx.globalAlpha = isSel ? 0.45 : 0.24;
+    const mineSq = B.side && s.side === B.side;
+    ctx.fillStyle = B.colors[s.side]; ctx.globalAlpha = isSel ? 0.45 : mineSq ? 0.32 : 0.2;
     ctx.beginPath(); ctx.ellipse(r.x * TS, r.y * TS + 2, rad * TS, rad * 0.66 * TS, 0, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
+    if (mineSq && !isSel) {
+      // your squads wear a bright ring so they stand out from the enemy at a glance
+      ctx.strokeStyle = 'rgba(255,255,255,' + (0.55 + 0.25 * Math.sin(time * 3 + s.id)).toFixed(2) + ')'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.ellipse(r.x * TS, r.y * TS + 2, rad * TS, rad * 0.66 * TS, 0, 0, Math.PI * 2); ctx.stroke();
+    } else if (B.side && !mineSq) {
+      ctx.strokeStyle = 'rgba(255,90,80,.45)'; ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
+      ctx.beginPath(); ctx.ellipse(r.x * TS, r.y * TS + 2, rad * TS, rad * 0.66 * TS, 0, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+    }
     if (isSel) {
       ctx.strokeStyle = '#0b0a10'; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(r.x * TS, r.y * TS + 2, rad * TS + 1, rad * 0.7 * TS, 0, 0, Math.PI * 2); ctx.stroke();
       ctx.strokeStyle = '#ffd25a'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(r.x * TS, r.y * TS + 2, rad * TS + 1, rad * 0.7 * TS, 0, 0, Math.PI * 2); ctx.stroke();
@@ -472,6 +517,32 @@ function draw() {
   if (sim.fog > 0) { ctx.fillStyle = `rgba(200,210,225,${Math.min(0.28, sim.fog / 30 * 0.28)})`; ctx.fillRect(0, 0, sim.field.W * TS, sim.field.H * TS); }
 }
 
+// siege works: gate strength, broken gates, ladders against the wall
+function drawSiege(time) {
+  const sim = B.sim, F = sim.field;
+  if (!F.wallRect) return;
+  const R = F.wallRect;
+  // a faint stone tint inside the walls reads the keep as one place
+  ctx.fillStyle = 'rgba(40,34,52,.10)'; ctx.fillRect((R.x0 + 1) * TS, (R.y0 + 1) * TS, (R.x1 - R.x0 - 1) * TS, (R.y1 - R.y0 - 1) * TS);
+  for (const g of sim.gates || []) {
+    const x = g.cx * TS, y = g.cy * TS;
+    if (g.hp <= 0) {
+      ctx.fillStyle = '#4a3a2a'; ctx.fillRect(x + 1, y + 9, 5, 3); ctx.fillRect(x + 8, y + 11, 6, 3); ctx.fillStyle = '#7a6040'; ctx.fillRect(x + 3, y + 12, 3, 2); ctx.fillRect(x + 10, y + 9, 3, 2);
+      continue;
+    }
+    // shut gate: heavy timber with iron bands, and its strength above
+    ctx.fillStyle = '#0b0a10'; ctx.fillRect(x, y - 2, TS, TS + 2);
+    ctx.fillStyle = '#6b4424'; ctx.fillRect(x + 1, y - 1, TS - 2, TS);
+    ctx.fillStyle = '#8a5a30'; for (let i = 0; i < 3; i++) ctx.fillRect(x + 2 + i * 5, y, 3, TS - 2);
+    ctx.fillStyle = '#3a3a46'; ctx.fillRect(x + 1, y + 3, TS - 2, 2); ctx.fillRect(x + 1, y + 10, TS - 2, 2);
+  }
+  for (const l of sim.ladders || []) {
+    const x = l.x * TS, y = l.y * TS;
+    ctx.fillStyle = '#0b0a10'; ctx.fillRect(x - 5, y - 12, 2, 22); ctx.fillRect(x + 3, y - 12, 2, 22);
+    ctx.fillStyle = '#b07a3a'; ctx.fillRect(x - 4, y - 11, 1, 20); ctx.fillRect(x + 4, y - 11, 1, 20);
+    for (let i = 0; i < 5; i++) ctx.fillRect(x - 4, y - 9 + i * 4, 9, 1);
+  }
+}
 // planned route for each selected squad: dotted, animated, along the real roads
 function drawRoutes(list, time, enemy = false) {
   const sim = B.sim;
@@ -532,7 +603,17 @@ function drawBadge(s, x, y, time) {
   else if (kind === 'rout') { ctx.fillRect(x + 3, y + 1, 1, 3); ctx.fillRect(x + 3, y + 5, 1, 1); }
 }
 // screen-level overlays drawn in world space: order confirmation ring, drag order arrow, duel spotlight
+function drawGateBars() {
+  for (const g of (B.sim && B.sim.gates) || []) {
+    if (g.hp <= 0) continue;
+    const x = g.cx * TS, y = g.cy * TS, k = g.hp / g.max;
+    ctx.fillStyle = '#0b0a10'; ctx.fillRect(x - 5, y - 10, TS + 10, 6);
+    ctx.fillStyle = k > 0.5 ? '#8fd06b' : k > 0.25 ? '#ffb347' : '#ff6a5a'; ctx.fillRect(x - 4, y - 9, (TS + 8) * k, 4);
+    ctx.fillStyle = '#0b0a10'; ctx.fillRect(x + TS / 2 - 1, y - 9, 1, 4);
+  }
+}
 function drawOverlays(time) {
+  drawGateBars();
   if (B.pick) {
     const k = 1 - B.pick.t / 0.8;
     ctx.strokeStyle = B.pick.foe ? '#ff6a5a' : '#ffd25a'; ctx.globalAlpha = Math.max(0, 1 - k); ctx.lineWidth = 2;
@@ -634,6 +715,16 @@ function tap(sx, sy) {
   const foe = squadAt(wx, wy, B.side === 'att' ? 'def' : 'att', R);
   if (!sel.length) { toast(foe ? `${foe.name} · ${liveCount(foe)} troops. Select one of your squads first` : 'Tap one of your squads first, or use All'); return; }
   if (foe) { orderAttack(sel, foe); return; }
+  // tap the castle wall: foot squads put up ladders there
+  if (sim.field.wallRect && (terrainAt(sim.field, wx, wy) === 6 || terrainAt(sim.field, wx, wy + 0.5) === 6) && B.side === 'att') {
+    const climbers = sel.filter(canClimb);
+    const spot = ladderSpot(sim, wx, wy);
+    if (!climbers.length) { toast('Riders and beasts can\'t climb ladders · break the gate instead', 'bad'); return; }
+    if (!spot) { toast('No footing for ladders there · try a straight stretch of wall', 'bad'); return; }
+    for (const q of climbers) send({ type: 'ladder', squad: q.id, x: wx, y: wy });
+    B.pick = { x: spot.wx, y: spot.wy, t: 0.8 }; sfx('march');
+    toast(`${climbers.length > 1 ? 'Squads raise' : climbers[0].name + ' raises'} ladders · exposed while climbing`); return;
+  }
   let post = postAt(wx, wy, Math.max(2.8, R));
   if (post) { orderMove(sel, post); return; }
   // on (or near) a road: march to that exact spot and hold it — a bridge, a crossroads, an ambush
@@ -818,7 +909,7 @@ function refreshHUD(full) {
       const SK = { commander: 'Rally', duelist: 'Duel', strategist: 'Read', scout: 'Scout' };
       hud.bottom.appendChild(h('div', { class: 'bpanel' },
         h('span', { class: 'bpanel-name ellipsis', title: ter && ter.tip ? `${ter.name}: ${ter.tip}` : '' }, one ? one.name : `${sels.length} squads`, ter && ter.tip ? h('small', { class: 'bpanel-ter' }, ter.name) : null),
-        ...FORMATION_IDS.map((f) => btn(FORMATIONS[f].name + (reforming && cur === f ? '…' : ''), () => { for (const q of sels) send({ type: 'formation', squad: q.id, formation: f }); refreshHUD(true); }, 'tiny' + (cur === f ? (reforming ? ' primary' : ' sel') : ''))),
+        ...FORMS.map((f) => btn(FORMATIONS[f].name + (reforming && cur === f ? '…' : ''), () => { for (const q of sels) send({ type: 'formation', squad: q.id, formation: f }); refreshHUD(true); }, 'tiny' + (cur === f ? (reforming ? ' primary' : ' sel') : ''))),
         btn('Hold', () => { for (const q of sels) send({ type: 'hold', squad: q.id }); toast('Holding position'); refreshHUD(true); }, 'tiny' + (sels.every((q) => q.holdFast) ? ' sel' : '')),
         specials.length ? btn('★', () => { for (const q of specials) send({ type: 'special', squad: q.id }); }, 'tiny primary') : null,
         ...(skillers.length === 1 ? [skillers[0]] : []).map((q) => btn(q.skillCd > 0 ? `${SK[q.role]} ${Math.ceil(q.skillCd)}` : SK[q.role], () => { if (q.skillCd > 0) return toast(`${SKILLS[q.role].name} is ready in ${Math.ceil(q.skillCd)}s`); send({ type: 'skill', squad: q.id }); toast(`${SKILLS[q.role].name}: ${SKILLS[q.role].desc}`); }, 'tiny' + (q.skillCd > 0 ? ' dim' : ' good'))),
@@ -853,9 +944,10 @@ function intro() {
     h('div', { class: 'muted' }, side === 'att' ? 'Take the enemy main post (the town) to win. Outposts on the way weaken them.'
       : side === 'def' ? 'Hold the main post until time runs out, or rout the attackers.' : 'You are watching this battle.'),
     tags.length ? h('div', { class: 'good', style: { fontSize: '12px' } }, `Bonuses: ${[...new Set(B.sim.squads.filter((s) => s.side === side).flatMap((s) => s.tags || []))].join(', ')}`) : null,
+    strengthRow(side),
     reserveRow(side),
     allyLine(side),
-    h('div', { class: 'muted', style: { fontSize: '12px' } }, `${terrainLine()} Wedge beats Line, Line beats Square, Square beats Wedge. Hit from the side or rear for extra damage; cavalry charges break on pikes. Tap a road to hold it; +Then queues orders.`));
+    h('div', { class: 'muted', style: { fontSize: '12px' } }, [terrainLine(), B.sim.field.wallRect ? (side === 'att' ? 'Batter the gate, or tap the wall to raise ladders.' : 'Your archers shoot best from behind the walls.') : '', 'Wedge › Line › Square › Wedge · flank for extra damage.'].filter(Boolean).join(' ')));
   const start = () => { if (net.role === 'host') net.send({ t: 'battleGo' }); B.started = true; sfx('horn'); banner('BATTLE!', '', st.place); refreshHUD(true); };
   if (B.client) {
     let m;
@@ -867,6 +959,19 @@ function intro() {
   modal(`Battle of ${st.place}`, body, [['Begin', start, 'primary']]);
 }
 
+// a quick read of the odds from what's on the field (reserves and late allies included)
+function strengthRow(side) {
+  const pow = (k) => B.sim.squads.filter((q) => q.side === k).reduce((a, q) => a + q.soldiers.reduce((b, x) => b + x.atk * Math.sqrt(x.max), 0) * q.atkMul * q.defMul + (q.hero != null ? q.heroAtk * 6 : 0), 0) + (k === 'def' && B.sim.gates.length ? 40 : 0);
+  const a = pow('att'), d = pow('def'), mine = side === 'def' ? d : a, theirs = side === 'def' ? a : d;
+  const p = mine / Math.max(1, mine + theirs);
+  const word = p > 0.62 ? 'You are stronger' : p > 0.52 ? 'Slight edge' : p > 0.45 ? 'Even fight' : p > 0.35 ? 'They are stronger' : 'Badly outmatched';
+  const col = p > 0.52 ? '#8fd06b' : p > 0.45 ? '#ffd86b' : '#ff6a5a';
+  if (!side) return null;
+  return h('div', { class: 'row', style: { gap: '8px' } },
+    h('div', { class: 'grow', style: { height: '8px', background: B.colors[side === 'def' ? 'att' : 'def'], border: '2px solid #0b0a10', borderRadius: '2px', position: 'relative' } },
+      h('div', { style: { position: 'absolute', left: 0, top: 0, bottom: 0, width: Math.round(p * 100) + '%', background: B.colors[side] } })),
+    h('b', { style: { color: col, whiteSpace: 'nowrap', fontSize: '13px' } }, word));
+}
 function terrainLine() {
   const t = B.sim.field.template;
   return ({ river: 'A river cuts the field: cross at bridges and fords.', lake: 'A lake sits in the middle.', forest: 'Thick woods give cover from arrows.', pass: 'High ground: hills slow troops but favour defenders and archers.', islands: 'Islands linked by bridges.', coast: 'The sea guards one flank.', ruins: 'Old ruins dot the field.', dungeon: 'Underground halls; beware traps.' })[t] || '';
@@ -912,12 +1017,26 @@ function endBattle(result) {
   sfx(won === false ? 'defeat' : 'victory');
   banner(won == null ? (result.winner === 'att' ? 'ATTACKERS WIN' : 'DEFENDERS WIN') : won ? 'VICTORY' : 'DEFEAT', won === false ? 'bad' : 'good', B.setup.place);
   if (won) B.juice.confetti(sim.field.W * TS / 2, sim.field.H * TS / 2);
-  const lines = sim.squads.filter((s) => s.hero != null).map((s) => {
-    const lost = s.soldiers.filter((x) => !x.alive).length;
-    return h('div', { class: 'row', style: { gap: '6px' } }, h('span', { class: 'swatch', style: { background: B.colors[s.side] } }),
-      h('span', { class: 'grow' }, s.name + (s.turncoat ? ' (turncoat)' : '')), h('span', { class: s.heroAlive ? 'muted' : 'bad' }, `${s.heroAlive ? '' : 'defeated · '}lost ${lost}/${s.soldiers.length}`));
-  });
+  // recap: losses on each side, the squad of the battle, elites lost, heroes wounded or taken
+  const side = (k) => sim.squads.filter((q) => q.side === k && q.state !== 'reinforce');
+  const lost = (k) => side(k).reduce((a, q) => a + q.soldiers.filter((x) => !x.alive).length, 0);
+  const total = (k) => side(k).reduce((a, q) => a + q.soldiers.length, 0);
+  const me = B.side || 'att', them = me === 'att' ? 'def' : 'att';
+  const mvp = [...sim.squads].filter((q) => q.side === (won === false ? them : me)).sort((a, b) => (B.kills.get(b.id) || 0) - (B.kills.get(a.id) || 0))[0];
+  const elitesLost = sim.squads.filter((q) => q.side === me).flatMap((q) => q.soldiers.filter((x) => !x.alive && x.s === 3).map((x) => x.name || 'an Elite'));
+  const hurt = sim.squads.filter((q) => q.hero != null && !q.heroAlive);
+  const survivors = sim.squads.filter((q) => q.side === me && q.soldiers.some((x) => x.alive)).length;
+  const stat = (label, a, b) => h('div', { class: 'row recap-row' }, h('span', { class: 'grow muted' }, label), h('b', {}, a), h('span', { class: 'muted' }, ' · '), h('b', { class: 'muted' }, b));
+  const lines = [
+    h('div', { class: 'row recap-row' }, h('span', { class: 'grow' }), h('span', { class: 'swatch', style: { background: B.colors[me] } }), h('span', { class: 'muted' }, B.side ? 'yours' : 'attackers'), h('span', { class: 'swatch', style: { background: B.colors[them] } }), h('span', { class: 'muted' }, B.side ? 'theirs' : 'defenders')),
+    stat('Troops lost', `${lost(me)}/${total(me)}`, `${lost(them)}/${total(them)}`),
+    mvp && (B.kills.get(mvp.id) || 0) > 0 ? h('div', { class: 'row recap-row' }, h('span', { class: 'gold' }, '★ Squad of the battle'), h('span', { class: 'grow ellipsis', style: { textAlign: 'right' } }, `${mvp.name} · ${B.kills.get(mvp.id)} felled`)) : null,
+    survivors && won !== false ? h('div', { class: 'good', style: { fontSize: '12px' } }, `${survivors} squad${survivors > 1 ? 's' : ''} gain experience; veterans may rise to Elite.`) : null,
+    elitesLost.length ? h('div', { class: 'bad', style: { fontSize: '12px' } }, `Fallen Elites: ${elitesLost.slice(0, 4).join(', ')}${elitesLost.length > 4 ? '…' : ''}`) : null,
+    hurt.length ? h('div', { style: { fontSize: '12px' } }, h('span', { class: 'muted' }, 'Heroes beaten: '), hurt.map((q) => q.name.split(' ')[0] + (q.side === me ? ' (yours)' : '')).join(', '), h('span', { class: 'muted' }, ' — they may be wounded or taken prisoner.')) : null,
+    (result.nemesisResult || []).length ? h('div', { class: 'gold', style: { fontSize: '12px' } }, 'A nemesis grudge was settled on this field.') : null,
+  ];
   setTimeout(() => modal(won == null ? (result.winner === 'att' ? 'Attackers win' : 'Defenders win') : won ? 'Victory!' : 'Defeat',
-    h('div', { class: 'col' }, result.retreated ? h('div', { class: 'muted' }, `${result.retreated === 'att' ? 'The attackers' : 'The defenders'} retreated.`) : null, lines),
+    h('div', { class: 'col recap' }, result.retreated ? h('div', { class: 'muted' }, `${result.retreated === 'att' ? 'The attackers' : 'The defenders'} retreated.`) : null, lines),
     [['Continue', () => go('campaign', { resume: B.client ? true : result }), 'primary']]), 900);
 }

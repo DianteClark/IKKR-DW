@@ -258,9 +258,11 @@ export function makeField(seed, biome, nOutposts = 5, opts = {}) {
   }
   // siege walls: rectangle around the main post with gates where roads cross
   const gates = [];
+  let wallRect = null;
   if (siege) {
     const m = P[1];
     const x0 = Math.floor(m.x) - 5, x1 = Math.floor(m.x) + 4, y0 = Math.floor(m.y) - 5, y1 = Math.floor(m.y) + 3;
+    wallRect = { x0, x1, y0, y1 };
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
       if (x < 1 || y < 1 || x >= W - 1 || y >= H - 1) continue;
       if (x === x0 || x === x1 || y === y0 || y === y1) { const i = y * W + x; wall[i] = 1; feat[i] = 0; water[i] = 0; }
@@ -390,7 +392,7 @@ export function makeField(seed, biome, nOutposts = 5, opts = {}) {
     for (const [dx, dy] of cr.horiz ? [[0, 0], [0, -1], [0, 1]] : [[0, 0], [-1, 0], [1, 0]]) { const j = (y + dy) * W + x + dx; if (j >= 0 && j < N && (terr[j] === 3 || j === i)) terr[j] = code; }
   }
   for (const g of gates) terr[g.y * W + g.x] = 0;
-  return { seed, biome, W, H, posts: P, edges, traps, underground, template, eventSpots, blocked: [], siege, land: opts.land || null,
+  return { seed, biome, W, H, posts: P, edges, traps, underground, template, eventSpots, blocked: [], siege, land: opts.land || null, wallRect,
     _grid: { water, feat, voidc, wall, corridor, gates, crossings, props, anim, decor, terr } };
 }
 

@@ -398,3 +398,7 @@ body.side-open #toasts { left: calc(26vw + 6px); max-width: 48vw; }
 .goal.done { opacity: .55; } .goal.done .goal-tick { color: var(--good); }
 .goal.next .goal-tick { color: var(--gold); }
 .goal-tick { width: 14px; flex: none; }
+/* battle 12 */
+.recap { gap: 6px; min-width: min(78vw, 420px); }
+.recap-row { gap: 6px; font-size: 14px; align-items: center; }
+.recap-row .swatch { width: 10px; height: 10px; }
