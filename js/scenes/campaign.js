@@ -53,8 +53,9 @@ registerScene('campaign', {
       cam.x = c.cx * TS + 8; cam.y = c.cy * TS + 8; cam.clamp();
     }
     net.onState = (st) => { S.state = st; refreshUI(); };
+    if (net.role !== 'single') setupNet();
     buildUI();
-    if (args.resume) resumeQueue(args.resume);
+    if (args.resume) { if (net.role !== 'client') resumeQueue(args.resume); }
     else { persist(); if (net.role === 'single' && S.state.turn === 1 && !S.state.introShown) intro(); }
     if (S.state.pendingCaptives.length) showCaptives();
   },
@@ -378,6 +379,33 @@ export function showCaptives() {
   mm = modal('Prisoners', h('div', { class: 'col' }, h('div', { class: 'muted' }, 'Released heroes wander as vagabonds: they may serve another lord or raise an uprising. Undecided prisoners stay in your dungeons.'), body), [['Decide later']], { width: '640px' });
 }
 
+// ---------- multiplayer glue ----------
+function setupNet() {
+  net.onClose = () => { net.close(); modal('Connection lost', h('div', {}, 'The other player disconnected.'), [['Title screen', () => go('title'), 'primary']]); };
+  if (net.role === 'host') {
+    net.stateGetter = () => S.state;
+    net.on('act', (m) => { applyAction(S.state, 1, m.a); net.broadcastState(); refreshUI(); });
+    net.on('ready', () => {
+      net.peerReady = true;
+      if (net.hostReady && !S.busy) resolveTurn();
+      else { toast('Player 2 is ready'); refreshUI(); }
+    });
+  } else {
+    net.on('askFight', (m) => {
+      const t = S.state.territories[m.tid];
+      modal('Battle!', h('div', {}, `Your forces clash at ${t.name}. Fight it yourself or let it auto-resolve?`), [['Auto-resolve', () => net.reply(m.rid, 'auto')], ['Fight!', () => net.reply(m.rid, 'fight'), 'primary']]);
+    });
+    net.on('resolving', () => { S.busy = true; net.waitingFor = 'Resolving turn…'; refreshUI(); });
+    net.on('battleStart', (m) => go('battle', { client: true, setup: m.setup, items: m.items, me: S.me, state: S.state }));
+    net.on('turnDone', (m) => {
+      S.busy = false; net.waitingFor = null;
+      if (m.s) S.state = m.s;
+      refreshUI();
+      showTurnSummary(m.turn - 1, m.reports || []);
+    });
+  }
+}
+
 // ---------- turn flow ----------
 function endTurnPressed() {
   if (S.busy) return;
@@ -397,7 +425,7 @@ export function resolveTurn() {
   S.queue.sort((a, b) => (isHumanKingdom(st, b.att) || isHumanKingdom(st, st.territories[b.tid].owner)) - (isHumanKingdom(st, a.att) || isHumanKingdom(st, st.territories[a.tid].owner)));
   S.reports = [];
   S.startLog = st.log.length;
-  if (net.role === 'host') net.broadcastState();
+  if (net.role === 'host') { net.send({ t: 'resolving' }); net.broadcastState(); }
   nextBattle();
 }
 
@@ -462,7 +490,7 @@ function finishTurn() {
   const extra = endTurn(st);
   S.busy = false;
   persist();
-  if (net.role === 'host') { net.broadcastState(); net.send({ t: 'turnDone', turn: st.turn }); }
+  if (net.role === 'host') net.send({ t: 'turnDone', turn: st.turn, s: st, reports: mine });
   refreshUI();
   showTurnSummary(prevTurn, mine, extra);
 }
