@@ -36,6 +36,8 @@ import { renderTerrain, drawTerrain, drawOverlay, drawSites, drawTowns, drawHero
 import { visibleLands, fogOn } from '../game/fog.js';
 import { tradeRoutes } from '../game/trade.js';
 import { bannerEl } from '../engine/banner.js';
+import { GOALS, goalState, newlyDone } from '../campaign/goals.js';
+import { shareRealm } from '../campaign/share.js';
 import { portrait, unitIcon, itemIcon, heroCard, orderLabel, kingdomBadge, unitCard } from '../campaign/widgets.js';
 import { saveCampaign, getRecord, prettyCode, stampCampaign } from '../game/save.js';
 import { sfx, music } from '../engine/audio.js';
@@ -100,7 +102,7 @@ registerScene('campaign', {
       else { banner(`${seasonOf(S.state.turn)}, Year ${yearOf(S.state.turn)}`, 'blue', myK().name); setTimeout(showChoice, 1200); }
     }
   },
-  exit() { net.onState = null; },
+  exit() { net.onState = null; document.body.classList.remove('side-open'); },
   update() {},
   render() {
     const st = S.state; if (!st) return;
@@ -123,7 +125,6 @@ registerScene('campaign', {
     drawTerrain(ctx, S.T, view);
     drawAnimated(ctx, S.T, game.time, view);
     // banners and border guards show who holds what; the old frontier lines are an option in Settings
-    if (showBorders()) drawOverlay(ctx, S.T, st, view);
     const pulse = 0.5 + 0.5 * Math.sin(game.time * 5);
     if (S.target) {
       drawLandOutline(ctx, S.T, S.target.valid, S.target.kind === 'attack' ? '#ff4a3a' : S.target.kind === 'spy' ? '#c48bff' : '#ffffff', 2);
@@ -247,10 +248,11 @@ function nextIdle() {
   S.sel = x.loc; sfx('open'); refreshUI(); drawMinimapUI();
   toast(`${x.name} awaits orders`);
 }
-function showBorders() { try { return localStorage.getItem('ikkr-dw-borders') === '1'; } catch { return false; } }
 function focus(tid) { const t = S.state.territories[tid]; cam.x = t.cx * TS + 8; cam.y = t.cy * TS + 8; cam.clamp(); }
 
 // ---------- UI ----------
+// re-render a panel body without jumping back to the top
+function keepScroll(sc, body) { const top = sc.scrollTop; sc.replaceChildren(body); sc.scrollTop = top; }
 function add(el, ...c) { el.append(...c.flat().filter((x) => x != null && x !== false)); }
 let ui = {};
 function buildUI() {
@@ -258,6 +260,7 @@ function buildUI() {
   ui.top = mount(h('div', { class: 'topbar' }));
   ui.side = mount(h('div', { class: 'side', style: { display: 'none' } }));
   ui.bottom = mount(h('div', { class: 'bottombar' }));
+  ui.goals = mount(h('div', { class: 'goals' }));
   // minimap: tap to jump anywhere (essential on huge and enormous maps)
   const mw = S.T.W > 150 ? 168 : 128, mh = Math.round(mw * S.T.H / S.T.W);
   ui.mini = mount(h('canvas', { class: 'minimap', width: mw * 2, height: mh * 2, style: { width: mw + 'px', height: mh + 'px' } }));
@@ -283,15 +286,16 @@ export function refreshUI() {
     h('span', { class: 'chip row tap', style: { gap: '5px', maxWidth: '26vw', minWidth: 0, flexShrink: 1 }, onClick: realmSheet },
       bannerIcon(k), h('span', { class: 'ellipsis' }, k.landless ? 'Warband of ' + (hero(st, k.ruler) || {}).name : k.name),
       h('span', { class: 'tag gold' }, k.landless ? 'Landless' : TIERS[tierIndex(k)].name)),
-    h('span', { class: 'chip gold', title: 'Gold' }, `${k.gold}g `, h('small', { class: eco.gold >= 0 ? 'good' : 'bad' }, sign(eco.gold))),
-    h('span', { class: 'chip', title: 'Food' }, `🌾${Math.round(k.food)} `, h('small', { class: eco.food >= 0 ? 'good' : 'bad' }, sign(eco.food))),
-    h('span', { class: 'chip ' + (k.morale < 35 ? 'bad' : ''), title: 'Morale' }, `☺${Math.round(k.morale)}`),
-    h('span', { class: 'chip ' + (k.stability < 30 ? 'bad' : ''), title: 'Stability' }, `⚖${Math.round(k.stability)}`),
+    h('span', { class: 'chip gold tap', title: 'Gold', onClick: () => economySheet('gold') }, `${k.gold}g `, h('small', { class: eco.gold >= 0 ? 'good' : 'bad' }, sign(eco.gold))),
+    h('span', { class: 'chip tap', title: 'Food', onClick: () => economySheet('food') }, `🌾${Math.round(k.food)} `, h('small', { class: eco.food >= 0 ? 'good' : 'bad' }, sign(eco.food))),
+    h('span', { class: 'chip tap ' + (k.morale < 35 ? 'bad' : ''), title: 'Morale', onClick: () => economySheet('morale') }, `☺${Math.round(k.morale)}`),
+    h('span', { class: 'chip tap ' + (k.stability < 30 ? 'bad' : ''), title: 'Stability', onClick: () => economySheet('stability') }, `⚖${Math.round(k.stability)}`),
     h('span', { class: 'chip muted', title: `${seasonOf(st.turn)}, year ${yearOf(st.turn)}` }, `${seasonOf(st.turn).slice(0, 3)} Y${yearOf(st.turn)}`),
     h('span', { class: 'grow' }),
     btn('☰', menu, 'small'),
     btn(waiting ? waiting : idle ? `End Turn (${idle})` : 'End Turn', endTurnPressed, 'primary small'),
   );
+  renderGoals();
   ui.bottom.innerHTML = '';
   const prisoners = captivesOf(st, k.id).length;
   add(ui.bottom,
@@ -304,6 +308,7 @@ export function refreshUI() {
     btn('Chronicle', chronicle, 'small'),
   );
   if (S.target) {
+    document.body.classList.add('side-open');
     ui.side.style.display = '';
     ui.side.innerHTML = '';
     ui.side.style.bottom = 'auto';
@@ -316,10 +321,13 @@ export function refreshUI() {
   ui.side.style.bottom = '';
   if (ui.mini) ui.mini.style.display = S.sel == null ? '' : 'none';
   if (ui.bottom) ui.bottom.classList.toggle('narrow', S.sel != null || !!S.target);
+  document.body.classList.toggle('side-open', S.sel != null || !!S.target);
   if (S.sel == null) { ui.side.style.display = 'none'; return; }
   ui.side.style.display = '';
+  const prev = ui.side.querySelector('.scroll'); const keep = prev && ui.side.dataset.tid == S.sel ? prev.scrollTop : 0;
   ui.side.innerHTML = '';
-  ui.side.append(territoryPanel(S.sel));
+  ui.side.append(territoryPanel(S.sel)); ui.side.dataset.tid = S.sel;
+  const now = ui.side.querySelector('.scroll'); if (now) now.scrollTop = keep;
 }
 
 function territoryPanel(tid) {
@@ -572,7 +580,7 @@ export function heroModal(id) {
     }
     const body = h('div', { class: 'col' }, head, rolePick,
       tabs([{ id: 'squad', label: 'Squad' }, { id: 'unit', label: 'Unit type' }, { id: 'gear', label: 'Gear' }, { id: 'family', label: 'Story' }, { id: 'more', label: 'Tactics' }], (id) => { tab = id; render(); }, tab), content);
-    if (m) m.box.querySelector('.body').replaceChildren(body); else m = sheet(x.name, body, [], { side: 'right' });
+    if (m) keepScroll(m.box.querySelector('.body'), body); else m = sheet(x.name, body, [], { side: 'right' });
   };
   render();
 }
@@ -589,15 +597,135 @@ function pickItem(x, slot, done) {
   mm = modal(SLOT_NAMES[slot], body, [['Close']], { dismiss: true });
 }
 
+const HL = { sort: 'idle', filter: 'all' };
 function heroesList() {
   const st = S.state, k = myK();
-  const hs = kingdomHeroes(st, k.id, true);
   let mm;
-  const body = h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(280px,1fr))' } }, hs.map((x) => h('div', {},
-    heroCard(st, x, { stats: true, badges: [x.trait], onClick: () => { mm.close(); heroModal(x.id); } }),
-    h('div', { class: 'row', style: { gap: '4px', marginTop: '3px' } }, h('span', { class: 'muted grow', style: { fontSize: '13px' } }, `at ${st.territories[x.loc].name}`),
-      btn('Show', () => { mm.close(); S.sel = x.loc; focus(x.loc); refreshUI(); }, 'small')))));
-  mm = sheet(`Your heroes (${hs.length}) · ${totalTroops(st, k.id)} troops`, body, [], { side: 'right' });
+  const render = () => {
+    const all = kingdomHeroes(st, k.id, true);
+    const wounded = (x) => x.hp < 70 || x.troops.length < squadCap(x, k) * 0.6;
+    let hs = all.filter((x) => HL.filter === 'all' || (HL.filter === 'idle' && !x.order) || (HL.filter === 'wounded' && wounded(x)) || (HL.filter === 'here' && S.sel != null && x.loc === S.sel));
+    const by = {
+      idle: (a, b) => (!!a.order - !!b.order) || b.level - a.level,
+      level: (a, b) => b.level - a.level || b.troops.length - a.troops.length,
+      troops: (a, b) => b.troops.length - a.troops.length,
+      wounded: (a, b) => (a.hp + a.troops.length * 4) - (b.hp + b.troops.length * 4),
+      land: (a, b) => st.territories[a.loc].name.localeCompare(st.territories[b.loc].name) || b.level - a.level,
+    }[HL.sort];
+    hs = hs.slice().sort(by);
+    const chipBtn = (label, on, fn) => btn(label, () => { fn(); sfx('click'); render(); }, 'tiny' + (on ? ' good' : ''));
+    const controls = h('div', { class: 'col', style: { gap: '4px' } },
+      h('div', { class: 'row wrap', style: { gap: '4px' } }, h('span', { class: 'muted', style: { fontSize: '12px', width: '40px' } }, 'Show'),
+        chipBtn(`All ${all.length}`, HL.filter === 'all', () => (HL.filter = 'all')),
+        chipBtn(`Idle ${all.filter((x) => !x.order).length}`, HL.filter === 'idle', () => (HL.filter = 'idle')),
+        chipBtn(`Wounded ${all.filter(wounded).length}`, HL.filter === 'wounded', () => (HL.filter = 'wounded')),
+        S.sel != null ? chipBtn(`At ${st.territories[S.sel].name}`, HL.filter === 'here', () => (HL.filter = 'here')) : null),
+      h('div', { class: 'row wrap', style: { gap: '4px' } }, h('span', { class: 'muted', style: { fontSize: '12px', width: '40px' } }, 'Sort'),
+        ...[['idle', 'Idle first'], ['level', 'Level'], ['troops', 'Troops'], ['wounded', 'Weakest'], ['land', 'Land']].map(([id, l]) => chipBtn(l, HL.sort === id, () => (HL.sort = id)))));
+    // group by land when sorted by land, with bulk orders for each group
+    const groups = new Map();
+    for (const x of hs) { const key = HL.sort === 'land' ? x.loc : 'all'; if (!groups.has(key)) groups.set(key, []); groups.get(key).push(x); }
+    const blocks = [];
+    for (const [loc, list] of groups) {
+      if (loc !== 'all') {
+        const editable = list.filter((x) => x.status === 'active' && x.lentTo < 0);
+        blocks.push(h('div', { class: 'row wrap hl-group' }, h('b', { class: 'grow' }, `${st.territories[loc].name} · ${list.length}`),
+          editable.length > 1 ? btn('All rest', () => { editable.forEach((x) => act({ type: 'order', hero: x.id, order: { type: 'rest' } })); toast(`${editable.length} heroes rest at ${st.territories[loc].name}`); render(); }, 'tiny good') : null,
+          editable.length > 1 && validTargets(st, editable[0]).length ? btn('All attack…', () => { mm.close(); S.sel = loc; focus(loc); startTarget(editable.map((x) => x.id), 'attack'); }, 'tiny danger') : null,
+          btn('Show', () => { mm.close(); S.sel = loc; focus(loc); refreshUI(); }, 'tiny ghost')));
+      }
+      blocks.push(h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(270px,1fr))' } }, list.map((x) => h('div', {},
+        heroCard(st, x, { stats: true, badges: [x.trait], onClick: () => { mm.close(); heroModal(x.id); } }),
+        h('div', { class: 'row', style: { gap: '4px', marginTop: '3px' } }, h('span', { class: 'muted grow ellipsis', style: { fontSize: '13px' } }, `at ${st.territories[x.loc].name}`),
+          btn('Show', () => { mm.close(); S.sel = x.loc; focus(x.loc); cam.x += (screen.w * 0.22) / cam.zoom; cam.clamp(); refreshUI(); drawMinimapUI(); }, 'tiny'))))));
+    }
+    const body = h('div', { class: 'col' }, controls, hs.length ? blocks : h('div', { class: 'muted' }, 'No heroes match.'));
+    if (mm) { const sc = mm.box.querySelector('.body'); const top = sc.scrollTop; sc.replaceChildren(body); sc.scrollTop = top; }
+    else mm = sheet(`Your heroes (${all.length}) · ${totalTroops(st, k.id)} troops`, body, [], { side: 'right' });
+  };
+  render();
+}
+
+// ---------- early goals ----------
+let goalsOpen = false, goalsBusy = false;
+function renderGoals() {
+  if (!ui.goals) return;
+  const st = S.state, k = myK();
+  const g = goalState(st, k.id);
+  // pay out anything just achieved (through an action so the host stays in charge)
+  if (!goalsBusy && !S.busy) {
+    const fresh = newlyDone(st, k);
+    if (fresh.length) {
+      goalsBusy = true;
+      setTimeout(() => {
+        for (const G of fresh) if (act({ type: 'goal', id: G.id })) { sfx('levelup'); banner('Goal complete', 'good', `${G.title} · +${G.reward}g`); toast(G.tip, 'gold'); }
+        goalsBusy = false;
+      }, 400);
+    }
+  }
+  const doneN = GOALS.filter((G) => g.done[G.id]).length;
+  ui.goals.innerHTML = '';
+  if (g.hidden || doneN === GOALS.length || S.sel != null && goalsOpen === false && window.innerWidth < 700) { ui.goals.style.display = 'none'; return; }
+  ui.goals.style.display = '';
+  const next = GOALS.find((G) => !g.done[G.id]);
+  if (!goalsOpen) {
+    ui.goals.append(h('button', { class: 'goals-chip', onClick: () => { goalsOpen = true; sfx('click'); renderGoals(); } },
+      h('span', { class: 'gold' }, `Goals ${doneN}/${GOALS.length}`), h('span', { class: 'ellipsis' }, next.title)));
+    return;
+  }
+  ui.goals.append(h('div', { class: 'panel goals-panel' },
+    h('div', { class: 'row' }, h('b', { class: 'grow gold' }, `Goals ${doneN}/${GOALS.length}`), btn('Hide', () => confirm('Hide goals?', 'You can bring them back from the menu.', 'Hide', 'Keep').then((ok) => { if (ok) act({ type: 'hideGoals' }); }), 'tiny ghost'), btn('▴', () => { goalsOpen = false; renderGoals(); }, 'tiny')),
+    GOALS.map((G) => h('div', { class: 'goal ' + (g.done[G.id] ? 'done' : G === next ? 'next' : '') },
+      h('span', { class: 'goal-tick' }, g.done[G.id] ? '✔' : '○'),
+      h('div', { class: 'col grow', style: { gap: 0, minWidth: 0 } }, h('span', {}, G.title, h('small', { class: 'muted' }, ` · +${G.reward}g`)),
+        G === next ? h('small', { class: 'muted' }, G.how) : null)))));
+}
+
+// ---------- economy breakdown: why each number moves this season ----------
+function economySheet(focusOn = 'gold') {
+  const st = S.state, k = myK(), e = economyPreview(st, k);
+  const line = (label, val, cls = '') => h('div', { class: 'eco-line' }, h('span', { class: 'grow' }, label), h('b', { class: cls }, val));
+  const sgn = (n) => (n > 0 ? '+' : '') + (Math.round(n * 10) / 10);
+  const pct = (f) => (f >= 1 ? '+' : '') + Math.round((f - 1) * 100) + '%';
+  const mines = (st.sites || []).filter((x) => x.kind === 'mine' && x.status === 'claimed' && x.owner === k.id).length;
+  const lands = kingdomTerritories(st, k.id).sort((a, b) => territoryIncome(b) - territoryIncome(a));
+  const tax = POLICIES.tax[k.policy.tax], rat = POLICIES.rations[k.policy.rations];
+  const driftM = (55 - k.morale) * 0.08, driftS = (55 - k.stability) * 0.06;
+  const section = (id, title, total, lines) => h('div', { class: 'card col eco-sec' + (focusOn === id ? ' on' : ''), style: { alignItems: 'stretch', gap: '2px' } },
+    h('div', { class: 'row' }, h('b', { class: 'grow' }, title), h('b', { class: total >= 0 ? 'good' : 'bad' }, sgn(total) + ' / season')), ...lines);
+  const body = h('div', { class: 'col' },
+    section('gold', 'Gold', e.gold + mines * 35, [
+      line(`${lands.length} land${lands.length === 1 ? '' : 's'}`, `+${e.landGold}`),
+      e.taxGold !== 1 ? line(`${tax.name} taxes`, pct(e.taxGold), e.taxGold > 1 ? 'good' : 'bad') : null,
+      mines ? line(`${mines} claimed mine${mines > 1 ? 's' : ''}`, `+${mines * 35}`, 'good') : null,
+      e.tributeIn ? line('Tribute from vassals', `+${e.tributeIn}`, 'good') : null,
+      e.tributeOut ? line('Tribute to your overlord', `−${e.tributeOut}`, 'bad') : null,
+      lands.length > 1 ? h('div', { class: 'muted', style: { fontSize: '12px' } }, 'Richest: ' + lands.slice(0, 3).map((t) => `${t.name} ${territoryIncome(t)}g`).join(' · ')) : null,
+      e.ruined ? h('div', { class: 'bad', style: { fontSize: '12px' } }, `${e.ruined} sacked land${e.ruined > 1 ? 's' : ''} earn less until rebuilt.`) : null,
+    ]),
+    section('food', 'Food', e.food, [
+      line('Harvest from your lands', `+${e.landFood}`),
+      e.granary ? line('Granaries', '+25%', 'good') : null,
+      e.seasonFood !== 1 ? line(`${e.season} harvest`, pct(e.seasonFood), e.seasonFood >= 1 ? 'good' : 'bad') : null,
+      line(`${e.soldiers} soldiers and ${e.heroCount} heroes eat`, `−${e.foodEaten}`, 'bad'),
+      e.rationFood !== 1 ? line(`${rat.name} rations`, pct(e.rationFood), e.rationFood < 1 ? 'good' : 'bad') : null,
+      k.food + e.food < 0 ? h('div', { class: 'bad', style: { fontSize: '12px' } }, 'Stores will run out: famine makes soldiers desert. Cut rations, rest fewer troops or take farmland.') : null,
+    ]),
+    section('morale', 'Morale', driftM + e.morale - (k.landless ? 1 : 0), [
+      line('Settles toward 55', sgn(driftM)),
+      tax.morale ? line(`${tax.name} taxes`, sgn(tax.morale), tax.morale > 0 ? 'good' : 'bad') : null,
+      rat.morale ? line(`${rat.name} rations`, sgn(rat.morale), rat.morale > 0 ? 'good' : 'bad') : null,
+      k.landless ? line('Wandering without land', '−1', 'bad') : null,
+      h('div', { class: 'muted', style: { fontSize: '12px' } }, 'Victories, festivals and feasts raise it; defeats, famine and plunder lower it. Heroes fight with the realm\'s morale.'),
+    ]),
+    section('stability', 'Stability', driftS + e.stability - e.ruined * 1.5, [
+      line('Settles toward 55', sgn(driftS)),
+      tax.stability ? line(`${tax.name} taxes`, sgn(tax.stability), tax.stability > 0 ? 'good' : 'bad') : null,
+      e.ruined ? line(`${e.ruined} sacked land${e.ruined > 1 ? 's' : ''}`, sgn(-e.ruined * 1.5), 'bad') : null,
+      h('div', { class: 'muted', style: { fontSize: '12px' } }, k.stability < 22 ? 'Danger: below 22 the people may revolt.' : 'Below 22 revolts break out; below 10 the ruler can be overthrown.'),
+    ]),
+    btn('Taxes, rations and edicts…', () => { mm.close(); realmSheet(); }, 'small'));
+  const mm = sheet('Your economy this season', body, [], { side: 'right' });
 }
 
 // ---------- realm management ----------
@@ -661,7 +789,7 @@ function realmSheet() {
           })));
     }
     const body = h('div', { class: 'col' }, tabs([{ id: 'overview', label: 'Realm' }, { id: 'policy', label: 'Edicts' }, { id: 'build', label: 'Build' }, { id: 'strat', label: 'Stratagems' }], (id) => { tab = id; render(); }, tab), content);
-    if (m) m.box.querySelector('.body').replaceChildren(body); else m = sheet(k.name, body, [], { side: 'right' });
+    if (m) keepScroll(m.box.querySelector('.body'), body); else m = sheet(k.name, body, [], { side: 'right' });
   };
   render();
 }
@@ -706,7 +834,7 @@ function diplomacySheet(focusKid) {
           h('div', { class: 'muted', style: { fontSize: '13px' } }, `${kingdomTerritories(st, o.id).length} lands · strength ${pw > 1.5 ? 'far stronger' : pw > 1.1 ? 'stronger' : pw > 0.8 ? 'even' : pw > 0.5 ? 'weaker' : 'far weaker'} · opinion ${Math.round(op)}${wl != null ? ` · ${wl > 0.5 ? 'open to an alliance' : wl > 0.3 ? 'unsure' : 'unwilling'}` : ''}`),
           acts.length ? h('div', { class: 'row wrap' }, acts) : null);
       }));
-    if (m) m.box.querySelector('.body').replaceChildren(body); else m = sheet('Diplomacy', body, [], { side: 'right' });
+    if (m) keepScroll(m.box.querySelector('.body'), body); else m = sheet('Diplomacy', body, [], { side: 'right' });
   };
   render();
 }
@@ -721,7 +849,7 @@ function menu() {
   modal('Menu', h('div', { class: 'col' },
     h('div', { class: 'row wrap' }, h('span', { class: 'chip gold' }, `Campaign ${prettyCode(S.state.cid)}`), h('span', { class: 'chip' }, `Seed ${S.state.seed}`), h('span', { class: 'chip' }, `${seasonOf(S.state.turn)}, year ${yearOf(S.state.turn)}`)),
     net.role === 'single' ? h('div', { class: 'muted' }, 'Your campaign saves automatically every season. Find it under Continue.') : h('div', { class: 'muted' }, `Two-player · ${net.role === 'host' ? 'You are hosting' : 'Connected to host'}. Both of you keep a copy of this campaign — either of you can host it again from Continue.`)),
-  [['Resume'], ['Quit to title', () => { if (net.role !== 'single') net.close(); go('title'); }, 'danger']], { dismiss: true });
+  [['Share my realm', () => { setTimeout(() => shareRealm(S.state, S.T, myK().id), 50); }], ...(goalState(S.state, myK().id).hidden ? [['Show goals', () => { act({ type: 'hideGoals', hidden: false }); }]] : []), ['Resume'], ['Quit to title', () => { if (net.role !== 'single') net.close(); go('title'); }, 'danger']], { dismiss: true });
 }
 
 function intro() {
@@ -811,9 +939,41 @@ export function resolveTurn() {
   const human = (b) => isHumanKingdom(st, b.att) || isHumanKingdom(st, st.territories[b.tid].owner);
   S.queue.sort((a, b) => human(b) - human(a));
   S.reports = [];
+  S.choices = null;
   if (net.role === 'host') { net.send({ t: 'resolving' }); net.broadcastState(); }
   refreshUI();
+  // several of my battles this season: one compact chooser instead of a modal per battle
+  if (net.role === 'single') {
+    const myKid = myK().id;
+    const mine = S.queue.filter((b) => b.att === myKid || st.territories[b.tid].owner === myKid || (b.skirmish && b.foe === myKid));
+    if (mine.length >= 2) return battleChooser(mine);
+  }
   nextBattle();
+}
+
+const bKey = (b) => `${b.att}:${b.tid}:${b.skirmish ? 's' : ''}`;
+function battleChooser(list) {
+  const st = S.state, k = myK();
+  const choice = {};
+  let mm;
+  const rows = () => list.map((b0) => {
+    const b = prepareBattle(st, JSON.parse(JSON.stringify(b0)));
+    if (!b) return null;
+    const key = bKey(b0);
+    if (!choice[key]) choice[key] = 'auto';
+    const t = st.territories[b.tid], mineAtt = b.att === k.id;
+    const foe = mineAtt ? (b.def >= 0 ? st.kingdoms[b.def].name : 'the free folk') : st.kingdoms[b.att].name;
+    const p = battleOdds(st, b, mineAtt ? hasIntel(st, k.id, b.tid) : true), my = mineAtt ? p : 1 - p;
+    return h('div', { class: 'card bc-row' },
+      h('div', { class: 'col grow', style: { gap: '1px', minWidth: 0 } },
+        h('b', { class: 'ellipsis' }, `${mineAtt ? (b.skirmish ? 'Ambush' : 'Attack') : 'Defend'} ${t.name}`),
+        h('span', { class: 'muted ellipsis', style: { fontSize: '12px' } }, `vs ${foe} · ${Math.round(my * 100)}% to win`)),
+      segmented([{ value: 'auto', label: 'Auto' }, { value: 'fight', label: 'Fight' }], choice[key], (v) => { choice[key] = v; sfx('click'); }));
+  }).filter(Boolean);
+  const body = h('div', { class: 'col' }, h('div', { class: 'muted', style: { fontSize: '13px' } }, 'Choose which battles to command yourself. The rest are settled by your generals.'), rows(),
+    h('div', { class: 'row' }, btn('All auto', () => { for (const k2 in choice) choice[k2] = 'auto'; mkeepScroll(m.box.querySelector('.body'), body); }, 'tiny'), btn('Fight all', () => { for (const k2 in choice) choice[k2] = 'fight'; go2(); }, 'tiny')));
+  const go2 = () => { S.choices = choice; mm.close(); nextBattle(); };
+  mm = modal(`${list.length} battles this season`, body, [['Begin', () => { S.choices = choice; nextBattle(); }, 'primary']], { width: '620px' });
 }
 
 function nextBattle() {
@@ -824,6 +984,9 @@ function nextBattle() {
     const humanAtt = isHumanKingdom(st, b.att), humanDef = isHumanKingdom(st, b.def);
     if (!humanAtt && !humanDef) { S.reports.push(applyBattle(st, b, autoResolve(st, b))); continue; }
     S.current = b;
+    const pick = S.choices && S.choices[bKey(b)];
+    if (pick === 'auto') { S.reports.push(applyBattle(st, b, autoResolve(st, b))); S.current = null; continue; }
+    if (pick === 'fight') { startBattle(b); return; }
     askFight(b, humanAtt, humanDef);
     return;
   }
@@ -913,39 +1076,80 @@ export function showTurnSummary(prevTurn, reports, summary = { events: [], notes
   if (!k.alive && !S.toldFallen) {
     S.toldFallen = true;
     recordCampaign(st, myKid, 'defeat');
-    return modal('Your last hero has fallen', h('div', {}, 'No one remains to carry your banner. The war goes on without you.'), [['Watch'], ['Title screen', () => { if (net.role !== 'single') net.close(); else clearSave(); go('title'); }, 'danger']]);
+    return modal('Your last hero has fallen', h('div', {}, 'No one remains to carry your banner. The war goes on without you.'), [['Watch'], ['Title screen', () => { if (net.role !== 'single') net.close(); go('title'); }, 'danger']]);
   }
-  const items = [];
-  for (const r of reports || []) {
-    const t = st.territories[r.tid];
-    const iAtt = r.att === myKid, iDef = r.def === myKid;
-    if (!iAtt && !iDef) continue;
-    const won = (iAtt && r.attWon) || (iDef && !r.attWon);
-    items.push(h('div', { class: 'card col', style: { alignItems: 'stretch', gap: '2px', borderColor: won ? '#7fd36b' : '#ff6a5a' } },
-      h('b', { class: won ? 'good' : 'bad' }, `${won ? 'Victory' : 'Defeat'} at ${t.name}`),
-      h('span', { class: 'muted', style: { fontSize: '13px' } }, [r.evolved ? `${r.evolved} evolved` : '', r.elites ? `${r.elites} became Elite` : '', r.promoted ? `${r.promoted} promotions` : '', r.leveled && r.leveled.length ? `${r.leveled.length} hero level-up${r.leveled.length > 1 ? 's' : ''}` : '', r.loot != null && won && st.items[r.loot] ? `found ${st.items[r.loot].name}` : '', r.defected && r.defected.length ? `${r.defected.length} traitor${r.defected.length > 1 ? 's' : ''}!` : ''].filter(Boolean).join(' · '))));
-  }
-  const mineNotes = [...(orderNotes || []), ...(summary.notes || [])].filter((n) => n.kid === myKid || n.kid === -1);
-  const events = (summary.events || []).map((e) => {
-    const ic = SPELL[EVENT_SPELL[e.kind]];
-    return h('div', { class: 'row', style: { gap: '6px' } }, ic && ic.icon ? sprite(ic.icon, 0, 0, 16, 16, 1.5) : null, h('span', { class: e.kid === myKid ? 'gold' : '' }, e.text));
-  });
-  const bad = (summary.events || []).some((e) => e.kid === myKid && ['quake', 'plague', 'revolt', 'overthrow', 'bandits', 'outbreak', 'famine'].includes(e.kind));
-  if ((summary.events || []).some((e) => e.kind === 'overthrow' && e.kid === myKid)) { sfx('lost'); banner('OVERTHROWN!', 'bad', 'Your realm has fallen to revolution'); }
-  sfx('turn');
-  modal(`${seasonOf(prevTurn)} of year ${yearOf(prevTurn)} ends`, h('div', { class: 'col' },
-    items,
-    mineNotes.length ? h('div', { class: 'col', style: { gap: '3px' } }, mineNotes.map((n) => h('div', { class: n.kind === 'defect' || n.kind === 'famine' || n.kind === 'betrayal' || n.kind === 'raid' ? 'bad' : n.kind === 'plot' || n.kind === 'heir' || n.kind === 'birth' ? 'gold' : n.kind === 'family' ? 'good' : '' }, ({ family: '♥ ', birth: '✦ ', heir: '★ ', raid: '⚠ ' })[n.kind] || '• ', n.text))) : null,
-    ...kingdomHeroes(st, myKid).filter((x) => !x.role && x.level >= ROLE_LEVEL).map((x) => h('div', { class: 'row gold', style: { gap: '6px' } }, h('span', { class: 'grow' }, `★ ${x.name} is ready to choose a calling.`), btn('Choose', () => heroModal(x.id), 'tiny good'))),
-    events.length ? h('b', {}, 'Across the land') : null, events,
-  ), [['Continue', () => {
+  // ---- season cards: only what matters to you, each with a way to go look at it ----
+  const NOTE = {
+    war: ['⚔', 'War', 'bad'], betrayal: ['✖', 'Betrayal', 'bad'], defect: ['✖', 'Desertion', 'bad'], raid: ['⚠', 'Raid', 'bad'], famine: ['⚠', 'Famine', 'bad'],
+    plot: ['☍', 'Secret offer', 'gold'], birth: ['✦', 'A child is born', 'gold'], heir: ['★', 'Coming of age', 'gold'], family: ['♥', 'Family', 'good'],
+    proposal: ['✉', 'Diplomacy', ''], diplomacy: ['✉', 'Diplomacy', ''], demand: ['♛', 'Demand', 'bad'], return: ['↩', 'Return', ''],
+  };
+  const findPlace = (text) => {
+    // the first land or hero of yours named in the text tells us where to look
+    const t = st.territories.filter((x) => text.includes(x.name)).sort((a, b) => b.name.length - a.name.length)[0];
+    if (t) return { tid: t.id };
+    const hh = st.heroes.filter((x) => x.status === 'active' && text.includes(x.name.split(' ')[0])).sort((a, b) => (b.kingdom === myKid) - (a.kingdom === myKid))[0];
+    return hh ? { tid: hh.loc, hero: hh.id } : null;
+  };
+  let mm;
+  const after = () => {
     banner(`${seasonOf(st.turn)}, Year ${yearOf(st.turn)}`, bad ? 'bad' : 'blue', k.landless ? 'Your warband wanders' : k.name);
     if (captivesOf(st, myKid).length && (reports || []).some((r) => r.captured.length)) showCaptives();
     else if (st.proposals.some((p) => p.to === myKid)) diplomacySheet();
     nameBirths();
     setTimeout(showChoice, 400);
     achievementToasts();
-  }, 'primary']], { width: '680px' });
+  };
+  const showMe = (where) => () => {
+    mm.close(); after();
+    if (!where) return;
+    if (where.tid != null) { focus(where.tid); cam.x += (screen.w * 0.22) / cam.zoom; cam.clamp(); S.sel = where.tid; refreshUI(); drawMinimapUI(); }
+    if (where.hero != null) setTimeout(() => heroModal(where.hero), 200);
+  };
+  const card = (icon, title, text, cls, where, extra) => h('div', { class: 'card sumcard ' + cls },
+    h('span', { class: 'sum-ic' }, icon),
+    h('div', { class: 'col grow', style: { gap: '1px', minWidth: 0 } }, h('b', { class: cls }, title), text ? h('span', { class: 'muted', style: { fontSize: '13px' } }, text) : null),
+    extra || null,
+    where ? btn('Show me', showMe(where), 'tiny') : null);
+  const cards = [];
+  for (const r of reports || []) {
+    const t = st.territories[r.tid];
+    const iAtt = r.att === myKid, iDef = r.def === myKid;
+    if (!iAtt && !iDef) continue;
+    const won = (iAtt && r.attWon) || (iDef && !r.attWon);
+    const bits = [won && !r.skirmish && iAtt ? `${t.name} is yours` : !won && iDef && !r.skirmish ? `${t.name} was lost` : '',
+      r.evolved ? `${r.evolved} evolved` : '', r.elites ? `${r.elites} became Elite` : '', r.leveled && r.leveled.length ? `${r.leveled.length} level-up${r.leveled.length > 1 ? 's' : ''}` : '',
+      r.loot != null && won && st.items[r.loot] ? `found ${st.items[r.loot].name}` : '', r.captured && r.captured.length ? `${r.captured.length} captured` : '',
+      r.defected && r.defected.length ? `${r.defected.length} traitor${r.defected.length > 1 ? 's' : ''}!` : ''].filter(Boolean).join(' · ');
+    cards.push(card(won ? '⚑' : '✖', `${won ? 'Victory' : 'Defeat'} at ${t.name}`, bits, won ? 'good' : 'bad', { tid: r.tid }));
+  }
+  const mineNotes = [...(orderNotes || []), ...(summary.notes || [])].filter((n) => n.kid === myKid || n.kid === -1);
+  const minor = [];
+  for (const n of mineNotes) {
+    const N = NOTE[n.kind];
+    if (N) cards.push(card(N[0], N[1], n.text, N[2], findPlace(n.text)));
+    else minor.push(h('div', { class: 'row', style: { gap: '6px' } }, h('span', { class: 'grow' }, '• ' + n.text), (() => { const w = findPlace(n.text); return w ? btn('Show', showMe(w), 'tiny ghost') : null; })()));
+  }
+  for (const x of kingdomHeroes(st, myKid).filter((x) => !x.role && x.level >= ROLE_LEVEL)) cards.push(card('★', `${x.name} can choose a calling`, 'Commander, Duelist, Strategist or Scout.', 'gold', null, btn('Choose', () => { mm.close(); after(); heroModal(x.id); }, 'tiny good')));
+  const myEvents = [], world = [];
+  for (const e of summary.events || []) {
+    const ic = SPELL[EVENT_SPELL[e.kind]];
+    const icon = ic && ic.icon ? sprite(ic.icon, 0, 0, 16, 16, 1.5) : '◆';
+    if (e.kid === myKid) myEvents.push(card(icon, (EVENT_INFO[e.kind] || {}).name || 'Event', e.text, ['harvest', 'goldrush'].includes(e.kind) ? 'good' : 'bad', e.tid != null ? { tid: e.tid } : null));
+    else world.push(h('div', { class: 'row', style: { gap: '6px' } }, icon, h('span', { class: 'grow' }, e.text), e.tid != null ? btn('Show', showMe({ tid: e.tid }), 'tiny ghost') : null));
+  }
+  const bad = (summary.events || []).some((e) => e.kid === myKid && ['quake', 'plague', 'revolt', 'overthrow', 'bandits', 'outbreak', 'famine'].includes(e.kind));
+  if ((summary.events || []).some((e) => e.kind === 'overthrow' && e.kid === myKid)) { sfx('lost'); banner('OVERTHROWN!', 'bad', 'Your realm has fallen to revolution'); }
+  sfx('turn');
+  const rest = [...minor, ...world];
+  let open = false;
+  const restBox = h('div', { class: 'col', style: { gap: '4px', display: 'none' } }, rest);
+  const restBtn = rest.length ? btn(`Across the land (${rest.length}) ▾`, () => { open = !open; restBox.style.display = open ? '' : 'none'; restBtn.textContent = `Across the land (${rest.length}) ${open ? '▴' : '▾'}`; }, 'small ghost') : null;
+  const all = [...cards, ...myEvents];
+  mm = modal(`${seasonOf(prevTurn)} of year ${yearOf(prevTurn)} ends`, h('div', { class: 'col' },
+    all.length ? all : h('div', { class: 'muted' }, 'A quiet season in your realm.'),
+    restBtn, restBox,
+  ), [['Continue', () => after(), 'primary']], { width: '680px' });
 }
 
 function achievementToasts() {

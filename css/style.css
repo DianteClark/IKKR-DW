@@ -373,3 +373,28 @@ input.text:focus { outline: none; box-shadow: 0 0 0 2px var(--gold); }
 
 .bottombar.narrow { max-width: calc(54vw - 16px); overflow-x: auto; scrollbar-width: none; }
 .bottombar.narrow .btn { padding-left: 8px; padding-right: 8px; font-size: 14px; }
+
+/* ux 12 */
+/* toasts sit low, clear of the top bar and any open land panel */
+#toasts { top: auto; bottom: calc(66px + var(--sab)); max-width: 70vw; }
+body.side-open #toasts { left: calc(26vw + 6px); max-width: 48vw; }
+.toast { white-space: normal; text-align: center; }
+.sumcard { padding: 6px 8px; gap: 8px; align-items: center; }
+.sumcard .sum-ic { width: 26px; height: 26px; flex: none; display: grid; place-items: center; font-size: 18px; color: var(--gold); }
+.sumcard b.bad { color: var(--bad); } .sumcard b.good { color: var(--good); } .sumcard b.gold { color: var(--gold); }
+.hl-group { gap: 4px; padding: 4px 2px 2px; border-bottom: 1px solid rgba(255,216,107,.25); margin-top: 4px; }
+.eco-line { display: flex; gap: 8px; font-size: 14px; padding: 1px 0; }
+.eco-sec.on { box-shadow: 0 0 0 2px var(--gold); }
+.topbar .chip.tap { cursor: pointer; }
+.bc-row { padding: 5px 8px; gap: 8px; align-items: center; }
+.bc-row .seg { flex: none; }
+.bc-row { min-height: 0; padding: 2px 8px; border-width: 6px; }
+.bc-row .seg button { min-height: 30px; padding: 3px 10px; font-size: 14px; }
+.sumcard { min-height: 0; border-width: 6px; }
+.goals { position: absolute; top: calc(52px + var(--sat)); left: calc(6px + var(--sal)); z-index: 4; max-width: min(44vw, 330px); }
+.goals-chip { display: flex; gap: 8px; align-items: center; max-width: 100%; font: inherit; font-size: 13px; color: var(--ink); background: rgba(16,12,24,.86); border: 2px solid #6b5432; border-radius: 4px; padding: 4px 10px; cursor: pointer; }
+.goals-panel { padding: 8px 10px; gap: 4px; font-size: 14px; }
+.goal { display: flex; gap: 8px; align-items: flex-start; padding: 2px 0; }
+.goal.done { opacity: .55; } .goal.done .goal-tick { color: var(--good); }
+.goal.next .goal-tick { color: var(--gold); }
+.goal-tick { width: 14px; flex: none; }

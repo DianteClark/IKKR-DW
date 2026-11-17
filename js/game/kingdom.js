@@ -13,9 +13,11 @@ export function economyPreview(state, k) {
   const tax = POLICIES.tax[k.policy.tax], rat = POLICIES.rations[k.policy.rations];
   let gold = 0, food = 0;
   for (const t of lands) { gold += territoryIncome(t); food += territoryFood(t); }
+  const landGold = gold, landFood = food;
   gold = Math.round(gold * tax.gold);
   if (k.buildings.granary) food = Math.round(food * 1.25);
-  food = Math.round(food * SEASON_FOOD[seasonOf(state.turn)]);
+  const season = seasonOf(state.turn);
+  food = Math.round(food * SEASON_FOOD[season]);
   const heroes = kingdomHeroes(state, k.id, true);
   const soldiers = heroes.reduce((n, h) => n + h.troops.length, 0);
   const eat = k.landless ? 0 : Math.round((soldiers * 0.6 + heroes.length * 2) * rat.food); // wanderers live off the land
@@ -29,7 +31,10 @@ export function economyPreview(state, k) {
   }
   const trade = k.landless ? 0 : tradeIncome(state, k.id);
   return { gold: gold - tributeOut + tributeIn + trade, trade, food: food - eat, foodMade: food, foodEaten: eat, tributeIn, tributeOut, soldiers, lands: lands.length,
-    morale: tax.morale + rat.morale, stability: tax.stability || 0 };
+    morale: tax.morale + rat.morale, stability: tax.stability || 0,
+    // parts, for the economy breakdown
+    landGold, landFood, taxGold: tax.gold, granary: !!k.buildings.granary, season, seasonFood: SEASON_FOOD[season], rationFood: rat.food,
+    heroCount: heroes.length, ruined: lands.filter((t) => t.ruined > 0).length };
 }
 
 export function economyTick(state, k, rng, notes) {
