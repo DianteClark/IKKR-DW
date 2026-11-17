@@ -2,7 +2,7 @@ import { registerScene, go } from '../main.js';
 import { h, btn, mount, clearUI, modal, toast } from '../engine/ui.js';
 import { net } from '../net/net.js';
 import { createWorld, confirmPicks } from '../game/world.js';
-import { factionPicker, heroPicker } from './setup.js';
+import { factionPicker, heroPicker, newGameOptions } from './setup.js';
 import { campaignSession } from './campaign.js';
 
 let L = {};
@@ -44,14 +44,16 @@ async function hostFlow() {
     net.on('fid', (m) => { L.peerFid = m.fid; maybeCreate(); });
     net.on('picks', (m) => { L.peerPicked = m.ids; maybeBegin(); });
     clearUI();
-    mount(factionPicker('Choose your people (you are player 1)', (fid) => { L.hostFid = fid; screen(h('h2', {}, 'Waiting for player 2 to choose…')); maybeCreate(); }));
+    const pickFid = () => { clearUI(); mount(factionPicker('Choose your people (you are player 1)', (fid) => { L.hostFid = fid; screen(h('h2', {}, 'Waiting for player 2 to choose…')); maybeCreate(); })); };
+    const opts = newGameOptions((o) => { L.opts = o; pickFid(); }, null, { title: 'Map & difficulty', size: 'small' });
+    if (opts instanceof Node) mount(opts); else pickFid();
   });
 }
 
 function maybeCreate() {
   if (!L.hostFid || !L.peerFid || L.state) return;
   const seed = (Math.random() * 2 ** 31) >>> 0;
-  L.state = createWorld(seed, [{ fid: L.hostFid }, { fid: L.peerFid }]);
+  L.state = createWorld(seed, [{ fid: L.hostFid }, { fid: L.peerFid }], L.opts || { size: 'small' });
   net.send({ t: 'world', s: L.state });
   clearUI();
   mount(heroPicker(L.state, 0, (ids) => { L.hostPicked = ids; screen(h('h2', {}, 'Waiting for player 2 to choose heroes…')); maybeBegin(); }));

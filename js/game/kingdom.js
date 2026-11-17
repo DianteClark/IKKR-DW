@@ -15,7 +15,7 @@ export function economyPreview(state, k) {
   if (k.buildings.granary) food = Math.round(food * 1.25);
   const heroes = kingdomHeroes(state, k.id, true);
   const soldiers = heroes.reduce((n, h) => n + h.troops.length, 0);
-  const eat = Math.round((soldiers * 0.6 + heroes.length * 2) * rat.food);
+  const eat = k.landless ? 0 : Math.round((soldiers * 0.6 + heroes.length * 2) * rat.food); // wanderers live off the land
   // tribute: vassals pay a fifth of their gold income to their overlord
   const lord = overlordOf(state, k.id);
   const tributeOut = lord >= 0 ? Math.round(gold * 0.2) : 0;
