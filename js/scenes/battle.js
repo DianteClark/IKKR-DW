@@ -1,3 +1,5 @@
+import { autumnizeCanvas } from '../campaign/mapview.js';
+import { seasonOf } from '../game/family.js';
 import { registerScene, go, game } from '../main.js';
 import { ctx, screen, Camera, canvas } from '../engine/view.js';
 import { h, btn, mount, modal, toast, bar, sprite, clearUI, banner, stratagemCard, chip, confirm } from '../engine/ui.js';
@@ -32,7 +34,7 @@ registerScene('battle', {
       const A = st.kingdoms[b.att], D = b.def >= 0 ? st.kingdoms[b.def] : null;
       const atk = b.attackers.map((id) => hero(st, id)), dfd = b.defenders.map((id) => hero(st, id));
       setup = {
-        seed: hashStr(`${st.seed}:${st.turn}:${b.tid}:${b.att}`), biome: t.biome, level: t.level, place: t.name, siege: !!b.siege,
+        seed: hashStr(`${st.seed}:${st.turn}:${b.tid}:${b.att}`), biome: (seasonOf(st.turn) === 'Winter' && (t.biome === 'grass' || t.biome === 'marsh')) ? 'ice' : t.biome, season: seasonOf(st.turn), level: t.level, place: t.name, siege: !!b.siege,
         attackers: JSON.parse(JSON.stringify(atk)), defenders: JSON.parse(JSON.stringify(dfd)),
         attFid: A.fid, defFid: D ? D.fid : (t.race || 'castle'), attName: A.name, defName: D ? D.name : 'Town guard',
         attKid: A.id, defKid: D ? D.id : -1, attMorale: A.morale, defMorale: D ? D.morale : 60,
@@ -56,6 +58,7 @@ registerScene('battle', {
     B.sim = createBattle({ ...setup, items: B.state ? B.state.items : (args.items || {}) });
     B.sim.ai = { att: setup.control.att === 'ai', def: setup.control.def === 'ai' };
     B.ground = renderGround(B.sim.field);
+    if (B.setup.season === 'Autumn' && (B.setup.biome === 'grass' || B.setup.biome === 'marsh')) autumnizeCanvas(B.ground);
     B.juice = createFx();
     if (net.role === 'host') {
       net.send({ t: 'battleStart', setup, items: B.state.items });
@@ -500,8 +503,18 @@ function tap(sx, sy) {
   }
   const own = squadAt(wx, wy, B.side, R);
   const sel = selSquads();
-  if (own && !(sel.length && postAt(wx, wy, 1.2) && !squadAt(wx, wy, B.side, R * 0.6))) {
+  const now = performance.now();
+  if (own) {
+    const twice = B.lastTap && B.lastTap.id === own.id && now - B.lastTap.t < 600;
+    B.lastTap = { id: own.id, t: now };
     if (sel.length === 1 && sel[0].id === own.id) { pulseSquad(own); return; }
+    // with squads selected, tapping a friendly squad that holds a base sends them to that base;
+    // double-tap (or tap its card on the left) to select it instead
+    const base = postAt(own.x, own.y, 2.4);
+    if (sel.length && !sel.some((q) => q.id === own.id) && base && !twice) {
+      orderMove(sel, base); toast(`Joining ${own.name} at the base · double-tap to select it instead`);
+      return;
+    }
     setSel([own.id]); sfx('click'); pulseSquad(own); return;
   }
   const foe = squadAt(wx, wy, B.side === 'att' ? 'def' : 'att', R);

@@ -137,14 +137,15 @@ function hsl2rgb(h, s, l) {
   const f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
   return [Math.round(f(0) * 255), Math.round(f(8) * 255), Math.round(f(4) * 255)];
 }
+export function autumnizeCanvas(c) { autumnize(c, null, 0, 0); }
 function autumnize(c, T, cx0, cy0) {
   const x = c.getContext('2d', { willReadFrequently: true });
   const id = x.getImageData(0, 0, c.width, c.height), d = id.data, w = c.width;
   for (let py = 0; py < c.height; py++) {
     const cy = cy0 + (py >> 4);
     for (let px = 0; px < w; px++) {
-      const cx = cx0 + (px >> 4), ci = cy * T.W + cx;
-      if (!T.land[ci] || !SEASONAL.has(BIOME_IDS[T.biome[ci]])) continue;
+      const cx = cx0 + (px >> 4);
+      if (T) { const ci = cy * T.W + cx; if (!T.land[ci] || !SEASONAL.has(BIOME_IDS[T.biome[ci]])) continue; }
       const o = (py * w + px) * 4, r = d[o], g = d[o + 1], b = d[o + 2];
       if (!(g > r && g >= b) || b > 140) continue; // only greens (water and foam stay)
       const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 510, sat = mx - mn;
@@ -181,11 +182,17 @@ export function renderRegion(T, cx0, cy0, cw, ch) {
   const tiles = BIOME_IDS.map((b) => img(BIOMES[b].src));
   const inWin = (cx, cy, pad = 1) => cx >= wx0 - pad && cy >= wy0 - pad && cx < wx1 + pad && cy < wy1 + pad;
   // winter: rivers through cold land freeze over (pale ice with the banks' dark outline kept)
-  if (season === 'Winter' && river && c.landMask) {
+  const COLD = new Set(['ice', 'christmas']);
+  const frozen = (g) => {
+    if (river && river[g] && land[g]) return COLD.has(BIOME_IDS[biome[g]]) && !(T.dist && T.dist[g] < 3);
+    if (T.lake && T.lake[g]) { const b = BIOME_IDS[P.bIdx[g]]; return COLD.has(b) || (season === 'Winter' && SEASONAL.has(b)); }
+    return false;
+  };
+  if ((river || T.lake) && c.landMask) {
     const id = x.getImageData(0, 0, c.width, c.height), d = id.data, M = c.landMask, PW = c.width;
     for (let ly = 0; ly < wh; ly++) for (let lx = 0; lx < ww; lx++) {
       const g = (ly + wy0) * W + lx + wx0;
-      if (!river[g] || biome[g] !== ICE_I() || (T.dist && T.dist[g] < 3)) continue; // river mouths stay open
+      if (!frozen(g)) continue; // river mouths stay open; arctic water is always frozen
       for (let py = ly * TS - 2; py < ly * TS + TS + 2; py++) for (let px = lx * TS - 2; px < lx * TS + TS + 2; px++) {
         if (px < 0 || py < 0 || px >= PW || py >= c.height || M[py * PW + px]) continue;
         const o = (py * PW + px) * 4, lum = d[o] * 0.3 + d[o + 1] * 0.59 + d[o + 2] * 0.11;
@@ -300,7 +307,7 @@ function overview(T) {
     else if (T.road && T.road[i]) col = [222, 196, 140];
     else if (T.river && T.river[i]) col = [42, 160, 226];
     else {
-      col = bcol[biome[i]];
+      col = T.season === 'Autumn' && SEASONAL.has(BIOME_IDS[T.biome[i]]) ? AUTUMN_GRASS : bcol[seasonalBiome(T, T.season || 'Summer')[i]];
       if (feat[i] === 1) col = col.map((v) => v * 0.62);
       else if (feat[i] === 2) col = [col[0] * 0.55 + 50, col[1] * 0.55 + 40, col[2] * 0.55 + 36];
     }
@@ -409,6 +416,12 @@ export function renderMinimap(T, state) {
   updateMinimap(c, T, state);
   return c;
 }
+const AUTUMN_GRASS = [200, 160, 60];
+function seasonCol(T, i, bcol) {
+  const sb = seasonalBiome(T, T.season || 'Summer');
+  if (T.season === 'Autumn' && SEASONAL.has(BIOME_IDS[T.biome[i]])) return bcol === null ? AUTUMN_GRASS : AUTUMN_GRASS.map((v) => v * 0.55 + 30);
+  return bcol ? bcol[sb[i]] : null;
+}
 export function updateMinimap(c, T, state) {
   const P = prep(T);
   const x = c.getContext('2d');
@@ -422,7 +435,7 @@ export function updateMinimap(c, T, state) {
     if (!T.land[i]) col = P.deep[i] ? [22, 70, 140] : [34, 112, 180];
     else {
       const t = T.terr[i], o = owners && t >= 0 ? owners[t] : -1;
-      col = bcol[T.biome[i]];
+      col = seasonCol(T, i, bcol);
       if (o >= 0 && kcol[o]) col = [col[0] * 0.35 + kcol[o][0] * 0.65, col[1] * 0.35 + kcol[o][1] * 0.65, col[2] * 0.35 + kcol[o][2] * 0.65];
       if (T.feat[i]) col = col.map((v) => v * 0.85);
       // land borders a shade darker

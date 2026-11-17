@@ -104,7 +104,7 @@ registerScene('campaign', {
       if (S.minimap) { updateMinimap(S.minimap, S.T, st); drawMinimapUI(); }
     }
     trackTravel(st);
-    setSeason(S.T, seasonOf(st.turn));
+    if (S.T.season !== seasonOf(st.turn)) { setSeason(S.T, seasonOf(st.turn)); if (S.minimap) { updateMinimap(S.minimap, S.T, st); drawMinimapUI(); } }
     cam.apply();
     const vw = screen.w / cam.zoom, vh = screen.h / cam.zoom;
     const view = { x: cam.x - vw / 2, y: cam.y - vh / 2, w: vw, h: vh };

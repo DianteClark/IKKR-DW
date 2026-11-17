@@ -115,6 +115,26 @@ export function generateTerrain(seed, opts) {
   // fill puddles; keep real lakes
   const oceanComp = Wt.id[0];
   for (let i = 0; i < N; i++) if (!land[i] && Wt.id[i] !== oceanComp && Wt.sizes[Wt.id[i]] < 18) land[i] = 1;
+  // inland lakes: a few rounded, noisy pools well away from the coast (rivers can end in them)
+  const lake = new Uint8Array(N);
+  {
+    const cd = new Int32Array(N).fill(1e6); let q = [];
+    for (let i = 0; i < N; i++) if (!land[i]) { cd[i] = 0; q.push(i); }
+    while (q.length) { const nq = []; for (const j of q) { const x = j % W, y = (j / W) | 0; for (const [dx, dy] of DIRS4) { const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue; const k = ny * W + nx; if (cd[k] > cd[j] + 1) { cd[k] = cd[j] + 1; nq.push(k); } } } q = nq; }
+    const nLake = makeNoise(seed ^ 0xa11e);
+    const want = { small: 1, medium: 3, large: 4, huge: 8, enormous: 14 }[size] || 2;
+    const centres = [];
+    for (let tries = 0; tries < 400 && centres.length < want; tries++) {
+      const x = rng.int(6, W - 7), y = rng.int(6, H - 7), i = y * W + x;
+      if (!land[i] || cd[i] < 7 || centres.some((c) => Math.hypot(c[0] - x, c[1] - y) < 14)) continue;
+      centres.push([x, y, 2 + rng() * 2.2]);
+    }
+    for (const [x0, y0, r] of centres) for (let y = y0 - 6; y <= y0 + 6; y++) for (let x = x0 - 7; x <= x0 + 7; x++) {
+      const i = y * W + x; if (!land[i] || cd[i] < 4) continue;
+      const d = Math.hypot((x - x0) / 1.25, y - y0) / r + (nLake(x / 3, y / 3, 2) - 0.5) * 0.7;
+      if (d < 1) { land[i] = 0; lake[i] = 1; }
+    }
+  }
   L = components(W, H, land, 1);
 
   // ---- biomes ----
@@ -238,7 +258,8 @@ export function generateTerrain(seed, opts) {
     o.cells++; o.sx += x; o.sy += y; o.biomeCount[biome[i]]++;
     if (x + 1 < W && terr[i + 1] >= 0 && terr[i + 1] !== t) { o.nb.add(terr[i + 1]); T[terr[i + 1]].nb.add(t); }
     if (y + 1 < H && terr[i + W] >= 0 && terr[i + W] !== t) { o.nb.add(terr[i + W]); T[terr[i + W]].nb.add(t); }
-    if (!land[i - 1] || !land[i + 1] || !land[i - W] || !land[i + W]) o.coastal.push(i);
+    const sea = (k) => !land[k] && !lake[k];
+    if (sea(i - 1) || sea(i + 1) || sea(i - W) || sea(i + W)) o.coastal.push(i);
   }
   const zoneBlocked = (x, y, t) => {
     for (let dy = -4; dy <= 1; dy++) for (let dx = -2; dx <= 3; dx++) {
@@ -341,7 +362,7 @@ export function generateTerrain(seed, opts) {
   // dock spots: coastal land cell of a facing b, water cell next to it
   const docks = [];
   const dockOf = new Map();
-  const coastWater = (k) => { const x = k % W, y = (k / W) | 0; for (const [dx, dy] of DIRS4) { const j = (y + dy) * W + x + dx; if (!land[j]) return j; } return -1; };
+  const coastWater = (k) => { const x = k % W, y = (k / W) | 0; for (const [dx, dy] of DIRS4) { const j = (y + dy) * W + x + dx; if (!land[j] && !lake[j]) return j; } return -1; };
   const findDock = (a, b) => {
     const key = a + '>' + b; if (dockOf.has(key)) return dockOf.get(key);
     const tb = territories[b];
@@ -586,7 +607,7 @@ export function generateTerrain(seed, opts) {
   }
 
   const decorSeed = rng.int(0, 1e9);
-  const out = { size, W, H, land, biome, terr, feat, territories, decorSeed, seaLinks, seaRoutes, docks, rivers, river, road, fields, fences, houses, landmarks, decor, dist, bridge, bridges, siteSpots };
+  const out = { size, W, H, land, biome, terr, feat, territories, decorSeed, seaLinks, seaRoutes, docks, rivers, river, road, fields, fences, houses, landmarks, decor, dist, bridge, bridges, siteSpots, lake };
   // pixel points (cell centres) along the road between two neighbouring lands; straight line if none
   out.roadPath = (a, b) => {
     const p = roadPaths.get(Math.min(a, b) + ':' + Math.max(a, b));
