@@ -417,7 +417,7 @@ export function generateTerrain(seed, opts) {
     const bid = BIOME_IDS[biome[i]];
     const nearBorder = border[i] || border[i - 1] || border[i + 1] || border[i - W] || border[i + W];
     if (dist[i] >= 3 && (ridge > 0.9 || (nearBorder && ridge > 0.72 && nMtn(x / 4, y / 4, 2) > 0.45))) feat[i] = 2;
-    else if (!nogrow[bid] && f > 0.45) feat[i] = 1;
+    else if (!nogrow[bid] && f > 0.42) feat[i] = 1;
     else if (bid === 'sand' && f > 0.66) feat[i] = 2;
   }
   // keep a clearing around towns for houses/fields/heroes
@@ -487,7 +487,7 @@ export function generateTerrain(seed, opts) {
       placedF++;
     }
     // hamlet houses
-    const nh = rng.int(2, 4);
+    const nh = 0; // settlements are drawn live from game state now (hamlet -> village -> town)
     for (let tr = 0, placed = 0; tr < 40 && placed < nh; tr++) {
       const x = t.cx + rng.int(-5, 6), y = t.cy + rng.int(-4, 3);
       if (Math.abs(x - t.cx) <= 3 && y >= t.cy - 4 && y <= t.cy + 1) continue;
