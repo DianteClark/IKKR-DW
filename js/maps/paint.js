@@ -279,30 +279,42 @@ export function drawNetwork(ctx, sheet, W, H, grid, val, bx, by, skip) {
 }
 
 // A* on a cell grid; cost(i) returns Infinity for blocked
-export function astar(W, H, from, to, cost) {
+export function astar(W, H, from, to, cost, bb) {
+  if (bb) { const r = astarBox(W, H, from, to, cost, bb); if (r) return r; }
+  return astarBox(W, H, from, to, cost, null);
+}
+const AS = {};
+function astarBox(W, H, from, to, cost, bb) {
+  const bx0 = bb ? Math.max(0, bb.x0) : 0, by0 = bb ? Math.max(0, bb.y0) : 0, bx1 = bb ? Math.min(W - 1, bb.x1) : W - 1, by1 = bb ? Math.min(H - 1, bb.y1) : H - 1;
   const N = W * H;
-  const g = new Float32Array(N).fill(Infinity), prev = new Int32Array(N).fill(-1), closed = new Uint8Array(N);
+  if (!AS.g || AS.g.length < N) { AS.g = new Float32Array(N); AS.prev = new Int32Array(N); AS.stamp = new Uint32Array(N); AS.closed = new Uint32Array(N); AS.gen = 0; }
+  const gen = ++AS.gen * 2;
+  const G = AS.g, P = AS.prev, ST = AS.stamp, CL = AS.closed;
+  // lazily-reset arrays: a cell is "fresh" when its stamp is from an older search
+  const g = { get: (i) => (ST[i] === gen ? G[i] : Infinity) };
+  const closed = { has: (i) => CL[i] === gen, add: (i) => { CL[i] = gen; } };
+  const setG = (i, v, p) => { ST[i] = gen; G[i] = v; P[i] = p; };
   const tx = to % W, ty = (to / W) | 0;
   const heap = [];
   const push = (i, f) => { heap.push([f, i]); let k = heap.length - 1; while (k > 0) { const p = (k - 1) >> 1; if (heap[p][0] <= heap[k][0]) break; [heap[p], heap[k]] = [heap[k], heap[p]]; k = p; } };
   const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let k = 0; for (;;) { const l = 2 * k + 1, r = l + 1; let m = k; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === k) break; [heap[m], heap[k]] = [heap[k], heap[m]]; k = m; } } return top; };
-  g[from] = 0; push(from, 0);
+  setG(from, 0, -1); push(from, 0);
   while (heap.length) {
     const [, u] = pop();
-    if (closed[u]) continue; closed[u] = 1;
+    if (closed.has(u)) continue; closed.add(u);
     if (u === to) break;
     const ux = u % W, uy = (u / W) | 0;
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const nx = ux + dx, ny = uy + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-      const v = ny * W + nx; if (closed[v]) continue;
+      const nx = ux + dx, ny = uy + dy; if (nx < bx0 || ny < by0 || nx > bx1 || ny > by1) continue;
+      const v = ny * W + nx; if (closed.has(v)) continue;
       const c = cost(v); if (!isFinite(c)) continue;
-      const ng = g[u] + c;
-      if (ng < g[v]) { g[v] = ng; prev[v] = u; push(v, ng + Math.abs(nx - tx) + Math.abs(ny - ty)); }
+      const ng = g.get(u) + c;
+      if (ng < g.get(v)) { setG(v, ng, u); push(v, ng + Math.abs(nx - tx) + Math.abs(ny - ty)); }
     }
   }
-  if (!isFinite(g[to])) return null;
+  if (!isFinite(g.get(to))) return null;
   const path = [];
-  for (let v = to; v >= 0; v = prev[v]) path.push(v);
+  for (let v = to; v >= 0; v = P[v]) path.push(v);
   return path.reverse();
 }
 

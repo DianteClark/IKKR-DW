@@ -5,11 +5,13 @@ import { BIOME_IDS } from '../data/art.js';
 import { placeName } from './names.js';
 import { astar } from '../maps/paint.js';
 
+// mode: 'continent' one landmass; 'mainland' a big land plus island chains; 'world' twin continents + archipelagos
 export const SIZES = {
-  small: { W: 80, H: 48, n: 24, scale: 15 },
-  medium: { W: 112, H: 68, n: 44, scale: 20 },
-  large: { W: 140, H: 86, n: 70, scale: 23 },
-  huge: { W: 188, H: 116, n: 100, scale: 18, islands: true },
+  small: { W: 80, H: 48, n: 24, scale: 15, mode: 'continent', rivers: 2 },
+  medium: { W: 112, H: 68, n: 44, scale: 20, mode: 'continent', rivers: 3 },
+  large: { W: 140, H: 86, n: 70, scale: 23, mode: 'continent', rivers: 5 },
+  huge: { W: 262, H: 162, n: 150, scale: 22, mode: 'mainland', rivers: 9 },
+  enormous: { W: 416, H: 260, n: 320, scale: 24, mode: 'world', rivers: 18 },
 };
 export const MAP_W = SIZES.medium.W, MAP_H = SIZES.medium.H;
 
@@ -35,7 +37,7 @@ function components(W, H, grid, want) {
 
 export function generateTerrain(seed, opts) {
   let size = 'medium', count = null;
-  if (typeof opts === 'number') { count = opts; size = opts <= 28 ? 'small' : opts <= 50 ? 'medium' : opts <= 80 ? 'large' : 'huge'; }
+  if (typeof opts === 'number') { count = opts; size = opts <= 28 ? 'small' : opts <= 50 ? 'medium' : opts <= 80 ? 'large' : opts <= 180 ? 'huge' : 'enormous'; }
   else if (opts && opts.size && SIZES[opts.size]) size = opts.size;
   const cfg = SIZES[size];
   const W = cfg.W, H = cfg.H, N = W * H;
@@ -47,19 +49,43 @@ export function generateTerrain(seed, opts) {
 
   // ---- land mask ----
   const land = new Uint8Array(N);
-  if (cfg.islands) {
-    const K = rng.int(5, 6);
-    const centers = [];
-    let tries = 0;
-    while (centers.length < K && tries++ < 500) {
-      const cx = rng.int(Math.floor(W * 0.14), Math.floor(W * 0.86)), cy = rng.int(Math.floor(H * 0.16), Math.floor(H * 0.84));
-      if (centers.every((c) => Math.hypot(c.x - cx, (c.y - cy) * 1.3) > W * 0.24)) centers.push({ x: cx, y: cy, r: W * (0.15 + rng() * 0.06) });
+  const multi = cfg.mode !== 'continent';
+  if (multi) {
+    // blobs: continents (big, stretched) and islands, domain-warped so coasts get bays and peninsulas
+    const blobs = [];
+    const place = (r, minGap, tries, x0 = 0.1, x1 = 0.9, y0 = 0.14, y1 = 0.86) => {
+      for (let t = 0; t < tries; t++) {
+        const cx = W * (x0 + rng() * (x1 - x0)), cy = H * (y0 + rng() * (y1 - y0));
+        if (blobs.every((c) => Math.hypot(c.x - cx, (c.y - cy) * 1.4) > (c.r + r) * minGap)) { blobs.push({ x: cx, y: cy, r, sx: 0.8 + rng() * 0.6, sy: 0.75 + rng() * 0.4 }); return true; }
+      }
+      return false;
+    };
+    // satellite islands sit just off another landmass so a narrow strait (and often a bridge) separates them
+    const satellite = (r) => {
+      for (let t = 0; t < 40; t++) {
+        const c = rng.pick(blobs), a = rng() * Math.PI * 2, d = (c.r * Math.min(c.sx, 1.2) + r) * (1.0 + rng() * 0.12);
+        const cx = c.x + Math.cos(a) * d, cy = c.y + Math.sin(a) * d / 1.3;
+        if (cx < W * 0.06 || cx > W * 0.94 || cy < H * 0.1 || cy > H * 0.9) continue;
+        if (blobs.every((o) => o === c || Math.hypot(o.x - cx, (o.y - cy) * 1.4) > (o.r + r) * 1.15)) { blobs.push({ x: cx, y: cy, r, sx: 0.9 + rng() * 0.3, sy: 0.85 + rng() * 0.3 }); return true; }
+      }
+      return false;
+    };
+    if (cfg.mode === 'mainland') {
+      blobs.push({ x: W * (0.36 + rng() * 0.1), y: H * 0.5, r: W * 0.27, sx: 1.25, sy: 0.95 });
+      for (let i = 0; i < 10; i++) (i % 2 ? satellite : (r) => place(r, 1.25, 80, 0.06, 0.94, 0.1, 0.9))(W * (0.045 + rng() * 0.035));
+    } else {
+      const left = rng() < 0.5;
+      blobs.push({ x: W * (left ? 0.27 : 0.3), y: H * (0.42 + rng() * 0.12), r: W * 0.19, sx: 1.1 + rng() * 0.3, sy: 1.0 });
+      blobs.push({ x: W * (left ? 0.72 : 0.7), y: H * (0.42 + rng() * 0.16), r: W * 0.17, sx: 1.0 + rng() * 0.3, sy: 1.05 });
+      for (let i = 0; i < 20; i++) (i % 3 ? satellite : (r) => place(r, 1.2, 80, 0.05, 0.95, 0.08, 0.92))(W * (0.03 + rng() * 0.035));
     }
+    const warp = makeNoise(seed ^ 0xbeef);
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const wx = x + (warp(x / 13, y / 13, 2) - 0.5) * 16, wy = y + (warp(x / 13 + 50, y / 13 + 50, 2) - 0.5) * 16;
       let b = 0;
-      for (const c of centers) { const d = Math.hypot(x - c.x, (y - c.y) * 1.25) / c.r; b = Math.max(b, 1 - d); }
-      const v = nLand(x / sc, y / sc, 4) * 0.55 + b * 0.85;
-      land[y * W + x] = v > 0.6 ? 1 : 0;
+      for (const c of blobs) { const d = Math.hypot((wx - c.x) / c.sx, (wy - c.y) / c.sy * 1.15) / c.r; if (d < 1.6) b = Math.max(b, 1 - d); }
+      const v = (nLand(x / sc, y / sc, 4) - 0.5) * 0.7 + b * 1.25 + (nSpec(x / 6, y / 6, 2) - 0.5) * 0.18;
+      land[y * W + x] = v > 0.3 ? 1 : 0;
     }
   } else {
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
@@ -79,8 +105,8 @@ export function generateTerrain(seed, opts) {
     }
   }
   let L = components(W, H, land, 1);
-  if (cfg.islands) {
-    for (let i = 0; i < N; i++) if (land[i] && L.sizes[L.id[i]] < 70) land[i] = 0;
+  if (multi) {
+    for (let i = 0; i < N; i++) if (land[i] && L.sizes[L.id[i]] < 60) land[i] = 0;
   } else {
     const big = L.sizes.indexOf(Math.max(...L.sizes));
     for (let i = 0; i < N; i++) if (land[i] && L.id[i] !== big) land[i] = 0;
@@ -125,7 +151,14 @@ export function generateTerrain(seed, opts) {
   rng.shuffle(landCells);
   const seeds = [];
   let minD = Math.max(5, Math.sqrt(landCells.length / territoryCount) * 0.95);
-  const far = (c, d) => { const x = c % W, y = (c / W) | 0; return seeds.every((s) => Math.hypot((s % W) - x, ((s / W) | 0) - y) >= d); };
+  const BK = 8, BW = Math.ceil(W / BK), BH = Math.ceil(H / BK), bucket = Array.from({ length: BW * BH }, () => []);
+  const addSeed = (c) => { seeds.push(c); bucket[(((c / W) | 0) / BK | 0) * BW + ((c % W) / BK | 0)].push(c); };
+  const far = (c, d) => {
+    const x = c % W, y = (c / W) | 0, bx = (x / BK) | 0, by = (y / BK) | 0, r = Math.ceil(d / BK);
+    for (let yy = Math.max(0, by - r); yy <= Math.min(BH - 1, by + r); yy++) for (let xx = Math.max(0, bx - r); xx <= Math.min(BW - 1, bx + r); xx++)
+      for (const s2 of bucket[yy * BW + xx]) if (Math.hypot((s2 % W) - x, ((s2 / W) | 0) - y) < d) return false;
+    return true;
+  };
   // every landmass gets at least one territory
   const compSeeded = new Set();
   for (const c of landCells) {
@@ -133,14 +166,14 @@ export function generateTerrain(seed, opts) {
     if (compSeeded.has(comp)) continue;
     const x = c % W, y = (c / W) | 0;
     if (x < 3 || y < 4 || x > W - 4 || y > H - 3) continue;
-    seeds.push(c); compSeeded.add(comp);
+    addSeed(c); compSeeded.add(comp);
   }
   while (seeds.length < territoryCount && minD > 3) {
     for (const c of landCells) {
       if (seeds.length >= territoryCount) break;
       const x = c % W, y = (c / W) | 0;
       if (x < 3 || y < 5 || x > W - 4 || y > H - 3) continue;
-      if (far(c, minD)) seeds.push(c);
+      if (far(c, minD)) addSeed(c);
     }
     minD -= 0.75;
   }
@@ -235,28 +268,63 @@ export function generateTerrain(seed, opts) {
   const townZone = (t, fn) => { for (let dy = -4; dy <= 0; dy++) for (let dx = -2; dx <= 3; dx++) { const x = t.cx + dx, y = t.cy + dy; if (x >= 0 && y >= 0 && x < W && y < H) fn(y * W + x, dx, dy); } };
   for (const t of territories) townZone(t, (k) => (occ[k] = 1));
 
+  // ---- bridges over narrow straits between landmasses ----
+  const bridge = new Uint8Array(N);
+  const bridges = [];
+  const compRoot = new Map();
+  const cf = (c) => { while (compRoot.has(c) && compRoot.get(c) !== c) c = compRoot.get(c); return c; };
+  if (multi) {
+    const best = new Map();
+    for (let i = 0; i < N; i++) {
+      if (!land[i] || terr[i] < 0 || occ[i]) continue;
+      const x = i % W, y = (i / W) | 0;
+      for (const [dx, dy] of [[1, 0], [0, 1]]) {
+        let k = 1; const cells = [];
+        for (; k <= 10; k++) {
+          const xx = x + dx * k, yy = y + dy * k; if (xx >= W - 2 || yy >= H - 2) { k = 99; break; }
+          const j = yy * W + xx; if (land[j]) break; cells.push(j);
+        }
+        if (k > 10 || cells.length < 1) continue;
+        const j = (y + dy * k) * W + x + dx * k;
+        if (terr[j] < 0 || L.id[j] === L.id[i] || occ[j]) continue;
+        // keep the span in open water, not hugging a coast
+        if (cells.some((c) => (dx ? land[c - W] || land[c + W] : land[c - 1] || land[c + 1]))) continue;
+        const ca = L.id[i], cb = L.id[j], key = Math.min(ca, cb) + ':' + Math.max(ca, cb);
+        const score = cells.length + rng() * 0.5;
+        if (!best.has(key) || best.get(key).score > score) best.set(key, { score, cells, a: terr[i], b: terr[j], horiz: !!dx, ca, cb });
+      }
+    }
+    for (const br of [...best.values()].sort((p, q2) => p.score - q2.score)) {
+      for (const c of br.cells) bridge[c] = 1;
+      bridges.push({ cells: br.cells.map((c) => [c % W, (c / W) | 0]), a: br.a, b: br.b, horiz: br.horiz });
+      T[br.a].nb.add(br.b); T[br.b].nb.add(br.a);
+      const ra = cf(br.ca), rb = cf(br.cb); if (ra !== rb) compRoot.set(ra, rb);
+    }
+  }
+  for (const t of territories) for (const n of T[t.id].nb) if (!t.nb.includes(n)) t.nb.push(n);
+
   // ---- sea links ----
   const seaLinks = [];
   const linkKey = new Set();
   const addLink = (a, b) => { const k = Math.min(a, b) + ':' + Math.max(a, b); if (linkKey.has(k) || a === b) return; linkKey.add(k); seaLinks.push([a, b]); };
   const coastalT = territories.filter((t) => T[t.id].coastal.length > 0);
   const tdist = (a, b) => Math.hypot(a.cx - b.cx, a.cy - b.cy);
-  const comps = [...new Set(territories.map((t) => T[t.id].comp))];
+  const comps = [...new Set(territories.map((t) => cf(T[t.id].comp)))];
   if (comps.length > 1) {
     const inTree = new Set([comps[0]]);
     while (inTree.size < comps.length) {
       let best = null;
       for (const a of coastalT) for (const b of coastalT) {
-        if (!inTree.has(T[a.id].comp) || inTree.has(T[b.id].comp)) continue;
+        if (!inTree.has(cf(T[a.id].comp)) || inTree.has(cf(T[b.id].comp))) continue;
         const d = tdist(a, b); if (!best || d < best[2]) best = [a.id, b.id, d];
       }
       if (!best) break;
-      addLink(best[0], best[1]); inTree.add(T[best[1]].comp);
+      addLink(best[0], best[1]); inTree.add(cf(T[best[1]].comp));
     }
     // extra cross links for loops
-    for (let e = 0; e < Math.ceil(comps.length / 2); e++) {
+    for (let e = 0; e < Math.ceil(comps.length / 3); e++) {
       const a = rng.pick(coastalT);
-      const cands = coastalT.filter((b) => T[b.id].comp !== T[a.id].comp).sort((p, q2) => tdist(a, p) - tdist(a, q2));
+      const cands = coastalT.filter((b) => cf(T[b.id].comp) !== cf(T[a.id].comp)).sort((p, q2) => tdist(a, p) - tdist(a, q2));
       if (cands.length) addLink(a.id, cands[0].id);
     }
   } else if (size === 'large' || size === 'medium') {
@@ -308,7 +376,7 @@ export function generateTerrain(seed, opts) {
   for (let i = 0; i < N; i++) height[i] = dist[i] * 0.8 + nMtn((i % W) / 9, ((i / W) | 0) / 9, 3) * 6 + nMeander((i % W) / 4, ((i / W) | 0) / 4, 2) * 7;
   const river = new Uint8Array(N);
   const rivers = [];
-  const nRivers = { small: 2, medium: 3, large: 5, huge: 5 }[size];
+  const nRivers = cfg.rivers || 3;
   const srcCands = landCells.filter((c) => dist[c] >= 5 && !occ[c]).sort((a, b) => height[b] - height[a]);
   for (let r = 0, tries = 0; r < nRivers && tries < 60; tries++) {
     const src = srcCands[Math.floor(Math.pow(rng(), 2) * Math.min(srcCands.length, 400))];
@@ -369,20 +437,23 @@ export function generateTerrain(seed, opts) {
   const find = (a) => (uf[a] === a ? a : (uf[a] = find(uf[a])));
   const roadEdges = [];
   for (const e of edges) { const a = find(e[0]), b = find(e[1]); if (a !== b) { uf[a] = b; roadEdges.push(e); } else if (rng() < 0.22) roadEdges.push(e); }
+  const roadPaths = new Map();
   for (const [ta, tb] of roadEdges) {
     const t = territories[ta], u = territories[tb];
+    const bb = { x0: Math.min(t.cx, u.cx) - 16, y0: Math.min(t.cy, u.cy) - 16, x1: Math.max(t.cx, u.cx) + 16, y1: Math.max(t.cy, u.cy) + 16 };
     const path = astar(W, H, gate(t), gate(u), (k) => {
+      if (bridge[k]) return 1;
       if (!land[k]) return Infinity;
       if (occ[k] === 1) return Infinity;
       if (road[k]) return 0.35;
-      return 1 + (feat[k] === 2 ? 9 : feat[k] === 1 ? 2.5 : 0) + (river[k] ? 5 : 0);
-    });
-    if (path) for (const k of path) { road[k] = 1; if (feat[k]) feat[k] = 0; if (!occ[k]) occ[k] = 2; }
+      return 1 + (feat[k] === 2 ? 9 : feat[k] === 1 ? 2.5 : 0) + (river[k] ? 5 : 0) + (dist[k] < 2 ? 0.6 : 0);
+    }, bb);
+    if (path) { for (const k of path) { road[k] = 1; if (feat[k]) feat[k] = 0; if (!occ[k]) occ[k] = 2; } roadPaths.set(Math.min(ta, tb) + ':' + Math.max(ta, tb), path); }
   }
   // roads from towns to their docks
   for (const d of docks) {
     const t = territories[d.tid];
-    const path = astar(W, H, gate(t), d.y * W + d.x, (k) => (!land[k] || occ[k] === 1 ? Infinity : road[k] ? 0.35 : 1 + (feat[k] === 2 ? 9 : feat[k] ? 2.5 : 0) + (river[k] ? 5 : 0)));
+    const path = astar(W, H, gate(t), d.y * W + d.x, (k) => (bridge[k] ? Infinity : !land[k] || occ[k] === 1 ? Infinity : road[k] ? 0.35 : 1 + (feat[k] === 2 ? 9 : feat[k] ? 2.5 : 0) + (river[k] ? 5 : 0)), { x0: Math.min(t.cx, d.x) - 12, y0: Math.min(t.cy, d.y) - 12, x1: Math.max(t.cx, d.x) + 12, y1: Math.max(t.cy, d.y) + 12 });
     if (path) for (const k of path) { road[k] = 1; feat[k] = 0; if (!occ[k] || occ[k] === 4) occ[k] = occ[k] || 2; }
   }
   // tidy 1-wide features
@@ -452,6 +523,41 @@ export function generateTerrain(seed, opts) {
     }
   }
 
+  // ---- neutral site spots: 0-2 per land, in clearings off the road ----
+  const siteSpots = [];
+  const cellsOf = territories.map(() => []);
+  for (let i = 0; i < N; i++) if (terr[i] >= 0 && land[i] && !occ[i] && !road[i] && !river[i]) cellsOf[terr[i]].push(i);
+  for (const t of territories) {
+    const want = rng() < 0.25 ? 0 : rng() < 0.65 ? 1 : 2;
+    let placed = 0;
+    const cl = cellsOf[t.id];
+    for (let tr = 0; tr < 80 && placed < want && cl.length; tr++) {
+      const c0 = rng.pick(cl), x = c0 % W, y = (c0 / W) | 0;
+      if (Math.abs(x - t.cx) < 4 && y - t.cy > -6 && y - t.cy < 3) continue;
+      if (siteSpots.some((sp) => Math.abs(sp.x - x) < 4 && Math.abs(sp.y - y) < 4)) continue;
+      let ok = x > 2 && y > 3 && x < W - 4 && y < H - 4;
+      for (let dy = -1; dy <= 2 && ok; dy++) for (let dx = -1; dx <= 2; dx++) {
+        const k = (y + dy) * W + x + dx, core = dx >= 0 && dx <= 1 && dy >= 0 && dy <= 1;
+        if (!land[k] || occ[k] === 1 || occ[k] === 6 || (core && (occ[k] || road[k] || river[k] || terr[k] !== t.id))) { ok = false; break; }
+      }
+      if (!ok) continue;
+      let nM = 0, nF = 0;
+      for (let dy = -3; dy <= 4; dy++) for (let dx = -3; dx <= 4; dx++) { const xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue; const f = feat[yy * W + xx]; if (f === 2) nM++; else if (f === 1) nF++; }
+      const b = t.biome;
+      const pool = ['ruin', 'camp', 'shrine', 'lair'];
+      if (nM > 3) pool.push('mine', 'mine', 'lair');
+      if (nF > 5) pool.push('grove', 'grove', 'camp');
+      if (b === 'dungeon' || b === 'cave' || b === 'lava') pool.push('ruin', 'lair');
+      if (b === 'grass' || b === 'marsh') pool.push('shrine', 'grove');
+      const kind = rng.pick(pool);
+      if (siteSpots.some((sp) => sp.tid === t.id && sp.kind === kind)) continue;
+      claim(x, y, 2, 2, 6);
+      for (let dy = -1; dy <= 2; dy++) for (let dx = -1; dx <= 2; dx++) feat[(y + dy) * W + x + dx] = 0;
+      siteSpots.push({ tid: t.id, x, y, kind });
+      placed++;
+    }
+  }
+
   // decor: meadow flowers in patches, rocks near mountains, bushes at forest edges
   const decor = [];
   for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
@@ -466,5 +572,15 @@ export function generateTerrain(seed, opts) {
   }
 
   const decorSeed = rng.int(0, 1e9);
-  return { size, W, H, land, biome, terr, feat, territories, decorSeed, seaLinks, seaRoutes, docks, rivers, river, road, fields, fences, houses, landmarks, decor, dist };
+  const out = { size, W, H, land, biome, terr, feat, territories, decorSeed, seaLinks, seaRoutes, docks, rivers, river, road, fields, fences, houses, landmarks, decor, dist, bridge, bridges, siteSpots };
+  // pixel points (cell centres) along the road between two neighbouring lands; straight line if none
+  out.roadPath = (a, b) => {
+    const p = roadPaths.get(Math.min(a, b) + ':' + Math.max(a, b));
+    const ta = territories[a], tb = territories[b];
+    if (!p) return [[ta.cx * 16 + 8, ta.cy * 16 + 8], [tb.cx * 16 + 8, tb.cy * 16 + 8]];
+    let pts = p.map((k) => [(k % W) * 16 + 8, ((k / W) | 0) * 16 + 8]);
+    if (Math.hypot(pts[0][0] - (ta.cx * 16 + 8), pts[0][1] - (ta.cy * 16 + 24)) > 20) pts = pts.reverse();
+    return pts;
+  };
+  return out;
 }
