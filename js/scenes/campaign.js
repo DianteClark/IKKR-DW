@@ -376,13 +376,14 @@ function heroBlock(x) {
   const price = restPrice(st, x);
   const o = (order) => act({ type: 'order', hero: x.id, order });
   const is = (t) => x.order && x.order.type === t;
+  const picking = (t) => S.target && S.target.kind === t && S.target.heroes.includes(x.id);
   const need = x.troops.length < squadCap(x, k) || x.hp < 100;
   const actions = h('div', { class: 'row wrap', style: { gap: '4px', margin: '2px 0 8px' } },
-    targets.length ? btn(k.landless ? 'Rise up' : 'Attack', () => (k.landless ? o({ type: 'attack', target: targets[0] }) : startTarget([x.id], 'attack')), 'danger small') : null,
-    moves.length ? btn('Move', () => startTarget([x.id], 'move'), 'small') : null,
+    targets.length ? btn(is('attack') ? `Attack → ${st.territories[x.order.target].name}` : k.landless ? 'Rise up' : 'Attack', () => (k.landless ? o({ type: 'attack', target: targets[0] }) : startTarget([x.id], 'attack')), 'danger small' + (is('attack') || picking('attack') ? ' sel' : '')) : null,
+    moves.length ? btn(is('move') ? `Move → ${st.territories[x.order.target].name}` : 'Move', () => startTarget([x.id], 'move'), 'small' + (is('move') || picking('move') ? ' sel' : '')) : null,
     btn(need ? `Rest${price ? ' ' + price + 'g' : ''}` : 'Rest', () => o({ type: 'rest' }), 'small good' + (is('rest') ? ' sel' : '')),
     btn('Drill', () => o({ type: 'drill' }), 'small' + (is('drill') ? ' sel' : '')),
-    spies.length ? btn('Spy', () => startTarget([x.id], 'spy'), 'small' + (is('spy') ? ' sel' : '')) : null,
+    spies.length ? btn(is('spy') ? `Spy → ${st.territories[x.order.target].name}` : 'Spy', () => startTarget([x.id], 'spy'), 'small' + (is('spy') || picking('spy') ? ' sel' : '')) : null,
     x.order ? btn('Clear', () => o(null), 'small') : null);
   const wild = neutralActions(st, x);
   const wildRow = wild.length ? h('div', { class: 'row wrap', style: { gap: '4px', margin: '-4px 0 8px' } }, wild.map((a) => {
