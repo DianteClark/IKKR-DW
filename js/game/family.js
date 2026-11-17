@@ -10,7 +10,7 @@ const kin = (x) => [...(x.troops || []), ...(x.wards || [])];
 import { namesFor } from '../data/givennames.js';
 
 export const SEASONS = ['Spring', 'Summer', 'Autumn', 'Winter'];
-export const SEASON_ICON = { Spring: '🌱', Summer: '☀', Autumn: '🍂', Winter: '❄' };
+export const SEASON_ICON = { Spring: 'sprout', Summer: 'sun', Autumn: 'leaf', Winter: 'snow' };
 // one turn is one month: three months to a season, twelve to a year
 export const MONTHS_PER_SEASON = 3;
 export const seasonOf = (turn) => SEASONS[Math.floor((Math.max(1, turn) - 1) / MONTHS_PER_SEASON) % 4];

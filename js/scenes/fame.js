@@ -20,7 +20,7 @@ function render() {
       h('div', { class: 'row wrap', style: { gap: '6px' } }, (e.heroes || []).map((x) => h('span', { class: 'row', style: { gap: '4px' } }, portrait(x, 1.2), h('span', { style: { fontSize: '12px' } }, `${x.name} · Lv ${x.level}`)))))))) : h('div', { class: 'muted' }, 'No campaigns finished yet. Every campaign you win or lose is remembered here.');
   const n = ACHIEVEMENTS.filter((a) => got[a.id]).length;
   const ach = h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' } }, ACHIEVEMENTS.map((a) => h('div', { class: 'card col', style: { alignItems: 'stretch', gap: '2px', opacity: got[a.id] ? 1 : 0.5, borderColor: got[a.id] ? '#ffd86b' : undefined } },
-    h('b', { class: got[a.id] ? 'gold' : '' }, (got[a.id] ? '★ ' : '☆ ') + a.name),
+    h('b', { class: got[a.id] ? 'gold' : '' }, (got[a.id] ? '' : '') + a.name),
     h('span', { class: 'muted', style: { fontSize: '12px' } }, a.desc + (a.unlock ? ' · unlocks a banner emblem' : '')))));
   mount(h('div', { class: 'screen fade-in' },
     h('div', { class: 'panel col grow', style: { minHeight: 0 } },

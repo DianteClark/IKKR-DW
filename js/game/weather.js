@@ -7,10 +7,10 @@ import { log, isHumanKingdom } from './world.js';
 import { seasonOf } from './family.js';
 
 export const WEATHER = {
-  storm: { name: 'Storm', icon: '⛈', desc: 'Sea lanes closed this month.' },
-  blizzard: { name: 'Blizzard', icon: '❄', desc: 'Riders slowed; attacking here costs morale.' },
-  drought: { name: 'Drought', icon: '☀', desc: 'Harvest fails: −10 food from this land.' },
-  fog: { name: 'Fog', icon: '☁', desc: 'Scouts see nothing here.' },
+  storm: { name: 'Storm', icon: 'storm', desc: 'Sea lanes closed this month.' },
+  blizzard: { name: 'Blizzard', icon: 'snow', desc: 'Riders slowed; attacking here costs morale.' },
+  drought: { name: 'Drought', icon: 'sun', desc: 'Harvest fails: −10 food from this land.' },
+  fog: { name: 'Fog', icon: 'cloud', desc: 'Scouts see nothing here.' },
 };
 const COLD = new Set(['sand', 'lava']);
 export const weatherAt = (state, t) => (t && t.weather && t.weather.until >= state.turn ? t.weather.kind : null);
@@ -31,7 +31,7 @@ export function weatherTick(state, rng, notes) {
     for (const t of area) if (!(kind === 'blizzard' && COLD.has(t.biome))) t.weather = { kind, until: state.turn };
     for (const p of state.players) {
       const kid = p.kingdom;
-      if (area.some((t) => t.owner === kid) && isHumanKingdom(state, kid)) notes.push({ kid, kind: 'raid', text: `${WEATHER[kind].icon} ${WEATHER[kind].name} over ${c.name}: ${WEATHER[kind].desc}` });
+      if (area.some((t) => t.owner === kid) && isHumanKingdom(state, kid)) notes.push({ kid, kind: 'raid', text: `${WEATHER[kind].name} over ${c.name}: ${WEATHER[kind].desc}` });
     }
   }
 }

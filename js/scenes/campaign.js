@@ -1,3 +1,4 @@
+import { picon } from '../engine/icons.js';
 import { buzz } from '../engine/prefs.js';
 import { battlePeerLost } from './battle.js';
 import { howToModal } from './howto.js';
@@ -301,25 +302,25 @@ export function refreshUI() {
     h('span', { class: 'chip row tap', style: { gap: '5px', maxWidth: '26vw', minWidth: 0, flexShrink: 1 }, onClick: realmSheet },
       bannerIcon(k), h('span', { class: 'ellipsis' }, k.landless ? 'Warband of ' + (hero(st, k.ruler) || {}).name : k.name),
       h('span', { class: 'tag gold' }, k.landless ? 'Landless' : TIERS[tierIndex(k)].name)),
-    h('span', { class: 'chip gold tap', title: 'Gold', onClick: () => economySheet('gold') }, `${k.gold}g `, h('small', { class: eco.gold >= 0 ? 'good' : 'bad' }, sign(eco.gold))),
-    h('span', { class: 'chip tap', title: 'Food', onClick: () => economySheet('food') }, `🌾${Math.round(k.food)} `, h('small', { class: eco.food >= 0 ? 'good' : 'bad' }, sign(eco.food))),
-    h('span', { class: 'chip tap ' + (k.morale < 35 ? 'bad' : ''), title: 'Morale', onClick: () => economySheet('morale') }, `☺${Math.round(k.morale)}`),
-    h('span', { class: 'chip tap ' + (k.stability < 30 ? 'bad' : ''), title: 'Stability', onClick: () => economySheet('stability') }, `⚖${Math.round(k.stability)}`),
+    h('span', { class: 'chip gold tap', title: 'Gold', onClick: () => economySheet('gold') }, picon('gold', 16), `${k.gold} `, h('small', { class: eco.gold >= 0 ? 'good' : 'bad' }, sign(eco.gold))),
+    h('span', { class: 'chip tap', title: 'Food', onClick: () => economySheet('food') }, picon('food', 16), `${Math.round(k.food)} `, h('small', { class: eco.food >= 0 ? 'good' : 'bad' }, sign(eco.food))),
+    h('span', { class: 'chip tap ' + (k.morale < 35 ? 'bad' : ''), title: 'Morale', onClick: () => economySheet('morale') }, picon('morale', 16), `${Math.round(k.morale)}`),
+    h('span', { class: 'chip tap ' + (k.stability < 30 ? 'bad' : ''), title: 'Stability', onClick: () => economySheet('stability') }, picon('stability', 16), `${Math.round(k.stability)}`),
     h('span', { class: 'chip muted', title: cap1(dateOf(st.turn)) }, shortDate(st.turn)),
     h('span', { class: 'grow' }),
-    btn('☰', menu, 'small'),
+    btn(picon('menu', 18), menu, 'small'),
     btn(waiting ? waiting : idle ? `End Turn (${idle})` : 'End Turn', endTurnPressed, 'primary small'),
   );
   renderGoals();
   ui.bottom.innerHTML = '';
   const prisoners = captivesOf(st, k.id).length;
   add(ui.bottom,
-    btn('⌂', goHome, 'small home-btn'),
-    net.role !== 'single' ? btn('💬', chatSheet, 'small home-btn') : null,
+    btn(picon('home', 18), goHome, 'small home-btn'),
+    net.role !== 'single' ? btn(picon('chat', 18), chatSheet, 'small home-btn') : null,
     idle ? btn(`Idle ${idle}`, nextIdle, 'small gold-btn') : null,
     btn('Heroes', heroesList, 'small'),
     btn('Realm', realmSheet, 'small'),
-    btn(`Diplomacy${incoming ? ` (${incoming})` : ''}${warsOf(st, k.id).length ? ' ⚔' : ''}`, diplomacySheet, 'small' + (incoming ? ' primary' : '')),
+    btn(h('span', { class: 'row', style: { gap: '4px' } }, `Diplomacy${incoming ? ` (${incoming})` : ''}`, warsOf(st, k.id).length ? picon('swords', 14) : null), diplomacySheet, 'small' + (incoming ? ' primary' : '')),
     prisoners ? btn(`Prisoners (${prisoners})`, showCaptives, 'small') : null,
     btn('Chronicle', chronicle, 'small'),
   );
@@ -359,9 +360,9 @@ function territoryPanel(tid) {
       !owner && (t.favor || {})[k.id] ? chip(`${(t.favor[k.id] > 0 ? 'Trusts you' : 'Hates you')}`, t.favor[k.id] > 0 ? 'good' : 'bad') : null,
       !owner && t.protect ? chip(`Protected by ${st.kingdoms[t.protect.kid].name.split(' of ').pop()} ${t.protect.turns}/3`, t.protect.kid === k.id ? 'good' : 'gold') : null),
     !owner ? h('div', { class: 'muted', style: { fontSize: '13px' } }, 'Free folk who answer to no crown. Take it by force, plunder it, or send a hero to protect it until it chooses to join you.') : null,
-    h('div', { class: 'muted' }, `${BIOMES[t.biome].name} · ${stars}${t.ruined ? ' · ruined' : ''} · +${territoryIncome(t)}g · 🌾${territoryFood(t)}`),
+    h('div', { class: 'muted' }, `${BIOMES[t.biome].name} · ${stars}${t.ruined ? ' · ruined' : ''} · +${territoryIncome(t)}g · food ${territoryFood(t)}`),
     (t.fx || []).length ? h('div', { class: 'row wrap' }, t.fx.map((f) => chip(`${(EVENT_INFO[f.kind] || {}).name || f.kind} (${f.turns})`, 'bad'))) : null,
-    weatherAt(st, t) ? chip(`${WEATHER[weatherAt(st, t)].icon} ${WEATHER[weatherAt(st, t)].name}: ${WEATHER[weatherAt(st, t)].desc}`, 'blue') : null,
+    weatherAt(st, t) ? h('span', { class: 'chip blue' }, picon(WEATHER[weatherAt(st, t)].icon, 14), ` ${WEATHER[weatherAt(st, t)].name}: ${WEATHER[weatherAt(st, t)].desc}`) : null,
     t.siege ? chip(`Under siege by ${st.kingdoms[t.siege.kid].name.split(' of ').pop()} (${t.siege.turns}/3)`, 'bad') : null,
   );
   const sites = sitesIn(st, tid);
@@ -461,7 +462,7 @@ function heroBlock(x) {
   const fightRow = foes.length ? h('div', { class: 'row wrap', style: { gap: '4px', margin: '-4px 0 8px' } }, foes.map((fk) => {
     const F = st.kingdoms[fk], on = x.order && x.order.type === 'skirmish' && x.order.target === fk, war = atWar(st, k.id, fk);
     const go = () => { o(on ? null : { type: 'skirmish', target: fk }); if (!on) { sfx('horn'); toast(`${x.name} will attack ${F.name}'s heroes here`); } };
-    return btn(`⚔ ${F.name.split(' of ').pop()}'s heroes${war ? '' : ' (act of war)'}`, () => (on || war ? go() : confirm('Attack them here?', `${F.name}'s heroes are not your enemies yet. Attacking them is an act of war: they will declare war on you or sue for peace.`, 'Attack', 'Cancel', 'danger').then((ok) => ok && go())), 'small danger' + (on ? ' sel' : ''));
+    return btn(h('span', { class: 'row', style: { gap: '4px' } }, picon('swords', 14), `${F.name.split(' of ').pop()}'s heroes${war ? '' : ' (act of war)'}`), () => (on || war ? go() : confirm('Attack them here?', `${F.name}'s heroes are not your enemies yet. Attacking them is an act of war: they will declare war on you or sue for peace.`, 'Attack', 'Cancel', 'danger').then((ok) => ok && go())), 'small danger' + (on ? ' sel' : ''));
   })) : null;
   const wild = neutralActions(st, x);
   const wildRow = wild.length ? h('div', { class: 'row wrap', style: { gap: '4px', margin: '-4px 0 8px' } }, wild.map((a) => {
@@ -546,7 +547,7 @@ export function heroModal(id) {
               confirm('Change unit type?', `${x.name} disbands the current squad and will lead ${unitName(o.fid, o.ui, 1)} instead. Rest to recruit them.`, 'Change', 'Cancel', 'danger').then((ok) => { if (ok) { act({ type: 'unit', hero: x.id, ufid: o.fid, unit: o.ui }); render(); } });
             } });
             return h('div', { class: 'col', style: { gap: '2px', opacity: o.locked && !sel ? 0.55 : 1, alignItems: 'center' } }, card,
-              h('span', { class: 'tag', style: { fontSize: '11px' } }, o.locked && !sel ? `🔒 ${BUILDINGS[o.locked].name}` : CLASS_INFO[o.cls].name));
+              h('span', { class: 'tag', style: { fontSize: '11px' } }, o.locked && !sel ? h('span', { class: 'row', style: { gap: '3px' } }, picon('lock', 12), BUILDINGS[o.locked].name) : CLASS_INFO[o.cls].name));
           })))));
     } else if (tab === 'gear') {
       content = h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(170px,1fr))' } }, SLOTS.map((slot) => {
@@ -567,7 +568,7 @@ export function heroModal(id) {
       content = h('div', { class: 'col' },
         h('b', {}, 'Story'),
         h('div', { class: 'card col', style: { alignItems: 'stretch', gap: '3px', padding: '6px 8px' } },
-          h('span', {}, x.quest ? '⚑ ' + questText(st, x) : h('span', { class: 'muted' }, 'No vow sworn yet. Life on the march will give them one.')),
+          h('span', {}, x.quest ? h('span', { class: 'row', style: { gap: '4px' } }, picon('flag', 14), questText(st, x)) : h('span', { class: 'muted' }, 'No vow sworn yet. Life on the march will give them one.')),
           nem ? h('span', { class: 'bad' }, `Nemesis: ${nem.name}${nem.status !== 'active' ? ` (${nem.status})` : ''} — fights harder against them`) : null,
           x.deeds ? h('span', { class: 'gold' }, `Vows fulfilled: ${x.deeds}`) : null),
         h('div', { class: 'muted', style: { fontSize: '13px' } }, `Married heroes may have a child nine months later. Heirs train in a parent's squad and become heroes at Elite. Marry from level ${MARRY_LEVEL}.`),
@@ -577,7 +578,7 @@ export function heroModal(id) {
         h('b', {}, `Children (${kids.length})`),
         kids.length ? h('div', { class: 'col', style: { gap: '4px' } }, kids.map((c) => c.hero
           ? h('div', { class: 'card tap', onClick: () => { m.close(); heroModal(c.hero.id); } }, portrait(c.hero, 2), h('span', { class: 'grow' }, `${c.hero.name} · hero, Lv ${c.hero.level}`))
-          : h('div', { class: 'card' }, c.ward ? h('span', { class: 'chip gold' }, c.soldier.heir.gender === 'f' ? '♀' : '♂') : unitIcon(c.with.ufid || c.with.fid, c.with.unit, c.soldier.s, 2), h('div', { class: 'col grow', style: { gap: 0 } }, h('b', {}, c.name), h('span', { class: 'muted', style: { fontSize: '12px' } }, `${c.ward ? 'Raised at ' + c.with.name + '\'s side' : 'Training in ' + c.with.name + '\'s squad'} · stage ${c.soldier.s} of 3`))))) : h('div', { class: 'muted' }, 'None yet.'),
+          : h('div', { class: 'card' }, c.ward ? h('span', { class: 'chip gold' }, c.soldier.heir.gender === 'f' ? picon('female', 14) : picon('male', 14)) : unitIcon(c.with.ufid || c.with.fid, c.with.unit, c.soldier.s, 2), h('div', { class: 'col grow', style: { gap: 0 } }, h('b', {}, c.name), h('span', { class: 'muted', style: { fontSize: '12px' } }, `${c.ward ? 'Raised at ' + c.with.name + '\'s side' : 'Training in ' + c.with.name + '\'s squad'} · stage ${c.soldier.s} of 3`))))) : h('div', { class: 'muted' }, 'None yet.'),
         opts.length ? h('b', {}, 'Arrange a marriage') : null,
         opts.length ? h('div', { class: 'row wrap' }, opts.map((o) => btn(`${o.name} · Lv ${o.level}`, () => { if (act({ type: 'wed', a: x.id, b: o.id })) { sfx('levelup'); toast(`${x.name} and ${o.name} are wed!`, 'good'); render(); } }, 'small'))) : null,
         editable && !sp && !opts.length ? h('div', { class: 'muted', style: { fontSize: '13px' } }, x.level < MARRY_LEVEL ? `Reaches marrying age at level ${MARRY_LEVEL}.` : 'No unmarried hero of the opposite gender in your realm is ready to wed.') : null);
@@ -775,7 +776,7 @@ function realmSheet() {
         const c = edictCost(st, k, id);
         const ok = canEdict(st, k.id, id);
         return h('div', { class: 'card', style: { gap: '8px' } }, h('div', { class: 'col grow', style: { gap: '1px' } }, h('b', {}, e.name), h('span', { class: 'muted', style: { fontSize: '13px' } }, e.desc)),
-          btn(`${c.gold ? c.gold + 'g ' : ''}${c.food ? c.food + '🌾' : ''}${!c.gold && !c.food ? 'Free' : ''}`, () => { if (act({ type: 'edict', edict: id })) { sfx('horn'); toast(`${e.name} proclaimed`, 'good'); render(); } }, 'small' + (ok ? ' primary' : '')));
+          btn(`${c.gold ? c.gold + 'g ' : ''}${c.food ? c.food + ' food' : ''}${!c.gold && !c.food ? 'Free' : ''}`, () => { if (act({ type: 'edict', edict: id })) { sfx('horn'); toast(`${e.name} proclaimed`, 'good'); render(); } }, 'small' + (ok ? ' primary' : '')));
       });
       content = h('div', { class: 'col' },
         h('b', {}, 'Taxes'), segmented(Object.entries(POLICIES.tax).map(([v, p]) => ({ value: v, label: p.name })), k.policy.tax, (v) => { act({ type: 'policy', kind: 'tax', value: v }); render(); }),
@@ -957,7 +958,7 @@ function setupNet() {
 }
 
 // quick chat between the two players
-export const QUICK = ['Ready!', 'Give me a minute', 'Truce?', 'Allies?', 'Nice one!', 'You will pay for that', 'Good game', '👋'];
+export const QUICK = ['Ready!', 'Give me a minute', 'Truce?', 'Allies?', 'Nice one!', 'You will pay for that', 'Good game', 'Well met!'];
 export function showChat(text, mine) {
   const el = h('div', { class: 'chat-bubble' + (mine ? ' mine' : '') }, (mine ? 'You: ' : 'Ally: ').replace('Ally', 'Player ' + (S.me === 0 ? 2 : 1)), text);
   document.getElementById('ui').appendChild(el);
@@ -1160,9 +1161,9 @@ export function showTurnSummary(prevTurn, reports, summary = { events: [], notes
   }
   // ---- season cards: only what matters to you, each with a way to go look at it ----
   const NOTE = {
-    war: ['⚔', 'War', 'bad'], betrayal: ['✖', 'Betrayal', 'bad'], defect: ['✖', 'Desertion', 'bad'], raid: ['⚠', 'Raid', 'bad'], famine: ['⚠', 'Famine', 'bad'],
-    plot: ['☍', 'Secret offer', 'gold'], birth: ['✦', 'A child is born', 'gold'], heir: ['★', 'Coming of age', 'gold'], family: ['♥', 'Family', 'good'],
-    proposal: ['✉', 'Diplomacy', ''], diplomacy: ['✉', 'Diplomacy', ''], demand: ['♛', 'Demand', 'bad'], return: ['↩', 'Return', ''],
+    war: ['swords', 'War', 'bad'], betrayal: ['broken', 'Betrayal', 'bad'], defect: ['broken', 'Desertion', 'bad'], raid: ['warning', 'Raid', 'bad'], famine: ['warning', 'Famine', 'bad'],
+    plot: ['letter', 'Secret offer', 'gold'], birth: ['star', 'A child is born', 'gold'], heir: ['crown', 'Coming of age', 'gold'], family: ['heart', 'Family', 'good'],
+    proposal: ['letter', 'Diplomacy', ''], diplomacy: ['letter', 'Diplomacy', ''], demand: ['crown', 'Demand', 'bad'], return: ['home', 'Return', ''],
   };
   const findPlace = (text) => {
     // the first land or hero of yours named in the text tells us where to look
@@ -1187,7 +1188,7 @@ export function showTurnSummary(prevTurn, reports, summary = { events: [], notes
     if (where.hero != null) setTimeout(() => heroModal(where.hero), 200);
   };
   const card = (icon, title, text, cls, where, extra) => h('div', { class: 'card sumcard ' + cls },
-    h('span', { class: 'sum-ic' }, icon),
+    h('span', { class: 'sum-ic' }, typeof icon === 'string' ? picon(icon, 22) : icon),
     h('div', { class: 'col grow', style: { gap: '1px', minWidth: 0 } }, h('b', { class: cls }, title), text ? h('span', { class: 'muted', style: { fontSize: '13px' } }, text) : null),
     extra || null,
     where ? btn('Show me', showMe(where), 'tiny') : null);
@@ -1201,7 +1202,7 @@ export function showTurnSummary(prevTurn, reports, summary = { events: [], notes
       r.evolved ? `${r.evolved} evolved` : '', r.elites ? `${r.elites} became Elite` : '', r.leveled && r.leveled.length ? `${r.leveled.length} level-up${r.leveled.length > 1 ? 's' : ''}` : '',
       r.loot != null && won && st.items[r.loot] ? `found ${st.items[r.loot].name}` : '', r.captured && r.captured.length ? `${r.captured.length} captured` : '',
       r.defected && r.defected.length ? `${r.defected.length} traitor${r.defected.length > 1 ? 's' : ''}!` : ''].filter(Boolean).join(' · ');
-    cards.push(card(won ? '⚑' : '✖', `${won ? 'Victory' : 'Defeat'} at ${t.name}`, bits, won ? 'good' : 'bad', { tid: r.tid }));
+    cards.push(card(won ? 'flag' : 'broken', `${won ? 'Victory' : 'Defeat'} at ${t.name}`, bits, won ? 'good' : 'bad', { tid: r.tid }));
   }
   const mineNotes = [...(orderNotes || []), ...(summary.notes || [])].filter((n) => n.kid === myKid || n.kid === -1);
   const minor = [];
@@ -1210,11 +1211,11 @@ export function showTurnSummary(prevTurn, reports, summary = { events: [], notes
     if (N) cards.push(card(N[0], N[1], n.text, N[2], findPlace(n.text)));
     else minor.push(h('div', { class: 'row', style: { gap: '6px' } }, h('span', { class: 'grow' }, '• ' + n.text), (() => { const w = findPlace(n.text); return w ? btn('Show', showMe(w), 'tiny ghost') : null; })()));
   }
-  for (const x of kingdomHeroes(st, myKid).filter((x) => !x.role && x.level >= ROLE_LEVEL)) cards.push(card('★', `${x.name} can choose a calling`, 'Commander, Duelist, Strategist or Scout.', 'gold', null, btn('Choose', () => { mm.close(); after(); heroModal(x.id); }, 'tiny good')));
+  for (const x of kingdomHeroes(st, myKid).filter((x) => !x.role && x.level >= ROLE_LEVEL)) cards.push(card('star', `${x.name} can choose a calling`, 'Commander, Duelist, Strategist or Scout.', 'gold', null, btn('Choose', () => { mm.close(); after(); heroModal(x.id); }, 'tiny good')));
   const myEvents = [], world = [];
   for (const e of summary.events || []) {
     const ic = SPELL[EVENT_SPELL[e.kind]];
-    const icon = ic && ic.icon ? sprite(ic.icon, 0, 0, 16, 16, 1.5) : '◆';
+    const icon = ic && ic.icon ? sprite(ic.icon, 0, 0, 16, 16, 1.5) : picon('star', 18);
     if (e.kid === myKid) myEvents.push(card(icon, (EVENT_INFO[e.kind] || {}).name || 'Event', e.text, ['harvest', 'goldrush'].includes(e.kind) ? 'good' : 'bad', e.tid != null ? { tid: e.tid } : null));
     else world.push(h('div', { class: 'row', style: { gap: '6px' } }, icon, h('span', { class: 'grow' }, e.text), e.tid != null ? btn('Show', showMe({ tid: e.tid }), 'tiny ghost') : null));
   }
@@ -1227,7 +1228,7 @@ export function showTurnSummary(prevTurn, reports, summary = { events: [], notes
   const restBtn = rest.length ? btn(`Across the land (${rest.length}) ▾`, () => { open = !open; restBox.style.display = open ? '' : 'none'; restBtn.textContent = `Across the land (${rest.length}) ${open ? '▴' : '▾'}`; }, 'small ghost') : null;
   const all = [...cards, ...myEvents];
   mm = modal(`${cap1(dateOf(prevTurn))} ends`, h('div', { class: 'col' },
-    all.length ? all : h('div', { class: 'muted' }, 'A quiet season in your realm.'),
+    all.length ? all : h('div', { class: 'muted' }, 'A quiet month in your realm.'),
     restBtn, restBox,
   ), [['Continue', () => after(), 'primary']], { width: '680px' });
 }
@@ -1235,7 +1236,7 @@ export function showTurnSummary(prevTurn, reports, summary = { events: [], notes
 function achievementToasts() {
   const st = S.state, k = myK();
   const fresh = checkAchievements(st, k.id, { trade: economyPreview(st, k).trade });
-  fresh.forEach((a, i) => setTimeout(() => { sfx('levelup'); toast(`★ Achievement: ${a.name}${a.unlock ? ' — new banner emblem!' : ''}`, 'gold'); }, 900 + i * 1600));
+  fresh.forEach((a, i) => setTimeout(() => { sfx('levelup'); toast(`Achievement: ${a.name}${a.unlock ? ' — new banner emblem!' : ''}`, 'gold'); }, 900 + i * 1600));
 }
 // a decision for your realm (events with choices)
 export function showChoice() {

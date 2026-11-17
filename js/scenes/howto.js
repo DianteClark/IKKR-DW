@@ -1,3 +1,4 @@
+import { picon } from '../engine/icons.js';
 import { startPractice } from './battle.js';
 // How to play: short illustrated pages, reachable from the title screen and the in-game menu.
 import { registerScene, go } from '../main.js';
@@ -11,7 +12,7 @@ export const PAGES = [
     'You only lose when your last hero falls. A landless band of heroes can still rise again.',
   ] },
   { title: 'The map', lines: [
-    'Drag to look around, pinch to zoom. The minimap (bottom right) jumps anywhere. ⌂ takes you home; "Idle" finds heroes without orders.',
+    'Drag to look around, pinch to zoom. The minimap (bottom right) jumps anywhere. The house button takes you home; "Idle" finds heroes without orders.',
     'Banners show who owns a land. No banner = free hamlet. Border guards stand along each realm\'s edge.',
     'Tap a land to open its panel: owner, sites, heroes there and what you can do.',
     'Fog of war hides what your lands, heroes and allies can\'t see.',
@@ -79,7 +80,7 @@ registerScene('howto', {
       mount(h('div', { class: 'screen fade-in' },
         h('div', { class: 'panel col grow', style: { minHeight: 0 } },
           h('div', { class: 'row' }, btn('‹ Back', () => { sfx('close'); go('title'); }, 'small'), h('h2', { class: 'grow', style: { margin: 0 } }, 'How to play'),
-            btn('⚔ Practice battle', () => { sfx('horn'); startPractice({ back: 'howto' }); }, 'small good'),
+            btn(h('span', { class: 'row', style: { gap: '5px' } }, picon('swords', 14), 'Practice battle'), () => { sfx('horn'); startPractice({ back: 'howto' }); }, 'small good'),
             i > 0 ? btn('‹', () => { i--; sfx('click'); render(); }, 'small') : null,
             i < PAGES.length - 1 ? btn('Next ›', () => { i++; sfx('click'); render(); }, 'small primary') : btn('Done', () => go('title'), 'small primary')),
           h('div', { class: 'scroll grow', style: { minHeight: 0 } }, pageView(i, (j) => { i = j; sfx('click'); render(); })))));

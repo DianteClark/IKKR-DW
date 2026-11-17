@@ -1,3 +1,4 @@
+import { picon } from '../engine/icons.js';
 import { showChat } from './campaign.js';
 import { weatherAtId } from '../game/weather.js';
 import { autumnizeCanvas } from '../campaign/mapview.js';
@@ -862,7 +863,7 @@ function squadCard(s) {
     if (isSel && B.selected.length === 1) { focusSquad(s); return; }
     setSel([s.id]); sfx('click');
   } },
-    h('div', { class: 'row', style: { gap: '3px' } }, icon, h('b', { class: 'bsq-n' }, dead ? '✝' : `${n}`), s.special >= 1 && !dead && s.heroAlive ? h('span', { class: 'gold bsq-star' }, '★') : s.role && s.skillCd <= 0 && !dead && s.heroAlive ? h('span', { class: 'bsq-star', style: { color: '#9fd0ff' } }, '◆') : null),
+    h('div', { class: 'row', style: { gap: '3px' } }, icon, h('b', { class: 'bsq-n' }, dead ? picon('cross', 12) : `${n}`), s.special >= 1 && !dead && s.heroAlive ? h('span', { class: 'gold bsq-star' }, picon('star', 12)) : s.role && s.skillCd <= 0 && !dead && s.heroAlive ? h('span', { class: 'bsq-star', style: { color: '#9fd0ff' } }, picon('points', 12)) : null),
     s.ally ? h('span', { class: 'bsq-tag' }, 'Ally') : null,
     bar(s.soldiers.length ? n / s.soldiers.length : 0, 'thin'), bar(Math.max(0, s.morale) / 100, 'mor thin'));
 }
@@ -894,8 +895,8 @@ function refreshHUD(full) {
     hud.top.append(...[
       h('span', { class: 'chip ellipsis', style: { maxWidth: '150px' } }, B.setup.place),
       h('span', { class: 'chip ' + (left < 30 ? 'bad' : '') }, `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}`),
-      B.side ? h('span', { class: 'chip' }, `⚑ ${ownP}/${posts.length}`) : h('span', { class: 'chip' }, 'Watching'),
-      stS && stS.list.length ? h('span', { class: 'chip gold', title: 'Command points' }, `✦ ${stS.pool}`) : null,
+      B.side ? h('span', { class: 'chip' }, picon('flag', 14), ` ${ownP}/${posts.length}`) : h('span', { class: 'chip' }, 'Watching'),
+      stS && stS.list.length ? h('span', { class: 'chip gold', title: 'Command points' }, picon('points', 14), ` ${stS.pool}`) : null,
       h('span', { class: 'grow' }),
       !B.client && net.role === 'single' ? btn(B.paused ? '▶' : '❚❚', () => { B.paused = !B.paused; refreshHUD(true); }, 'tiny') : null,
       !B.client && net.role === 'single' && !B.auto ? btn(`${B.speed}x`, () => { B.speed = B.speed >= 3 ? 1 : B.speed + 1; refreshHUD(true); }, 'tiny') : null,
@@ -934,7 +935,7 @@ function refreshHUD(full) {
         h('span', { class: 'bpanel-name ellipsis', title: ter && ter.tip ? `${ter.name}: ${ter.tip}` : '' }, one ? one.name : `${sels.length} squads`, ter && ter.tip ? h('small', { class: 'bpanel-ter' }, ter.name) : null),
         ...FORMS.map((f) => btn(FORMATIONS[f].name + (reforming && cur === f ? '…' : ''), () => { for (const q of sels) send({ type: 'formation', squad: q.id, formation: f }); refreshHUD(true); }, 'tiny' + (cur === f ? (reforming ? ' primary' : ' sel') : ''))),
         btn('Hold', () => { for (const q of sels) send({ type: 'hold', squad: q.id }); toast('Holding position'); refreshHUD(true); }, 'tiny' + (sels.every((q) => q.holdFast) ? ' sel' : '')),
-        specials.length ? btn('★', () => { for (const q of specials) send({ type: 'special', squad: q.id }); }, 'tiny primary') : null,
+        specials.length ? btn(picon('star', 18), () => { for (const q of specials) send({ type: 'special', squad: q.id }); }, 'tiny primary') : null,
         ...(skillers.length === 1 ? [skillers[0]] : []).map((q) => btn(q.skillCd > 0 ? `${SK[q.role]} ${Math.ceil(q.skillCd)}` : SK[q.role], () => { if (q.skillCd > 0) return toast(`${SKILLS[q.role].name} is ready in ${Math.ceil(q.skillCd)}s`); send({ type: 'skill', squad: q.id }); toast(`${SKILLS[q.role].name}: ${SKILLS[q.role].desc}`); }, 'tiny' + (q.skillCd > 0 ? ' dim' : ' good'))),
         btn('+Then', () => { B.queue = !B.queue; toast(B.queue ? 'Queue on: each order is added after the last one' : 'Queue off'); refreshHUD(true); }, 'tiny' + (B.queue ? ' primary' : '')),
         btn('✕', () => { setSel([]); }, 'tiny')));
@@ -1061,7 +1062,7 @@ function endBattle(result) {
   const lines = [
     h('div', { class: 'row recap-row' }, h('span', { class: 'grow' }), h('span', { class: 'swatch', style: { background: B.colors[me] } }), h('span', { class: 'muted' }, B.side ? 'yours' : 'attackers'), h('span', { class: 'swatch', style: { background: B.colors[them] } }), h('span', { class: 'muted' }, B.side ? 'theirs' : 'defenders')),
     stat('Troops lost', `${lost(me)}/${total(me)}`, `${lost(them)}/${total(them)}`),
-    mvp && (B.kills.get(mvp.id) || 0) > 0 ? h('div', { class: 'row recap-row' }, h('span', { class: 'gold' }, '★ Squad of the battle'), h('span', { class: 'grow ellipsis', style: { textAlign: 'right' } }, `${mvp.name} · ${B.kills.get(mvp.id)} felled`)) : null,
+    mvp && (B.kills.get(mvp.id) || 0) > 0 ? h('div', { class: 'row recap-row' }, h('span', { class: 'gold' }, 'MVP · Squad of the battle'), h('span', { class: 'grow ellipsis', style: { textAlign: 'right' } }, `${mvp.name} · ${B.kills.get(mvp.id)} felled`)) : null,
     survivors && won !== false ? h('div', { class: 'good', style: { fontSize: '12px' } }, `${survivors} squad${survivors > 1 ? 's' : ''} gain experience; veterans may rise to Elite.`) : null,
     elitesLost.length ? h('div', { class: 'bad', style: { fontSize: '12px' } }, `Fallen Elites: ${elitesLost.slice(0, 4).join(', ')}${elitesLost.length > 4 ? '…' : ''}`) : null,
     hurt.length ? h('div', { style: { fontSize: '12px' } }, h('span', { class: 'muted' }, 'Heroes beaten: '), hurt.map((q) => q.name.split(' ')[0] + (q.side === me ? ' (yours)' : '')).join(', '), h('span', { class: 'muted' }, ' — they may be wounded or taken prisoner.')) : null,

@@ -1,3 +1,4 @@
+import { picon } from '../engine/icons.js';
 // Banner maker: design the banner that flies over every land your realm holds.
 import { registerScene, go } from '../main.js';
 import { h, btn, mount, clearUI, toast, tabs } from '../engine/ui.js';
@@ -42,7 +43,7 @@ function content() {
   if (tab === 'pattern') return h('div', { class: 'bm-grid' }, PATTERNS.map((p) => tile(PATTERN_NAMES[p], bannerEl({ ...B, pattern: p, emblem: 'none' }, 1.5), B.pattern === p, () => set('pattern', p))));
   return h('div', { class: 'bm-grid small' }, EMBLEMS.map((e) => {
     const locked = !isUnlocked(e);
-    const el = tile(locked ? '🔒 ' + EMBLEM_NAMES[e] : EMBLEM_NAMES[e], e === 'none' ? h('span', { class: 'muted', style: { width: '32px', height: '32px', display: 'grid', placeItems: 'center' } }, '—') : emblemEl(B, e, 2), B.emblem === e, () => (locked ? toast('Earn this emblem with an achievement (Hall of Fame)', 'gold') : set('emblem', e)));
+    const el = tile(locked ? h('span', { class: 'row', style: { gap: '3px', justifyContent: 'center' } }, picon('lock', 11), EMBLEM_NAMES[e]) : EMBLEM_NAMES[e], e === 'none' ? h('span', { class: 'muted', style: { width: '32px', height: '32px', display: 'grid', placeItems: 'center' } }, '—') : emblemEl(B, e, 2), B.emblem === e, () => (locked ? toast('Earn this emblem with an achievement (Hall of Fame)', 'gold') : set('emblem', e)));
     if (locked) el.style.opacity = '0.45';
     return el;
   }));
@@ -55,7 +56,7 @@ function render() {
       h('div', { class: 'row' },
         btn('‹ Back', () => { sfx('close'); go(back); }, 'small'),
         h('h2', { class: 'grow', style: { margin: 0 } }, 'Your banner'),
-        btn('🎲', () => { B = randomBanner(Math.random); sfx('click'); render(); }, 'small'),
+        btn(picon('dice', 18), () => { B = randomBanner(Math.random); sfx('click'); render(); }, 'small'),
         btn('Save', () => { saveMyBanner(B); sfx('levelup'); toast('Banner saved: it flies over your lands in your next campaign', 'good'); go(back); }, 'small primary')),
       h('div', { class: 'row grow', style: { minHeight: 0, alignItems: 'stretch', gap: '12px' } },
         h('div', { class: 'bm-stage' }, bannerEl(B, 6, true)),
