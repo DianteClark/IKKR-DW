@@ -342,3 +342,11 @@ input.text:focus { outline: none; box-shadow: 0 0 0 2px var(--gold); }
 
 /* campaign minimap */
 .minimap { position: absolute; right: calc(8px + var(--sar)); bottom: calc(8px + var(--sab, 0px)); image-rendering: pixelated; border: 3px solid #2a2236; outline: 2px solid #b8894a; border-radius: 3px; background: #1a5f9e; box-shadow: 0 3px 10px rgba(0,0,0,.5); touch-action: none; z-index: 5; }
+
+/* banner maker */
+.swatch-btn { width: 30px; height: 30px; border: 3px solid #1a1420; border-radius: 3px; cursor: pointer; padding: 0; }
+.swatch-btn.on { outline: 3px solid var(--gold); outline-offset: 1px; }
+/* bottom bar stays on one line: room up to the minimap */
+.bottombar { max-width: calc(100vw - 200px); flex-wrap: nowrap; gap: 4px; }
+.bottombar .btn { white-space: nowrap; flex-shrink: 1; min-width: 0; }
+.bottombar .home-btn { font-size: 20px; padding-left: 10px; padding-right: 10px; flex-shrink: 0; }

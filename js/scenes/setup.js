@@ -4,6 +4,7 @@ import { FACTIONS, FACTION_IDS } from '../data/art.js';
 import { createWorld, confirmPicks, hero } from '../game/world.js';
 import { factionBadge, unitIcon, heroCard } from '../campaign/widgets.js';
 import { stampCampaign } from '../game/save.js';
+import { loadMyBanner } from '../engine/banner.js';
 import { sfx, music } from '../engine/audio.js';
 
 const FLAVOR = {
@@ -122,7 +123,7 @@ registerScene('setup', {
       clearUI();
       mount(factionPicker('Choose your people', (fid) => {
         const seed = (Math.random() * 2 ** 31) >>> 0;
-        const state = createWorld(seed, [{ fid }], { size: options.size, difficulty: options.difficulty });
+        const state = createWorld(seed, [{ fid, banner: loadMyBanner() }], { size: options.size, difficulty: options.difficulty });
         clearUI();
         mount(heroPicker(state, 0, (ids) => {
           confirmPicks(state, 0, ids);

@@ -22,6 +22,7 @@ import { img, loadImage } from '../engine/assets.js';
 import { BIOMES, BIOME_IDS, TREES, FACTIONS, FACTION_IDS, drawHero, drawUnit, drawSpriteRef, portraitRef, STRUCT, OCEAN } from '../data/art.js';
 import { paintLandWater, paintRiver, drawBlobs, drawLandmark, preloadLandmarks, ROAD_SHEET, FENCE_SHEET, maskAt, at4, hash2, LANDMARKS } from '../maps/paint.js';
 import { makeNoise } from '../engine/rng.js';
+import { drawBanner } from '../engine/banner.js';
 
 export const TS = 16;
 const FIELD_SHEET = 'assets/has2020/Landscape Objects/FieldSpriteSheet.png';
@@ -483,6 +484,54 @@ export function drawOverlay(ctx, T, state, view) {
   }
   ctx.restore();
 }
+// outline chosen lands (selection, valid targets) with a smooth line
+export function drawLandOutline(ctx, T, tids, color, width = 2) {
+  const set = tids instanceof Set ? tids : new Set(tids);
+  if (!set.size) return;
+  ctx.save(); ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  for (const r of traceBorders(T)) {
+    if (!set.has(r.t) || set.has(r.nb)) continue;
+    ctx.strokeStyle = 'rgba(10,8,16,.55)'; ctx.lineWidth = width + 2; ctx.stroke(r.line);
+    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.stroke(r.edge || r.line);
+  }
+  ctx.restore();
+}
+
+// Border guards: a realm's basic soldiers standing watch along the outer edge of its whole territory.
+// Purely a marker of where a realm ends — they never move and do not fight.
+export function drawGuards(ctx, T, state, time, view) {
+  const key = state.territories.map((t) => t.owner).join(',');
+  if (T._guardKey !== key) {
+    T._guardKey = key;
+    const { W, H, terr, land } = T;
+    const own = (i) => (terr[i] >= 0 && state.territories[terr[i]] ? state.territories[terr[i]].owner : -1);
+    const posts = [];
+    const near = new Set();
+    for (let y = 2; y < H - 2; y++) for (let x = 2; x < W - 2; x++) {
+      const i = y * W + x; if (!land[i]) continue;
+      const o = own(i); if (o < 0) continue;
+      // outermost cell of the realm facing land held by someone else (or free land)
+      let face = 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const j = (y + dy) * W + x + dx; if (land[j] && own(j) !== o) { face = dx || 0; if (!face) face = 1; } }
+      if (!face) continue;
+      if ((T.feat && T.feat[i] === 2) || (T.river && T.river[i]) || (T.road && T.road[i] && hashI(x, y) % 3)) continue;
+      if (hashI(x * 3, y * 5) % 5) continue; // sparse: roughly one in five frontier cells
+      const ck = ((y / 4) | 0) * 1000 + ((x / 4) | 0) + o * 1e6;
+      if (near.has(ck)) continue; near.add(ck);
+      const k = state.kingdoms[o];
+      posts.push({ x: x * TS + 8, y: y * TS + 13, fid: k.fid, flip: hashI(x, y) & 1, ph: hashI(y, x) % 100 / 10 });
+    }
+    posts.sort((a, b) => a.y - b.y);
+    T._guards = posts;
+  }
+  if (view && view.w > 1800) return; // too small to see when zoomed far out
+  for (const g of T._guards) {
+    if (view && (g.x < view.x - 16 || g.y < view.y - 8 || g.x > view.x + view.w + 16 || g.y > view.y + view.h + 24)) continue;
+    ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fillRect(g.x - 4, g.y - 1, 8, 2);
+    drawUnit(ctx, g.fid, 0, 1, 'idle', time * 2 + g.ph, g.x, g.y, g.flip);
+  }
+}
+
 // legacy: a baked overlay canvas (small maps only; big maps return a 1x1 canvas, use drawOverlay)
 export function renderOverlay(T, state) {
   const c = document.createElement('canvas');
@@ -626,7 +675,8 @@ export function drawTowns(ctx, state, time, view) {
       if (!far) { ctx.fillStyle = 'rgba(0,0,0,.28)'; ctx.beginPath(); ctx.ellipse(ax, ay - 1, w * 0.46, 5, 0, 0, Math.PI * 2); ctx.fill(); }
       drawSpriteRef(ctx, r, px, py);
       if (kind === 'town' && !far) smoke(ctx, ax - 10, py + 14, time, t.id * 13);
-      if (col) flag(ctx, Math.round(px + w - 6), Math.round(py + 2), col, time, t.id);
+      const kb = t.owner >= 0 && state.kingdoms[t.owner] ? state.kingdoms[t.owner].banner : null;
+      if (kb) drawBanner(ctx, kb, Math.round(px + w - 8), Math.round(py + 18), time, t.id); else if (col) flag(ctx, Math.round(px + w - 6), Math.round(py + 2), col, time, t.id);
     } else if (st) {
       // ground patch so the cluster reads as a place
       if (!far) { ctx.fillStyle = 'rgba(70,50,30,.16)'; ctx.beginPath(); ctx.ellipse(ax + 2, ay - 8, kind === 'hamlet' ? 22 : 36, kind === 'hamlet' ? 13 : 20, 0, 0, Math.PI * 2); ctx.fill(); }
@@ -646,7 +696,8 @@ export function drawTowns(ctx, state, time, view) {
       }
       const top = pieces.reduce((m, p) => (p[3] < m[3] ? p : m), pieces[0] || [0, 0, 0, 0]);
       if (pieces.length && !far) smoke(ctx, ax + top[2] - 2, ay + top[3] - 15, time, t.id * 7);
-      if (col) flag(ctx, Math.round(ax + 16), Math.round(ay - (kind === 'hamlet' ? 30 : 40)), col, time, t.id);
+      const kb2 = t.owner >= 0 && state.kingdoms[t.owner] ? state.kingdoms[t.owner].banner : null;
+      if (kb2) drawBanner(ctx, kb2, Math.round(ax + 16), Math.round(ay - (kind === 'hamlet' ? 12 : 22)), time, t.id); else if (col) flag(ctx, Math.round(ax + 16), Math.round(ay - (kind === 'hamlet' ? 30 : 40)), col, time, t.id);
     }
   }
   // capture sweeps

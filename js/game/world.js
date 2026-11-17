@@ -1,11 +1,12 @@
 // Campaign state: kingdoms, territories, heroes, orders and battles.
 // The state is plain JSON so it can be saved locally and sent to a peer.
 import { makeRng } from '../engine/rng.js';
-import { FACTIONS, FACTION_IDS } from '../data/art.js';
+import { FACTIONS, FACTION_IDS, portraitFor, portraitFits } from '../data/art.js';
 import { SPELLS } from '../data/spells.js';
 import { generateTerrain } from './mapgen.js';
 import { kingdomName, KINGDOM_COLORS } from './names.js';
 import { namesFor } from '../data/givennames.js';
+import { randomBanner } from '../engine/banner.js';
 import { initNeutral, applyNeutralOrders, validNeutralOrder } from './neutral.js';
 import { makeItem, SLOTS } from './items.js';
 import {
@@ -53,7 +54,7 @@ export function makeHero(state, rng, fid, kingdom, loc, opts = {}) {
   const boost = opts.ruler ? 2 : 0;
   const hero = {
     id: newId(state), name: (opts.name || uniqueName(state, rng, F, namesFor(fid, gender))) + (!opts.name && rng.chance(0.3) ? ' ' + rng.pick(EPITHETS) : ''),
-    fid, ufid: opts.ufid || fid, gender, portrait: rng.int(0, F.portraits.length - 1), kingdom, origin: kingdom, loc, unit,
+    fid, ufid: opts.ufid || fid, gender, portrait: portraitFor(fid, gender, rng()), kingdom, origin: kingdom, loc, unit,
     atk: rng.int(1, 4) + boost, def: rng.int(1, 4) + boost, lead: rng.int(7, 9) + (opts.ruler ? 1 : 0), int: rng.int(1, 4) + boost,
     level: 1, xp: 0, morale: 60, hp: 100, loyalty: rng.int(55, 95), trait: opts.trait || rng.pick(TRAITS), ambition: rng.int(10, 90),
     gear: {}, status: opts.status || 'active', captor: -1, formation: rng.pick(['wedge', 'line', 'square']),
@@ -81,14 +82,15 @@ export function giveItem(state, rng, kid, tier) {
   return it;
 }
 
-export function newKingdom(state, rng, { fid, cap, player = -1, name, kind = 'realm', tier = 'village' }) {
+export function newKingdom(state, rng, { fid, cap, player = -1, name, kind = 'realm', tier = 'village', banner = null }) {
   const usedColors = new Set(state.kingdoms.filter((k) => k.alive).map((k) => k.color));
-  const color = KINGDOM_COLORS.find((c) => !usedColors.has(c)) || KINGDOM_COLORS[state.kingdoms.length % KINGDOM_COLORS.length];
+  const color = banner ? banner.bg : KINGDOM_COLORS.find((c) => !usedColors.has(c)) || KINGDOM_COLORS[state.kingdoms.length % KINGDOM_COLORS.length];
   const k = {
     id: state.kingdoms.length, name: name || kingdomName(rng, state.territories[cap].name), fid, color, kind,
     gold: player >= 0 ? 800 : 500, food: 120, morale: 60, stability: 60, tier,
     buildings: {}, policy: { tax: 'normal', rations: 'normal' }, edictTurn: -1,
     troopRaces: [fid], alive: true, landless: false, player, ruler: -1, capital: cap, items: [], rel: {}, intel: {}, loadout: [],
+    banner: banner || randomBanner(rng, color),
   };
   state.kingdoms.push(k);
   if (cap != null && cap >= 0) state.territories[cap].owner = k.id;
@@ -135,7 +137,7 @@ export function createWorld(seed, players, opts = {}) {
   // 5 heroes: the powers everyone else should steer clear of until they've grown.
   const villageName = (cap) => `Village of ${terrs[cap].name}`;
   players.forEach((p, i) => {
-    const k = newKingdom(state, rng, { fid: p.fid, cap: starts[i], player: i, name: p.name || villageName(starts[i]) });
+    const k = newKingdom(state, rng, { fid: p.fid, cap: starts[i], player: i, name: p.name || villageName(starts[i]), banner: p.banner || null });
     terrs[starts[i]].level = 1;
     state.players.push({ kingdom: k.id });
   });
@@ -208,6 +210,13 @@ export function createWorld(seed, players, opts = {}) {
   initNeutral(state, T, rng);
   log(state, 'The age of war begins.');
   return state;
+}
+
+// older saves: give every hero a face that matches their gender
+export function fixPortraits(state) {
+  for (const h of state.heroes) if (!portraitFits(h.fid, h.gender, h.portrait)) h.portrait = (h.portrait % 20) + (h.gender === 'f' ? 20 : 0);
+  // older saves: every realm gets a banner
+  for (const k of state.kingdoms) if (!k.banner) k.banner = randomBanner(makeRng((state.seed ^ (k.id * 7919)) >>> 0), k.color);
 }
 
 export function pickLoadout(k, rng) {

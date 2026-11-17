@@ -9,7 +9,7 @@ import { SPELLS } from '../data/spells.js';
 import {
   terrainOf, hero, heroesAt, kingdomHeroes, kingdomTerritories, captivesOf, vagabondsIn, validTargets, validMoves, validSpyTargets,
   restPrice, applyOrders, collectBattles, prepareBattle, autoResolve, applyBattle, isHumanKingdom, powerAt, troopOptions, battleOdds,
-  hasIntel, friendly, overlordOf, treaty, proposedMajority, totalTroops,
+  hasIntel, friendly, overlordOf, treaty, proposedMajority, totalTroops, fixPortraits,
 } from '../game/world.js';
 import { endTurn } from '../game/turn.js';
 import { neutralActions, sitesIn, SITES, plunderYield } from '../game/neutral.js';
@@ -25,7 +25,8 @@ import { economyPreview, edictCost, canEdict, promotionStatus, loadoutOptions, l
 import { alliesOf, vassalsOf, opinion, realmPower, dominant, willingness } from '../game/diplomacy.js';
 import { EVENT_INFO } from '../game/events.js';
 import { captureScene, decisionScene } from '../game/dialogue.js';
-import { renderTerrain, drawTerrain, drawOverlay, drawSites, drawTowns, drawHeroes, drawOrders, drawAnimated, drawSeason, captureFx, renderMinimap, updateMinimap, hitTest, TS } from '../campaign/mapview.js';
+import { renderTerrain, drawTerrain, drawOverlay, drawSites, drawTowns, drawHeroes, drawOrders, drawAnimated, drawSeason, captureFx, renderMinimap, updateMinimap, hitTest, drawLandOutline, drawGuards, TS } from '../campaign/mapview.js';
+import { bannerEl } from '../engine/banner.js';
 import { portrait, unitIcon, itemIcon, heroCard, orderLabel, kingdomBadge, unitCard } from '../campaign/widgets.js';
 import { saveCampaign, getRecord, prettyCode, stampCampaign } from '../game/save.js';
 import { sfx, music } from '../engine/audio.js';
@@ -60,6 +61,7 @@ registerScene('campaign', {
       return;
     }
     S.key = args.key || null;
+    if (args.state) fixPortraits(args.state);
     if (args.state) { S.state = args.state; S.me = args.localPlayer ?? 0; S.sel = null; S.target = null; S.queue = null; S.reports = []; }
     if (S.seed !== S.state.seed + ':' + S.state.size || !S.terrainCanvas) {
       S.seed = S.state.seed + ':' + S.state.size;
@@ -106,10 +108,15 @@ registerScene('campaign', {
     const view = { x: cam.x - vw / 2, y: cam.y - vh / 2, w: vw, h: vh };
     drawTerrain(ctx, S.T, view);
     drawAnimated(ctx, S.T, game.time, view);
-    drawOverlay(ctx, S.T, st, view);
+    // banners and border guards show who holds what; the old frontier lines are an option in Settings
+    if (showBorders()) drawOverlay(ctx, S.T, st, view);
     const pulse = 0.5 + 0.5 * Math.sin(game.time * 5);
-    if (S.target) for (const tid of S.target.valid) ring(st.territories[tid], S.target.kind === 'attack' ? '#ff4a3a' : S.target.kind === 'spy' ? '#c48bff' : '#ffffff', 22 + pulse * 3);
-    if (S.sel != null) ring(st.territories[S.sel], '#ffd25a', 26 + pulse * 2);
+    if (S.target) {
+      drawLandOutline(ctx, S.T, S.target.valid, S.target.kind === 'attack' ? '#ff4a3a' : S.target.kind === 'spy' ? '#c48bff' : '#ffffff', 2);
+      for (const tid of S.target.valid) ring(st.territories[tid], S.target.kind === 'attack' ? '#ff4a3a' : S.target.kind === 'spy' ? '#c48bff' : '#ffffff', 22 + pulse * 3);
+    }
+    if (S.sel != null) { drawLandOutline(ctx, S.T, [S.sel], '#ffd25a', 2); ring(st.territories[S.sel], '#ffd25a', 26 + pulse * 2); }
+    drawGuards(ctx, S.T, st, game.time, view);
     drawSites(ctx, st, S.T, game.time, view);
     drawTowns(ctx, st, game.time, view);
     drawHeroes(ctx, st, game.time, S.travel, S.T);
@@ -208,8 +215,11 @@ function goHome() {
   const own = kingdomTerritories(st, k.id);
   const tid = st.territories[k.capital] && st.territories[k.capital].owner === k.id ? k.capital : own.length ? own[0].id : hs[0] ? hs[0].loc : k.capital;
   cam.zoom = Math.max(cam.zoom, Math.max(1, Math.round(1.5 * screen.dpr) / screen.dpr));
-  focus(tid); S.sel = tid; sfx('open'); refreshUI(); drawMinimapUI();
+  focus(tid); cam.x += (screen.w * 0.22) / cam.zoom; cam.clamp(); // the land panel opens on the right: keep home in view on the left
+  S.sel = tid; sfx('open'); refreshUI(); drawMinimapUI();
 }
+function bannerIcon(k) { const el = k.banner ? bannerEl(k.banner, 1.5) : h('span', { class: 'swatch', style: { background: k.color } }); el.style.flex = 'none'; el.style.marginTop = '-4px'; return el; }
+function showBorders() { try { return localStorage.getItem('ikkr-dw-borders') === '1'; } catch { return false; } }
 function focus(tid) { const t = S.state.territories[tid]; cam.x = t.cx * TS + 8; cam.y = t.cy * TS + 8; cam.clamp(); }
 
 // ---------- UI ----------
@@ -243,7 +253,7 @@ export function refreshUI() {
   ui.top.innerHTML = '';
   add(ui.top,
     h('span', { class: 'chip row tap', style: { gap: '5px', maxWidth: '26vw', minWidth: 0, flexShrink: 1 }, onClick: realmSheet },
-      h('span', { class: 'swatch', style: { background: k.color } }), h('span', { class: 'ellipsis' }, k.landless ? 'Warband of ' + (hero(st, k.ruler) || {}).name : k.name),
+      bannerIcon(k), h('span', { class: 'ellipsis' }, k.landless ? 'Warband of ' + (hero(st, k.ruler) || {}).name : k.name),
       h('span', { class: 'tag gold' }, k.landless ? 'Landless' : TIERS[tierIndex(k)].name)),
     h('span', { class: 'chip gold', title: 'Gold' }, `${k.gold}g `, h('small', { class: eco.gold >= 0 ? 'good' : 'bad' }, sign(eco.gold))),
     h('span', { class: 'chip', title: 'Food' }, `🌾${Math.round(k.food)} `, h('small', { class: eco.food >= 0 ? 'good' : 'bad' }, sign(eco.food))),
@@ -257,7 +267,7 @@ export function refreshUI() {
   ui.bottom.innerHTML = '';
   const prisoners = captivesOf(st, k.id).length;
   add(ui.bottom,
-    btn('⌂ Home', goHome, 'small'),
+    btn('⌂', goHome, 'small home-btn'),
     btn('Heroes', heroesList, 'small'),
     btn('Realm', realmSheet, 'small'),
     btn(incoming ? `Diplomacy (${incoming})` : 'Diplomacy', diplomacySheet, 'small' + (incoming ? ' primary' : '')),

@@ -1,3 +1,4 @@
+import { bannerEl } from '../engine/banner.js';
 // Reusable game widgets: portraits, unit icons, hero/unit cards, item icons, kingdom badges.
 import { h, sprite, bar } from '../engine/ui.js';
 import { FACTIONS, portraitRef, ITEMS } from '../data/art.js';
@@ -29,7 +30,7 @@ export function troopSummary(hero, kingdom) {
 export function kingdomBadge(k, opts = {}) {
   if (!k) return h('span', { class: 'tag' }, opts.none || 'No realm');
   return h('span', { class: 'row', style: { gap: '5px', minWidth: 0 } },
-    h('span', { class: 'swatch', style: { background: k.color } }),
+    k.banner ? (() => { const el = bannerEl(k.banner, 1.2); el.style.flex = 'none'; return el; })() : h('span', { class: 'swatch', style: { background: k.color } }),
     h('span', { class: 'ellipsis', style: { fontWeight: 600 } }, k.name),
     opts.race ? h('span', { class: 'tag' }, FACTIONS[k.fid].name) : null);
 }

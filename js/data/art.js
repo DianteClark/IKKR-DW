@@ -182,6 +182,16 @@ export function drawSpriteRef(ctx, ref, x, y, w, h) {
   ctx.drawImage(im, ref[1], ref[2], ref[3], ref[4], Math.round(x), Math.round(y), w ?? ref[3], h ?? ref[4]);
 }
 
+// Hero portraits: in every 40-icon sheet the first 20 are men and the last 20 women; orcs and elementals are unisex.
+export function portraitFor(fid, gender, roll) {
+  const n = FACTIONS[fid].portraits.length;
+  if (n !== 40) return Math.floor(roll * n);
+  return (gender === 'f' ? 20 : 0) + Math.floor(roll * 20);
+}
+export function portraitFits(fid, gender, idx) {
+  const n = FACTIONS[fid].portraits.length;
+  return n !== 40 || (gender === 'f') === (idx % 40 >= 20);
+}
 export function portraitRef(fid, idx) {
   const p = FACTIONS[fid].portraits;
   const r = p[idx % p.length];

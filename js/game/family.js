@@ -113,8 +113,7 @@ function comeOfAge(state, rng, holder, idx, notes) {
   const heir = s.heir;
   holder.troops.splice(idx, 1);
   const kid = holder.kingdom;
-  const nh = makeHero(state, rng, heir.fid, kid, holder.loc, { name: s.name, unit: holder.unit, ufid: holder.ufid || holder.fid, troops: 0, level: 2, trait: heir.trait });
-  nh.gender = heir.gender;
+  const nh = makeHero(state, rng, heir.fid, kid, holder.loc, { name: s.name, gender: heir.gender, unit: holder.unit, ufid: holder.ufid || holder.fid, troops: 0, level: 2, trait: heir.trait });
   for (const k of ['atk', 'def', 'int']) nh[k] = Math.max(nh[k], Math.round((nh[k] + heir.stats[k]) / 2) + 1);
   nh.lead = Math.min(16, Math.max(nh.lead, Math.round((nh.lead + heir.stats.lead) / 2)));
   nh.loyalty = 95; nh.parents = heir.parents.slice(); nh.born = heir.born;

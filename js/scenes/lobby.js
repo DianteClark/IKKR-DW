@@ -4,6 +4,7 @@ import { net } from '../net/net.js';
 import { createWorld, confirmPicks } from '../game/world.js';
 import { factionPicker, heroPicker, newGameOptions } from './setup.js';
 import { campaignSession } from './campaign.js';
+import { loadMyBanner } from '../engine/banner.js';
 import { stampCampaign, newKey, hashKey, getRecord, findByCid, swapSeats, seatOfKey, prettyCode } from '../game/save.js';
 
 let L = {};
@@ -42,7 +43,7 @@ async function hostFlow() {
     h('div', {}, 'Waiting for player 2…'), btn('Cancel', () => { net.close(); go('lobby'); }, 'small'));
   net.on('peerJoined', () => {
     toast('Player 2 joined!', 'good');
-    net.on('fid', (m) => { L.peerFid = m.fid; maybeCreate(); });
+    net.on('fid', (m) => { L.peerFid = m.fid; L.peerBanner = m.banner || null; maybeCreate(); });
     net.on('picks', (m) => { L.peerPicked = m.ids; L.peerHash = m.hash || null; maybeBegin(); });
     clearUI();
     const pickFid = () => { clearUI(); mount(factionPicker('Choose your people (you are player 1)', (fid) => { L.hostFid = fid; screen(h('h2', {}, 'Waiting for player 2 to choose…')); maybeCreate(); })); };
@@ -54,7 +55,7 @@ async function hostFlow() {
 function maybeCreate() {
   if (!L.hostFid || !L.peerFid || L.state) return;
   const seed = (Math.random() * 2 ** 31) >>> 0;
-  L.state = createWorld(seed, [{ fid: L.hostFid }, { fid: L.peerFid }], L.opts || { size: 'small' });
+  L.state = createWorld(seed, [{ fid: L.hostFid, banner: loadMyBanner() }, { fid: L.peerFid, banner: L.peerBanner }], L.opts || { size: 'small' });
   stampCampaign(L.state, 'p2p');
   L.state.seats[0].hash = hashKey(L.key);
   net.send({ t: 'world', s: L.state });
@@ -102,7 +103,7 @@ async function joinFlow(code) {
   net.onClose = () => lost();
   if (L.resuming) return;
   clearUI();
-  mount(factionPicker('Choose your people (you are player 2)', (fid) => { net.send({ t: 'fid', fid }); screen(h('h2', {}, 'Waiting for player 1…')); }));
+  mount(factionPicker('Choose your people (you are player 2)', (fid) => { net.send({ t: 'fid', fid, banner: loadMyBanner() }); screen(h('h2', {}, 'Waiting for player 1…')); }));
 }
 
 export function lost() {
