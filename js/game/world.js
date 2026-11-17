@@ -113,7 +113,7 @@ export function createWorld(seed, players, opts = {}) {
   const size = opts.size || 'medium';
   const conf = SIZES[size] || SIZES.medium;
   const state = {
-    v: 2, seed, size, territoryCount: conf.territories, difficulty: opts.difficulty || 'normal', turn: 1, nextId: 1, rngTick: 0,
+    v: 2, seed, size, territoryCount: conf.territories, difficulty: opts.difficulty || 'normal', fog: opts.fog ?? false, turn: 1, nextId: 1, rngTick: 0,
     mode: players.length > 1 ? 'p2p' : 'single', territories: [], kingdoms: [], heroes: [], items: {}, log: [], players: [],
     pendingCaptives: [], treaties: [], events: [], over: null, dialogue: [], demands: [], proposals: [],
   };
@@ -203,7 +203,7 @@ export function createWorld(seed, players, opts = {}) {
     k.food = 100 + owned.length * 30;
     k.loadout = pickLoadout(k, rng);
   }
-  state.players.forEach((p) => {
+  state.players.forEach((p, pi) => {
     const k = state.kingdoms[p.kingdom];
     p.candidates = [];
     const usedUnits = new Set();
@@ -211,7 +211,15 @@ export function createWorld(seed, players, opts = {}) {
       let unit;
       do { unit = rng.int(0, 2); } while (usedUnits.has(unit) && usedUnits.size < 3);
       usedUnits.add(unit);
-      const h = makeHero(state, rng, k.fid, k.id, k.capital, { status: 'candidate', unit, ruler: j === 0, troops: 5 });
+      const heir = j === 0 && opts.heir && pi === 0 ? opts.heir : null;
+      const h = makeHero(state, rng, k.fid, k.id, k.capital, { status: 'candidate', unit, ruler: j === 0, troops: 5, gender: heir ? (rng() < 0.5 ? 'm' : 'f') : undefined });
+      if (heir) {
+        // a descendant of a famous hero: carries the family name and a share of their strength
+        h.name = h.name.split(' ')[0] + ', heir of ' + heir.name.split(' ')[0];
+        for (const s of ['atk', 'def', 'int']) h[s] = Math.max(h[s], Math.round((h[s] + (heir[s] || 0)) / 2) + 1);
+        h.lead = Math.min(16, Math.max(h.lead, Math.round((h.lead + (heir.lead || 8)) / 2)));
+        h.ancestor = heir.name; h.loyalty = 100;
+      }
       p.candidates.push(h.id);
     }
     for (let j = 0; j < 3; j++) giveItem(state, rng, k.id, 0);

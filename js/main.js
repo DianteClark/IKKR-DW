@@ -55,6 +55,7 @@ async function boot() {
   await import('./scenes/lobby.js');
   await import('./scenes/saves.js');
   await import('./scenes/banner.js');
+  await import('./scenes/fame.js');
   go('title');
   requestAnimationFrame(frame);
 }

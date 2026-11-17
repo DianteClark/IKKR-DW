@@ -445,6 +445,7 @@ export function updateMinimap(c, T, state) {
       const xx = i % T.W;
       if (t >= 0 && ((xx + 1 < T.W && T.terr[i + 1] >= 0 && T.terr[i + 1] !== t) || (i + T.W < T.terr.length && T.terr[i + T.W] >= 0 && T.terr[i + T.W] !== t))) col = col.map((v) => v * 0.6);
     }
+    if (VIS) { const nt = nearestTerr(T)[i]; if (nt >= 0 && !VIS[nt]) col = col.map((v) => v * 0.35 + 8); }
     d[i * 4] = col[0]; d[i * 4 + 1] = col[1]; d[i * 4 + 2] = col[2]; d[i * 4 + 3] = 255;
   }
   x.putImageData(id, 0, 0);
@@ -614,6 +615,7 @@ export function drawGuards(ctx, T, state, time, view) {
   }
   if (view && view.w > 1800) return; // too small to see when zoomed far out
   for (const g of T._guards) {
+    if (VIS && !seen(T.terr[(((g.y - 13) / TS) | 0) * T.W + (((g.x - 8) / TS) | 0)])) continue;
     if (view && (g.x < view.x - 16 || g.y < view.y - 8 || g.x > view.x + view.w + 16 || g.y > view.y + view.h + 24)) continue;
     ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fillRect(g.x - 4, g.y - 1, 8, 2);
     drawUnit(ctx, g.fid, 0, 1, 'idle', time * 2 + g.ph, g.x, g.y, g.flip);
@@ -728,6 +730,98 @@ function settlementPieces(state, t) {
   pieces.sort((a, b) => a[3] - b[3]);
   return { kind, pieces };
 }
+// ---- fog of war: VIS is per-territory visibility for the local player (null = everything visible) ----
+let VIS = null;
+const seen = (tid) => !VIS || tid == null || tid < 0 || VIS[tid] === 1;
+function nearestTerr(T) {
+  if (T._wterr) return T._wterr;
+  const { W, H, terr } = T, N = W * H, out = new Int16Array(N).fill(-1);
+  let q = [];
+  for (let i = 0; i < N; i++) if (terr[i] >= 0) { out[i] = terr[i]; q.push(i); }
+  while (q.length) { const nq = []; for (const j of q) { const x = j % W; for (const k of [x > 0 ? j - 1 : -1, x < W - 1 ? j + 1 : -1, j - W, j + W]) if (k >= 0 && k < N && out[k] < 0) { out[k] = out[j]; nq.push(k); } } q = nq; }
+  T._wterr = out;
+  return out;
+}
+export function setVisibility(T, vis) {
+  VIS = vis || null;
+  if (!vis) { T._fogKey = null; return; }
+  const key = vis.join('');
+  if (T._fogKey === key) return;
+  T._fogKey = key;
+  const nt = nearestTerr(T);
+  const c = T._fogC || document.createElement('canvas'); c.width = T.W; c.height = T.H; T._fogC = c;
+  const x = c.getContext('2d'), id = x.createImageData(T.W, T.H), d = id.data;
+  for (let i = 0; i < T.W * T.H; i++) { const t = nt[i]; if (t >= 0 && vis[t]) continue; d[i * 4] = 14; d[i * 4 + 1] = 12; d[i * 4 + 2] = 26; d[i * 4 + 3] = 168; }
+  x.putImageData(id, 0, 0);
+}
+export const isSeen = seen;
+// soft fog over everything you can't see (drawn after terrain and settlements, before your own pins)
+export function drawFog(ctx, T, view) {
+  if (!VIS || !T._fogC) return;
+  const prev = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = true;
+  if (view) {
+    const sx = Math.max(0, view.x / TS - 1), sy = Math.max(0, view.y / TS - 1), sw = Math.min(T.W - sx, view.w / TS + 2), sh = Math.min(T.H - sy, view.h / TS + 2);
+    if (sw > 0 && sh > 0) ctx.drawImage(T._fogC, sx, sy, sw, sh, sx * TS, sy * TS, sw * TS, sh * TS);
+  } else ctx.drawImage(T._fogC, 0, 0, T.W * TS, T.H * TS);
+  ctx.imageSmoothingEnabled = prev;
+}
+
+// ---- trade caravans walking the roads between friendly realms ----
+export function drawCaravans(ctx, state, T, routes, time, view) {
+  if (!routes || !routes.length || (view && view.w > 1800)) return;
+  for (let i = 0; i < routes.length; i++) {
+    const [a, b] = routes[i];
+    if (hashI(a, b) % 3) continue; // a third of routes have a caravan on the road at any time
+    if (!seen(a) && !seen(b)) continue;
+    const pts = T.roadPath ? T.roadPath(a, b) : null; if (!pts || pts.length < 2) continue;
+    const per = 14 + (hashI(b, a) % 8), ph = ((time + (hashI(a, b) % 97)) % per) / per;
+    const f = ph < 0.5 ? ph * 2 : 2 - ph * 2;
+    const [x, y, dx] = pathPoint(pts, f);
+    if (view && (x < view.x - 20 || y < view.y - 20 || x > view.x + view.w + 20 || y > view.y + view.h + 20)) continue;
+    const flip = (ph < 0.5 ? dx : -dx) < 0;
+    ctx.fillStyle = 'rgba(0,0,0,.28)'; ctx.fillRect(Math.round(x - 9), Math.round(y + 3), 18, 2);
+    // a laden cart behind a pack animal
+    const cx = Math.round(x + (flip ? 6 : -6)), cy = Math.round(y - 4);
+    ctx.fillStyle = '#3a2618'; ctx.fillRect(cx - 5, cy - 1, 10, 6);
+    ctx.fillStyle = '#b07a3a'; ctx.fillRect(cx - 4, cy, 8, 4);
+    ctx.fillStyle = '#e8d9b0'; ctx.fillRect(cx - 4, cy - 4, 8, 4); ctx.fillStyle = '#c9b48a'; ctx.fillRect(cx - 4, cy - 1, 8, 1);
+    ctx.fillStyle = '#1a1420'; ctx.fillRect(cx - 4, cy + 5, 2, 2); ctx.fillRect(cx + 2, cy + 5, 2, 2);
+    drawUnit(ctx, 'castle', 5, 1, 'walk', time * 5 + i, Math.round(x + (flip ? -5 : 5)), Math.round(y + 4), flip);
+  }
+}
+
+// ---- weather overlays over the affected lands ----
+function terrBoxes(T) {
+  if (T._tbox) return T._tbox;
+  const box = T.territories.map(() => [1e9, 1e9, -1, -1]);
+  for (let i = 0; i < T.W * T.H; i++) { const t = T.terr[i]; if (t < 0) continue; const x = i % T.W, y = (i / T.W) | 0, b = box[t]; if (x < b[0]) b[0] = x; if (y < b[1]) b[1] = y; if (x > b[2]) b[2] = x; if (y > b[3]) b[3] = y; }
+  T._tbox = box; return box;
+}
+export function drawWeather(ctx, state, T, time, view) {
+  const box = terrBoxes(T);
+  for (const t of state.territories) {
+    const w = t.weather && t.weather.until >= state.turn ? t.weather.kind : null; if (!w) continue;
+    const b = box[t.id]; const x0 = b[0] * TS, y0 = b[1] * TS, x1 = (b[2] + 1) * TS, y1 = (b[3] + 1) * TS;
+    if (view && (x1 < view.x || y1 < view.y || x0 > view.x + view.w || y0 > view.y + view.h)) continue;
+    const W2 = x1 - x0, H2 = y1 - y0, n = Math.min(60, Math.round(W2 * H2 / 900));
+    const inside = (px, py) => { const cx = (px / TS) | 0, cy = (py / TS) | 0; return cx >= 0 && cy >= 0 && cx < T.W && cy < T.H && T.terr[cy * T.W + cx] === t.id; };
+    if (w === 'fog' || w === 'drought') {
+      ctx.fillStyle = w === 'fog' ? 'rgba(225,230,240,.07)' : 'rgba(255,170,60,.06)';
+      for (let k = 0; k < 6; k++) { const px = x0 + (hashI(t.id, k) % 1000) / 1000 * W2, py = y0 + (hashI(k, t.id) % 1000) / 1000 * H2, r = 30 + (k * 7) % 25 + Math.sin(time * 0.6 + k) * 4; ctx.beginPath(); ctx.ellipse(px + Math.sin(time * 0.3 + k) * 8, py, r * 1.6, r, 0, 0, Math.PI * 2); ctx.fill(); }
+      continue;
+    }
+    for (let k = 0; k < n; k++) {
+      const sp = w === 'storm' ? 140 : 40;
+      const px = x0 + ((hashI(t.id * 7, k) % 1000) / 1000 * W2 + time * (w === 'storm' ? -30 : 12)) % W2, py = y0 + ((hashI(k, t.id * 3) % 1000) / 1000 * H2 + time * sp) % H2;
+      const X = px < x0 ? px + W2 : px, Y = py;
+      if (!inside(X, Y)) continue;
+      if (w === 'storm') { ctx.fillStyle = 'rgba(170,200,240,.55)'; ctx.fillRect(Math.round(X), Math.round(Y), 1, 5); }
+      else { ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.fillRect(Math.round(X), Math.round(Y), 2, 2); }
+    }
+    if (w === 'storm' && Math.floor(time * 3 + t.id) % 37 === 0) { ctx.fillStyle = 'rgba(255,255,255,.06)'; ctx.fillRect(x0, y0, W2, H2); }
+  }
+}
+
 const captures = [];
 export function captureFx(state, tid) { captures.push({ tid, t0: performance.now() / 1000 }); }
 
@@ -763,8 +857,9 @@ export function drawTowns(ctx, state, time, view) {
       if (!far) { ctx.fillStyle = 'rgba(0,0,0,.28)'; ctx.beginPath(); ctx.ellipse(ax, ay - 1, w * 0.46, 5, 0, 0, Math.PI * 2); ctx.fill(); }
       drawSpriteRef(ctx, r, px, py);
       if (kind === 'town' && !far) smoke(ctx, ax - 10, py + 14, time, t.id * 13);
-      const kb = t.owner >= 0 && state.kingdoms[t.owner] ? state.kingdoms[t.owner].banner : null;
-      if (kb) drawBanner(ctx, kb, Math.round(px - 6), Math.round(ay - 4), time, t.id); // left of the town; hero pins sit on the right else if (col) flag(ctx, Math.round(px + w - 6), Math.round(py + 2), col, time, t.id);
+      const kb = t.owner >= 0 && state.kingdoms[t.owner] && seen(t.id) ? state.kingdoms[t.owner].banner : null;
+      if (kb) drawBanner(ctx, kb, Math.round(px - 6), Math.round(ay - 4), time, t.id); // left of the town; hero pins sit on the right
+      else if (col && seen(t.id)) flag(ctx, Math.round(px + w - 6), Math.round(py + 2), col, time, t.id);
     } else if (st) {
       // ground patch so the cluster reads as a place
       if (!far) { ctx.fillStyle = 'rgba(70,50,30,.16)'; ctx.beginPath(); ctx.ellipse(ax + 2, ay - 8, kind === 'hamlet' ? 22 : 36, kind === 'hamlet' ? 13 : 20, 0, 0, Math.PI * 2); ctx.fill(); }
@@ -789,8 +884,8 @@ export function drawTowns(ctx, state, time, view) {
       }
       const top = pieces.reduce((m, p) => (p[3] < m[3] ? p : m), pieces[0] || [0, 0, 0, 0]);
       if (pieces.length && !far) smoke(ctx, ax + top[2] - 2, ay + top[3] - 15, time, t.id * 7);
-      const kb2 = t.owner >= 0 && state.kingdoms[t.owner] ? state.kingdoms[t.owner].banner : null;
-      if (kb2) drawBanner(ctx, kb2, Math.round(ax - (kind === 'hamlet' ? 30 : 42)), Math.round(ay - 4), time, t.id); else if (col) flag(ctx, Math.round(ax + 16), Math.round(ay - (kind === 'hamlet' ? 30 : 40)), col, time, t.id);
+      const kb2 = t.owner >= 0 && state.kingdoms[t.owner] && seen(t.id) ? state.kingdoms[t.owner].banner : null;
+      if (kb2) drawBanner(ctx, kb2, Math.round(ax - (kind === 'hamlet' ? 30 : 42)), Math.round(ay - 4), time, t.id); else if (col && seen(t.id)) flag(ctx, Math.round(ax + 16), Math.round(ay - (kind === 'hamlet' ? 30 : 40)), col, time, t.id);
     }
   }
   // capture sweeps
@@ -818,6 +913,7 @@ export function drawSites(ctx, state, T, time, view) {
   const st = img(STRUCT), props = img(DUNGEON_PROPS), trees = img(TREES);
   for (const s of state.sites) {
     const sp = T.siteSpots[s.spot]; if (!sp) continue;
+    if (!seen(sp.tid)) continue; // unknown in the fog
     const x = sp.x * TS, y = sp.y * TS;
     if (view && (x < view.x - 48 || y < view.y - 48 || x > view.x + view.w + 48 || y > view.y + view.h + 48)) continue;
     const done = s.status === 'cleared' || s.status === 'plundered';
@@ -904,6 +1000,7 @@ export function drawHeroes(ctx, state, time, travel, T, myKid = null) {
   const walking = [];
   for (const h of state.heroes) {
     if (h.status !== 'active') continue;
+    if (h.kingdom !== myKid && !seen(h.loc)) continue; // armies in the fog stay hidden
     if (tr && tr.has(h.id)) { walking.push(h); continue; }
     if (!by.has(h.loc)) by.set(h.loc, []);
     by.get(h.loc).push(h);
@@ -990,7 +1087,7 @@ export function drawSeason(ctx, T, season, time, view) {
 export function hitTest(T, state, wx, wy) {
   // hero pins first: they are small and sit on top
   const groups = new Map();
-  for (const h of state.heroes) if (h.status === 'active') { if (!groups.has(h.loc)) groups.set(h.loc, []); groups.get(h.loc).push(h); }
+  for (const h of state.heroes) if (h.status === 'active' && seen(h.loc)) { if (!groups.has(h.loc)) groups.set(h.loc, []); groups.get(h.loc).push(h); }
   let best = null, bd = 16;
   for (const [tid, list] of groups) {
     const t = state.territories[tid];

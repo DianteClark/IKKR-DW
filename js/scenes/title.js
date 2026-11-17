@@ -122,7 +122,7 @@ registerScene('title', {
         save ? btn('Continue', () => { sfx('horn'); go('saves'); }, 'primary big') : null,
         btn('New Campaign', () => { sfx('open'); go('setup', { mode: 'single' }); }, save ? '' : 'primary big'),
         btn('Multiplayer', () => { sfx('open'); go('lobby'); }),
-        h('div', { class: 'row' }, btn('Banner', () => { sfx('open'); go('banner'); }, 'small grow'), btn('Settings', settings, 'small grow'), btn('Credits', credits, 'small grow'))),
+        h('div', { class: 'row' }, btn('Fame', () => { sfx('open'); go('fame'); }, 'small grow'), btn('Banner', () => { sfx('open'); go('banner'); }, 'small grow'), btn('Settings', settings, 'small grow'), btn('Credits', credits, 'small grow'))),
     ));
   },
   exit() {},

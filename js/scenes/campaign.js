@@ -31,7 +31,10 @@ import { EVENT_INFO } from '../game/events.js';
 import { captureScene, decisionScene, nemesisLine } from '../game/dialogue.js';
 import { questText, nemesisPairs } from '../game/stories.js';
 import { pendingChoice } from '../game/choices.js';
-import { renderTerrain, drawTerrain, drawOverlay, drawSites, drawTowns, drawHeroes, drawOrders, drawAnimated, drawSeason, captureFx, renderMinimap, updateMinimap, hitTest, drawLandOutline, drawGuards, setSeason, TS } from '../campaign/mapview.js';
+import { checkAchievements, recordCampaign } from '../game/legacy.js';
+import { renderTerrain, drawTerrain, drawOverlay, drawSites, drawTowns, drawHeroes, drawOrders, drawAnimated, drawSeason, captureFx, renderMinimap, updateMinimap, hitTest, drawLandOutline, drawGuards, setSeason, setVisibility, drawFog, drawCaravans, drawWeather, isSeen, TS } from '../campaign/mapview.js';
+import { visibleLands, fogOn } from '../game/fog.js';
+import { tradeRoutes } from '../game/trade.js';
 import { bannerEl } from '../engine/banner.js';
 import { portrait, unitIcon, itemIcon, heroCard, orderLabel, kingdomBadge, unitCard } from '../campaign/widgets.js';
 import { saveCampaign, getRecord, prettyCode, stampCampaign } from '../game/save.js';
@@ -110,6 +113,9 @@ registerScene('campaign', {
       if (S.minimap) { updateMinimap(S.minimap, S.T, st); drawMinimapUI(); }
     }
     trackTravel(st);
+    // fog of war for the local player (sets what the map draws and the minimap shows)
+    const vis = fogOn(st) ? visibleLands(st, myK().id) : null;
+    if (vis !== S.vis) { S.vis = vis; setVisibility(S.T, vis); if (S.minimap) { updateMinimap(S.minimap, S.T, st); drawMinimapUI(); } }
     if (S.T.season !== seasonOf(st.turn)) { setSeason(S.T, seasonOf(st.turn)); if (S.minimap) { updateMinimap(S.minimap, S.T, st); drawMinimapUI(); } }
     cam.apply();
     const vw = screen.w / cam.zoom, vh = screen.h / cam.zoom;
@@ -126,7 +132,10 @@ registerScene('campaign', {
     if (S.sel != null) { drawLandOutline(ctx, S.T, [S.sel], '#ffd25a', 2); ring(st.territories[S.sel], '#ffd25a', 26 + pulse * 2); }
     drawGuards(ctx, S.T, st, game.time, view);
     drawSites(ctx, st, S.T, game.time, view);
+    drawCaravans(ctx, st, S.T, tradeRoutes(st), game.time, view);
     drawTowns(ctx, st, game.time, view);
+    drawFog(ctx, S.T, view);
+    drawWeather(ctx, st, S.T, game.time, view);
     drawHeroes(ctx, st, game.time, S.travel, S.T, myK().id);
     drawOrders(ctx, st, net.role === 'single' ? null : st.players[S.me].kingdom, game.time);
     // event markers over towns
@@ -903,6 +912,7 @@ export function showTurnSummary(prevTurn, reports, summary = { events: [], notes
   if (st.over) return gameOver();
   if (!k.alive && !S.toldFallen) {
     S.toldFallen = true;
+    recordCampaign(st, myKid, 'defeat');
     return modal('Your last hero has fallen', h('div', {}, 'No one remains to carry your banner. The war goes on without you.'), [['Watch'], ['Title screen', () => { if (net.role !== 'single') net.close(); else clearSave(); go('title'); }, 'danger']]);
   }
   const items = [];
@@ -934,9 +944,15 @@ export function showTurnSummary(prevTurn, reports, summary = { events: [], notes
     else if (st.proposals.some((p) => p.to === myKid)) diplomacySheet();
     nameBirths();
     setTimeout(showChoice, 400);
+    achievementToasts();
   }, 'primary']], { width: '680px' });
 }
 
+function achievementToasts() {
+  const st = S.state, k = myK();
+  const fresh = checkAchievements(st, k.id, { trade: economyPreview(st, k).trade });
+  fresh.forEach((a, i) => setTimeout(() => { sfx('levelup'); toast(`★ Achievement: ${a.name}${a.unlock ? ' — new banner emblem!' : ''}`, 'gold'); }, 900 + i * 1600));
+}
 // a decision for your realm (events with choices)
 export function showChoice() {
   const st = S.state, k = myK();
@@ -984,6 +1000,7 @@ function gameOver() {
   const st = S.state, myKid = myK().id;
   const o = st.over;
   const win = o.winner === myKid || (o.type === 'alliance' && (o.winners || []).includes(myKid));
+  recordCampaign(st, myKid, win ? (o.type === 'alliance' ? 'alliance' : 'victory') : 'defeat'); achievementToasts();
   sfx(win ? 'victory' : 'defeat');
   banner(win ? 'VICTORY' : 'DEFEAT', win ? 'good' : 'bad');
   modal(win ? 'Victory!' : 'Defeat', h('div', {}, win ? (o.type === 'alliance' ? 'You and your allies rule every realm. The dynasty is yours.' : 'Every realm bows to you. The dynasty is yours.') : o.type === 'alliance' && o.members.includes(myKid) ? 'Your alliance rules the land — but you followed others into it, and the crown went to them.' : 'Your cause is lost.'),

@@ -1,10 +1,12 @@
 import { registerScene, go } from '../main.js';
+import { toggle } from '../engine/ui.js';
 import { h, btn, mount, clearUI, toast, segmented, stepDots } from '../engine/ui.js';
 import { FACTIONS, FACTION_IDS } from '../data/art.js';
 import { createWorld, confirmPicks, hero } from '../game/world.js';
 import { factionBadge, unitIcon, heroCard } from '../campaign/widgets.js';
 import { stampCampaign } from '../game/save.js';
 import { loadMyBanner } from '../engine/banner.js';
+import { famousHeroes } from '../game/legacy.js';
 import { sfx, music } from '../engine/audio.js';
 
 const FLAVOR = {
@@ -38,7 +40,8 @@ function header(title, step, total, onBack, right) {
 
 // Map size + difficulty. onDone({ size, difficulty })
 export function newGameOptions(onDone, onBack, opts = {}) {
-  let size = opts.size || 'medium', difficulty = opts.difficulty || 'normal';
+  let size = opts.size || 'medium', difficulty = opts.difficulty || 'normal', fog = opts.fog ?? true, heir = null;
+  const famous = famousHeroes();
   const cards = h('div', { class: 'grid stagger', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(175px, 1fr))' } });
   const draw = () => {
     cards.innerHTML = '';
@@ -50,12 +53,20 @@ export function newGameOptions(onDone, onBack, opts = {}) {
   draw();
   return h('div', { class: 'screen fade-in' },
     h('div', { class: 'panel col grow', style: { minHeight: 0 } },
-      header(opts.title || 'New campaign', 0, 3, onBack, btn('Next ›', () => { sfx('open'); onDone({ size, difficulty }); }, 'primary')),
+      header(opts.title || 'New campaign', 0, 3, onBack, btn('Next ›', () => { sfx('open'); onDone({ size, difficulty, fog, heir }); }, 'primary')),
       h('div', { class: 'scroll grow col', style: { minHeight: 0 } },
         h('h3', {}, 'World size'), cards,
         h('h3', {}, 'Rival difficulty'),
         h('div', { class: 'row wrap' }, segmented([{ value: 'easy', label: 'Story' }, { value: 'normal', label: 'Normal' }, { value: 'hard', label: 'Brutal' }], difficulty, (v) => (difficulty = v)),
-          h('span', { class: 'muted small-text' }, 'Affects how bold and well-funded rival realms are.')))));
+          h('span', { class: 'muted small-text' }, 'Story: a gentle start. Brutal: rivals come for you early.')),
+        h('h3', {}, 'Rules'),
+        toggle('Fog of war', fog, (on) => (fog = on)),
+        h('div', { class: 'muted small-text' }, 'You only see lands near your realm and heroes. Scouting reveals more.'),
+        famous.length ? h('h3', {}, 'Bloodline') : null,
+        famous.length ? h('div', { class: 'row wrap', style: { gap: '6px' } },
+          btn('No heir', (e) => { heir = null; [...e.currentTarget.parentNode.children].forEach((c) => c.classList.remove('good')); e.currentTarget.classList.add('good'); }, 'small good'),
+          famous.slice(0, 5).map((f) => btn(`Heir of ${f.name.split(' ')[0]}`, (e) => { heir = f; sfx('click'); [...e.currentTarget.parentNode.children].forEach((c) => c.classList.remove('good')); e.currentTarget.classList.add('good'); }, 'small'))) : null,
+        famous.length ? h('div', { class: 'muted small-text' }, 'Start with a descendant of a hero from the Hall of Fame, with a share of their strength.') : null)));
 }
 
 export function factionPicker(title, onPick, onBack) {
@@ -123,7 +134,7 @@ registerScene('setup', {
       clearUI();
       mount(factionPicker('Choose your people', (fid) => {
         const seed = (Math.random() * 2 ** 31) >>> 0;
-        const state = createWorld(seed, [{ fid, banner: loadMyBanner() }], { size: options.size, difficulty: options.difficulty });
+        const state = createWorld(seed, [{ fid, banner: loadMyBanner() }], { size: options.size, difficulty: options.difficulty, fog: options.fog, heir: options.heir });
         clearUI();
         mount(heroPicker(state, 0, (ids) => {
           confirmPicks(state, 0, ids);

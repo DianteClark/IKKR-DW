@@ -3,9 +3,10 @@ import { registerScene, go } from '../main.js';
 import { h, btn, mount, clearUI, toast, tabs } from '../engine/ui.js';
 import {
   BANNER_COLORS, PATTERNS, PATTERN_NAMES, EMBLEMS, EMBLEM_NAMES, SHAPES, SHAPE_NAMES, TRIMS, TRIM_NAMES,
-  bannerEl, emblemEl, loadMyBanner, saveMyBanner, randomBanner, normalize,
+  bannerEl, emblemEl, loadMyBanner, saveMyBanner, randomBanner, normalize, isUnlocked,
 } from '../engine/banner.js';
 import { sfx, music } from '../engine/audio.js';
+import '../game/legacy.js'; // registers which emblems are earned
 
 let B = null, back = 'title', tab = 'look', colorField = 'bg';
 
@@ -39,7 +40,12 @@ function content() {
         btn('Full colour', () => set('style', 'full'), 'small' + (B.style === 'full' ? ' good' : ''))));
   }
   if (tab === 'pattern') return h('div', { class: 'bm-grid' }, PATTERNS.map((p) => tile(PATTERN_NAMES[p], bannerEl({ ...B, pattern: p, emblem: 'none' }, 1.5), B.pattern === p, () => set('pattern', p))));
-  return h('div', { class: 'bm-grid small' }, EMBLEMS.map((e) => tile(EMBLEM_NAMES[e], e === 'none' ? h('span', { class: 'muted', style: { width: '32px', height: '32px', display: 'grid', placeItems: 'center' } }, '—') : emblemEl(B, e, 2), B.emblem === e, () => set('emblem', e))));
+  return h('div', { class: 'bm-grid small' }, EMBLEMS.map((e) => {
+    const locked = !isUnlocked(e);
+    const el = tile(locked ? '🔒 ' + EMBLEM_NAMES[e] : EMBLEM_NAMES[e], e === 'none' ? h('span', { class: 'muted', style: { width: '32px', height: '32px', display: 'grid', placeItems: 'center' } }, '—') : emblemEl(B, e, 2), B.emblem === e, () => (locked ? toast('Earn this emblem with an achievement (Hall of Fame)', 'gold') : set('emblem', e)));
+    if (locked) el.style.opacity = '0.45';
+    return el;
+  }));
 }
 
 function render() {

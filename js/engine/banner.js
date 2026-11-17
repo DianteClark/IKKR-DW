@@ -25,6 +25,13 @@ const ICON = {
   gem: [3, 48], goblet: [5, 45], harp: [8, 40], horn: [26, 58], bow: [29, 29], potion: [9, 34], scales: [8, 48],
   book: [0, 44], feather: [1, 38], hourglass: [4, 33], medal: [6, 31],
 };
+// extra emblems earned through achievements (see js/game/legacy.js); every other option is always available
+const EARNED = { royal: [24, 11], heartshield: [25, 11], orb: [26, 51], tree: [29, 9], coins: [21, 58], crossshield: [21, 9] };
+Object.assign(ICON, EARNED);
+let earnedNow = () => [];
+export function setEarnedSource(fn) { earnedNow = fn; }
+export function isUnlocked(emblem) { return !(emblem in EARNED) || earnedNow().includes(emblem); }
+export const EARNED_EMBLEMS = Object.keys(EARNED);
 const LEGACY = { tower: 'helm', tree: 'clover', moon: 'horseshoe', wolf: 'eagle', dragon: 'beast', rose: 'heart' };
 export const EMBLEMS = ['none', ...Object.keys(ICON)];
 export const EMBLEM_NAMES = Object.fromEntries(EMBLEMS.map((e) => [e, e === 'none' ? 'None' : e[0].toUpperCase() + e.slice(1)]));
@@ -39,7 +46,7 @@ export function randomBanner(rng, color) {
   const pick = (a) => a[Math.floor(rng() * a.length)];
   const bg = color || pick(BANNER_COLORS);
   let fg = pick(BANNER_COLORS); if (fg === bg) fg = bg === '#f4ecd8' ? '#1a1420' : '#f4ecd8';
-  return { bg, fg, ec: pick(['#f5d860', '#f4ecd8', '#1a1420', '#e8b23a']), pattern: pick(PATTERNS), emblem: pick(EMBLEMS.slice(1)), shape: pick(SHAPES), trim: pick(['gold', 'gold', 'silver', 'bronze']), style: 'tint' };
+  return { bg, fg, ec: pick(['#f5d860', '#f4ecd8', '#1a1420', '#e8b23a']), pattern: pick(PATTERNS), emblem: pick(EMBLEMS.slice(1).filter((e) => !(e in EARNED))), shape: pick(SHAPES), trim: pick(['gold', 'gold', 'silver', 'bronze']), style: 'tint' };
 }
 export function normalize(b) {
   if (!b) return null;
