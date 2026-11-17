@@ -373,3 +373,12 @@ input.text:focus { outline: none; box-shadow: 0 0 0 2px var(--gold); }
 
 .bottombar.narrow { max-width: calc(54vw - 16px); overflow-x: auto; scrollbar-width: none; }
 .bottombar.narrow .btn { padding-left: 8px; padding-right: 8px; font-size: 14px; }
+
+/* ux 12 */
+/* toasts sit low, clear of the top bar and any open land panel */
+#toasts { top: auto; bottom: calc(66px + var(--sab)); max-width: 70vw; }
+body.side-open #toasts { left: calc(26vw + 6px); max-width: 48vw; }
+.toast { white-space: normal; text-align: center; }
+.sumcard { padding: 6px 8px; gap: 8px; align-items: center; }
+.sumcard .sum-ic { width: 26px; height: 26px; flex: none; display: grid; place-items: center; font-size: 18px; color: var(--gold); }
+.sumcard b.bad { color: var(--bad); } .sumcard b.good { color: var(--good); } .sumcard b.gold { color: var(--gold); }

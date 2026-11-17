@@ -133,8 +133,6 @@ registerScene('title', {
 function settings() {
   modal('Settings', h('div', { class: 'col' },
     toggle('Sound & music', !isMuted(), (on) => { setMuted(!on); if (on) { music.stop(); music.start('title'); sfx('click'); } }),
-    toggle('Frontier lines on the map', (() => { try { return localStorage.getItem('ikkr-dw-borders') === '1'; } catch { return false; } })(), (on) => { try { localStorage.setItem('ikkr-dw-borders', on ? '1' : '0'); } catch {} }),
-    h('div', { class: 'muted small-text' }, 'Off: lands show their realm by banners and border guards. On: coloured frontier lines too.'),
     h('div', { class: 'muted small-text' }, 'All sounds are generated live — no downloads.')),
   [['Done', null, 'primary']], { dismiss: true });
 }
