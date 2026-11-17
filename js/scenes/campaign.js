@@ -25,7 +25,7 @@ import { economyPreview, edictCost, canEdict, promotionStatus, loadoutOptions, l
 import { alliesOf, vassalsOf, opinion, realmPower, dominant, willingness } from '../game/diplomacy.js';
 import { EVENT_INFO } from '../game/events.js';
 import { captureScene, decisionScene } from '../game/dialogue.js';
-import { renderTerrain, drawTerrain, drawOverlay, drawSites, drawTowns, drawHeroes, drawOrders, drawAnimated, drawSeason, captureFx, renderMinimap, updateMinimap, hitTest, drawLandOutline, drawGuards, TS } from '../campaign/mapview.js';
+import { renderTerrain, drawTerrain, drawOverlay, drawSites, drawTowns, drawHeroes, drawOrders, drawAnimated, drawSeason, captureFx, renderMinimap, updateMinimap, hitTest, drawLandOutline, drawGuards, setSeason, TS } from '../campaign/mapview.js';
 import { bannerEl } from '../engine/banner.js';
 import { portrait, unitIcon, itemIcon, heroCard, orderLabel, kingdomBadge, unitCard } from '../campaign/widgets.js';
 import { saveCampaign, getRecord, prettyCode, stampCampaign } from '../game/save.js';
@@ -66,6 +66,7 @@ registerScene('campaign', {
     if (S.seed !== S.state.seed + ':' + S.state.size || !S.terrainCanvas) {
       S.seed = S.state.seed + ':' + S.state.size;
       S.T = terrainOf(S.state);
+      if (S.T.season == null) S.T.season = seasonOf(S.state.turn);
       S.terrainCanvas = renderTerrain(S.T);
       S.overlayKey = ''; S.owners = null; S.heroLocs = new Map(); S.travel = new Map();
       S.minimap = renderMinimap(S.T, S.state);
@@ -103,6 +104,7 @@ registerScene('campaign', {
       if (S.minimap) { updateMinimap(S.minimap, S.T, st); drawMinimapUI(); }
     }
     trackTravel(st);
+    setSeason(S.T, seasonOf(st.turn));
     cam.apply();
     const vw = screen.w / cam.zoom, vh = screen.h / cam.zoom;
     const view = { x: cam.x - vw / 2, y: cam.y - vh / 2, w: vw, h: vh };
@@ -119,7 +121,7 @@ registerScene('campaign', {
     drawGuards(ctx, S.T, st, game.time, view);
     drawSites(ctx, st, S.T, game.time, view);
     drawTowns(ctx, st, game.time, view);
-    drawHeroes(ctx, st, game.time, S.travel, S.T);
+    drawHeroes(ctx, st, game.time, S.travel, S.T, myK().id);
     drawOrders(ctx, st, net.role === 'single' ? null : st.players[S.me].kingdom, game.time);
     // event markers over towns
     for (const t of st.territories) {
@@ -343,6 +345,11 @@ function territoryPanel(tid) {
         btn('All rest', () => myHere.forEach((x) => act({ type: 'order', hero: x.id, order: { type: 'rest' } })), 'small'),
         btn('All drill', () => myHere.forEach((x) => act({ type: 'order', hero: x.id, order: { type: 'drill' } })), 'small')));
     }
+  }
+  const others = st.heroes.filter((x) => x.status === 'active' && x.loc === tid && x.kingdom !== k.id && !(t.owner >= 0 && x.kingdom === t.owner && !mine));
+  if (others.length) {
+    add(body, h('h3', {}, 'Others here'));
+    for (const o of others) add(body, heroCard(st, o, { order: false, badges: [o.lentTo === k.id ? 'Lent to you' : friendly(st, k.id, o.kingdom) ? 'Ally' : 'Foreign'] }));
   }
   if (!mine && (owner || !k.landless)) {
     const def = owner ? heroesAt(st, tid, owner.id) : [];

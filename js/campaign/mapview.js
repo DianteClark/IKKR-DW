@@ -105,26 +105,97 @@ function prep(T) {
 
 // Paint a rectangle of cells [cx0, cx0+cw) x [cy0, cy0+ch) into its own canvas. Paints a margin around it and crops,
 // using only global-coordinate randomness, so neighbouring chunks line up seamlessly.
+// ---- seasons: temperate land follows the year; deserts, tundra, lava and caves never change ----
+const SEASONAL = new Set(['grass', 'marsh']);
+const ICE_I = () => BIOME_IDS.indexOf('ice');
+export function seasonalBiome(T, season) {
+  if (T._sb && T._sb.season === season) return T._sb.arr;
+  let arr = T.biome;
+  if (season === 'Winter') {
+    arr = T.biome.slice(); const ice = ICE_I();
+    for (let i = 0; i < arr.length; i++) if (SEASONAL.has(BIOME_IDS[arr[i]])) arr[i] = ice;
+  }
+  T._sb = { season, arr };
+  return arr;
+}
+// call when the season changes: terrain re-renders lazily in the new colours
+export function setSeason(T, season) {
+  if (T.season === season) return;
+  const had = T.season != null;
+  T.season = season;
+  if (!had) return;
+  if (T._full) { T._full = null; T._chunks = null; }
+  else if (T._chunks) {
+    T._chunks.clear(); T._overview = null;
+    T._ovQueue = [];
+    for (let cy = 0; cy < Math.ceil(T.H / CHUNK); cy++) for (let cx = 0; cx < Math.ceil(T.W / CHUNK); cx++) T._ovQueue.push([cx, cy]);
+  }
+}
+// autumn: leaves and meadows of temperate land turn gold and rust (a hue shift, so every green sprite follows)
+function hsl2rgb(h, s, l) {
+  const k = (n) => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+  const f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return [Math.round(f(0) * 255), Math.round(f(8) * 255), Math.round(f(4) * 255)];
+}
+function autumnize(c, T, cx0, cy0) {
+  const x = c.getContext('2d', { willReadFrequently: true });
+  const id = x.getImageData(0, 0, c.width, c.height), d = id.data, w = c.width;
+  for (let py = 0; py < c.height; py++) {
+    const cy = cy0 + (py >> 4);
+    for (let px = 0; px < w; px++) {
+      const cx = cx0 + (px >> 4), ci = cy * T.W + cx;
+      if (!T.land[ci] || !SEASONAL.has(BIOME_IDS[T.biome[ci]])) continue;
+      const o = (py * w + px) * 4, r = d[o], g = d[o + 1], b = d[o + 2];
+      if (!(g > r && g >= b) || b > 140) continue; // only greens (water and foam stay)
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 510, sat = mx - mn;
+      if (sat < 18) continue;
+      // rotate the hue, keep the art's own light and shade: leaves turn rust and amber, meadows turn gold
+      const s0 = sat / (l > 0.5 ? 510 - mx - mn : mx + mn);
+      const hue = l < 0.3 ? 16 : l < 0.4 ? 28 : 50;
+      const rgbx = hsl2rgb(hue, Math.min(1, s0 * (l < 0.4 ? 0.95 : 0.8)), l < 0.4 ? l * 1.08 : Math.min(0.8, l * 1.06));
+      d[o] = rgbx[0]; d[o + 1] = rgbx[1]; d[o + 2] = rgbx[2];
+    }
+  }
+  x.putImageData(id, 0, 0);
+}
+
 export function renderRegion(T, cx0, cy0, cw, ch) {
   const P = prep(T);
-  const { W, H, land, biome, feat } = T;
+  const season = T.season || 'Summer';
+  const { W, H, land, feat } = T;
+  const biome = seasonalBiome(T, season);
+  const river = T.river;
   const m = 3;
   const wx0 = Math.max(0, cx0 - m), wy0 = Math.max(0, cy0 - m), wx1 = Math.min(W, cx0 + cw + m), wy1 = Math.min(H, cy0 + ch + m);
   const ww = wx1 - wx0, wh = wy1 - wy0;
   const sl = new Uint8Array(ww * wh), sb = new Uint8Array(ww * wh), sd = new Uint8Array(ww * wh);
   for (let y = 0; y < wh; y++) for (let x = 0; x < ww; x++) {
     const g = (y + wy0) * W + x + wx0, l = y * ww + x;
-    sl[l] = land[g]; sb[l] = P.bIdx[g]; sd[l] = P.deep[g];
+    sl[l] = land[g] && !(river && river[g]) ? 1 : 0; // rivers are real water, drawn with the same coast art as the sea
+    sb[l] = land[g] ? biome[g] : P.bIdx[g]; sd[l] = P.deep[g];
+    if (season === 'Winter' && !land[g] && SEASONAL.has(BIOME_IDS[P.bIdx[g]])) sb[l] = ICE_I();
   }
   const c = paintLandWater({ W: ww, H: wh, land: sl, biomeIdx: sb, deep: sd }, T.decorSeed, { ox: wx0, oy: wy0 });
   let x = c.getContext('2d');
   x.imageSmoothingEnabled = false;
   const tiles = BIOME_IDS.map((b) => img(BIOMES[b].src));
   const inWin = (cx, cy, pad = 1) => cx >= wx0 - pad && cy >= wy0 - pad && cx < wx1 + pad && cy < wy1 + pad;
-  // rivers (pixel-level paint, uses canvas coords)
-  for (const r of T.rivers || []) {
-    if (!r.some(([rx, ry]) => inWin(rx, ry, 6))) continue;
-    paintRiver(x, r.filter((_, i) => i % 2 === 0 || i === r.length - 1), { w0: 2.2, w1: 3.6, ox: wx0 * TS, oy: wy0 * TS });
+  // winter: rivers through cold land freeze over (pale ice with the banks' dark outline kept)
+  if (season === 'Winter' && river && c.landMask) {
+    const id = x.getImageData(0, 0, c.width, c.height), d = id.data, M = c.landMask, PW = c.width;
+    for (let ly = 0; ly < wh; ly++) for (let lx = 0; lx < ww; lx++) {
+      const g = (ly + wy0) * W + lx + wx0;
+      if (!river[g] || biome[g] !== ICE_I() || (T.dist && T.dist[g] < 3)) continue; // river mouths stay open
+      for (let py = ly * TS - 2; py < ly * TS + TS + 2; py++) for (let px = lx * TS - 2; px < lx * TS + TS + 2; px++) {
+        if (px < 0 || py < 0 || px >= PW || py >= c.height || M[py * PW + px]) continue;
+        const o = (py * PW + px) * 4, lum = d[o] * 0.3 + d[o + 1] * 0.59 + d[o + 2] * 0.11;
+        if (lum < 70) continue;
+        const v = lum / 255, crack = hashI(px + wx0 * TS, py + wy0 * TS) % 53 === 0;
+        const t = crack ? [160, 200, 226] : [205 + 34 * v, 228 + 22 * v, 242 + 12 * v];
+        d[o] = t[0]; d[o + 1] = t[1]; d[o + 2] = t[2];
+      }
+    }
+    x.putImageData(id, 0, 0);
   }
   // everything else is drawn straight onto the (GPU-friendly) output canvas
   const out = document.createElement('canvas'); out.width = cw * TS; out.height = ch * TS;
@@ -152,7 +223,7 @@ export function renderRegion(T, cx0, cy0, cw, ch) {
       const i = cy * W + cx; if (!T.road[i]) continue;
       const m4 = maskAt(T.road, W, H, cx, cy, isRoad);
       const horiz = (m4 & 2) || (m4 & 8);
-      if ((T.river && T.river[i]) || (T.bridge && T.bridge[i])) {
+      if ((river && river[i]) || (T.bridge && T.bridge[i])) {
         if (T.bridge && T.bridge[i]) { x.fillStyle = 'rgba(10,20,40,.28)'; x.fillRect(cx * TS + (horiz ? 0 : 2), cy * TS + (horiz ? 4 : 0) + 2, horiz ? TS : 12, horiz ? 9 : TS); }
         x.drawImage(roadSheet, horiz ? 192 : 208, 288, 16, 16, cx * TS, cy * TS, TS, TS);
         continue;
@@ -193,6 +264,7 @@ export function renderRegion(T, cx0, cy0, cw, ch) {
     x.drawImage(st, x0 + (hs.v % n) * 16, row, 16, 16, hs.x * TS, hs.y * TS, TS, TS);
   }
   x.restore();
+  if (season === 'Autumn') autumnize(out, T, cx0, cy0);
   return out;
 }
 
@@ -805,7 +877,7 @@ function pin(ctx, state, lead, px, py, count) {
     ctx.fillText(String(count), bx, by + 0.5); ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
   }
 }
-export function drawHeroes(ctx, state, time, travel, T) {
+export function drawHeroes(ctx, state, time, travel, T, myKid = null) {
   const tr = travel ? (travel instanceof Map ? travel : new Map(Object.entries(travel).map(([k, v]) => [+k, v]))) : null;
   const by = new Map();
   const walking = [];
@@ -815,16 +887,25 @@ export function drawHeroes(ctx, state, time, travel, T) {
     if (!by.has(h.loc)) by.set(h.loc, []);
     by.get(h.loc).push(h);
   }
-  for (const [tid, list] of by) {
+  for (const [tid, all] of by) {
     const t = state.territories[tid];
-    const n = Math.min(3, list.length);
-    list.slice(0, 3).forEach((h, i) => {
-      const x = t.cx * TS + 8 + 28 + i * 9, y = t.cy * TS + 10 - (i % 2) * 3;
-      ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.beginPath(); ctx.ellipse(x, y, 6, 2, 0, 0, Math.PI * 2); ctx.fill();
-      drawHero(ctx, h.fid, h.gender, 3, 'walk', time * 3 + i, x, y, false);
+    // one pin per realm standing here (yours first, on the right; visitors on the left)
+    const groups = new Map();
+    for (const h of all) { const k = h.lentTo >= 0 ? h.lentTo + 0.5 : h.kingdom; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(h); }
+    const order = [...groups.keys()].sort((a, b) => (a === myKid ? -1 : b === myKid ? 1 : 0));
+    order.forEach((key, g) => {
+      const list = groups.get(key);
+      const n = Math.min(3, list.length);
+      const side = g === 0 ? 1 : -1, row = g >= 2 ? 1 : 0;
+      list.slice(0, 3).forEach((h, i) => {
+        const x = side > 0 ? t.cx * TS + 8 + 28 + i * 9 : t.cx * TS + 8 - 28 - i * 9, y = t.cy * TS + 10 - (i % 2) * 3 + row * 14;
+        ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.beginPath(); ctx.ellipse(x, y, 6, 2, 0, 0, Math.PI * 2); ctx.fill();
+        drawHero(ctx, h.fid, h.gender, 3, 'walk', time * 3 + i, x, y, side < 0);
+      });
+      let [px, py] = pinAt(t, n, time);
+      if (side < 0) px = t.cx * TS + 8 - 28 - (n - 1) * 4.5;
+      pin(ctx, state, list[0], px, py + row * 14, list.length);
     });
-    const [px, py] = pinAt(t, n, time);
-    pin(ctx, state, list[0], px, py, list.length);
   }
   // heroes on the move follow the road between lands
   for (const h of walking) {

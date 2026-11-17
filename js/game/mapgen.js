@@ -401,7 +401,16 @@ export function generateTerrain(seed, opts) {
       if (!land[best] || river[best]) { ok = true; break; }
     }
     if (!ok || path.length < 9) continue;
-    for (const k of path) if (land[k]) { river[k] = 1; occ[k] = occ[k] || 5; }
+    // rivers start as a stream and widen to two cells downstream, so they read as proper water
+    path.forEach((k, j) => {
+      if (!land[k]) return;
+      river[k] = 1; occ[k] = occ[k] || 5;
+      if (j < path.length * 0.35) return;
+      const nx = path[Math.min(path.length - 1, j + 1)], pv = path[Math.max(0, j - 1)];
+      const dx = (nx % W) - (pv % W), dy = ((nx / W) | 0) - ((pv / W) | 0);
+      const k2 = k + (Math.abs(dx) >= Math.abs(dy) ? W : 1); // widen across the flow
+      if (land[k2] && occ[k2] !== 1 && dist[k2] >= 1) { river[k2] = 1; occ[k2] = occ[k2] || 5; }
+    });
     rivers.push(path.map((k) => [k % W, (k / W) | 0]));
     r++;
   }
