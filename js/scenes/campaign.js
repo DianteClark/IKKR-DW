@@ -28,6 +28,7 @@ import { captureScene, decisionScene } from '../game/dialogue.js';
 import { renderTerrain, drawTerrain, drawOverlay, drawSites, drawTowns, drawHeroes, drawOrders, drawAnimated, drawSeason, captureFx, renderMinimap, updateMinimap, hitTest, drawLandOutline, drawGuards, setSeason, TS } from '../campaign/mapview.js';
 import { bannerEl } from '../engine/banner.js';
 import { GOALS, goalState, newlyDone } from '../campaign/goals.js';
+import { shareRealm } from '../campaign/share.js';
 import { portrait, unitIcon, itemIcon, heroCard, orderLabel, kingdomBadge, unitCard } from '../campaign/widgets.js';
 import { saveCampaign, getRecord, prettyCode, stampCampaign } from '../game/save.js';
 import { sfx, music } from '../engine/audio.js';
@@ -808,7 +809,7 @@ function menu() {
   modal('Menu', h('div', { class: 'col' },
     h('div', { class: 'row wrap' }, h('span', { class: 'chip gold' }, `Campaign ${prettyCode(S.state.cid)}`), h('span', { class: 'chip' }, `Seed ${S.state.seed}`), h('span', { class: 'chip' }, `${seasonOf(S.state.turn)}, year ${yearOf(S.state.turn)}`)),
     net.role === 'single' ? h('div', { class: 'muted' }, 'Your campaign saves automatically every season. Find it under Continue.') : h('div', { class: 'muted' }, `Two-player · ${net.role === 'host' ? 'You are hosting' : 'Connected to host'}. Both of you keep a copy of this campaign — either of you can host it again from Continue.`)),
-  [...(goalState(S.state, myK().id).hidden ? [['Show goals', () => { act({ type: 'hideGoals', hidden: false }); }]] : []), ['Resume'], ['Quit to title', () => { if (net.role !== 'single') net.close(); go('title'); }, 'danger']], { dismiss: true });
+  [['Share my realm', () => { setTimeout(() => shareRealm(S.state, S.T, myK().id), 50); }], ...(goalState(S.state, myK().id).hidden ? [['Show goals', () => { act({ type: 'hideGoals', hidden: false }); }]] : []), ['Resume'], ['Quit to title', () => { if (net.role !== 'single') net.close(); go('title'); }, 'danger']], { dismiss: true });
 }
 
 function intro() {
