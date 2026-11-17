@@ -236,6 +236,8 @@ function nextIdle() {
 function focus(tid) { const t = S.state.territories[tid]; cam.x = t.cx * TS + 8; cam.y = t.cy * TS + 8; cam.clamp(); }
 
 // ---------- UI ----------
+// re-render a panel body without jumping back to the top
+function keepScroll(sc, body) { const top = sc.scrollTop; sc.replaceChildren(body); sc.scrollTop = top; }
 function add(el, ...c) { el.append(...c.flat().filter((x) => x != null && x !== false)); }
 let ui = {};
 function buildUI() {
@@ -307,8 +309,10 @@ export function refreshUI() {
   document.body.classList.toggle('side-open', S.sel != null || !!S.target);
   if (S.sel == null) { ui.side.style.display = 'none'; return; }
   ui.side.style.display = '';
+  const prev = ui.side.querySelector('.scroll'); const keep = prev && ui.side.dataset.tid == S.sel ? prev.scrollTop : 0;
   ui.side.innerHTML = '';
-  ui.side.append(territoryPanel(S.sel));
+  ui.side.append(territoryPanel(S.sel)); ui.side.dataset.tid = S.sel;
+  const now = ui.side.querySelector('.scroll'); if (now) now.scrollTop = keep;
 }
 
 function territoryPanel(tid) {
@@ -542,7 +546,7 @@ export function heroModal(id) {
     }
     const body = h('div', { class: 'col' }, head, rolePick,
       tabs([{ id: 'squad', label: 'Squad' }, { id: 'unit', label: 'Unit type' }, { id: 'gear', label: 'Gear' }, { id: 'family', label: 'Family' }, { id: 'more', label: 'Tactics' }], (id) => { tab = id; render(); }, tab), content);
-    if (m) m.box.querySelector('.body').replaceChildren(body); else m = sheet(x.name, body, [], { side: 'right' });
+    if (m) keepScroll(m.box.querySelector('.body'), body); else m = sheet(x.name, body, [], { side: 'right' });
   };
   render();
 }
@@ -750,7 +754,7 @@ function realmSheet() {
           })));
     }
     const body = h('div', { class: 'col' }, tabs([{ id: 'overview', label: 'Realm' }, { id: 'policy', label: 'Edicts' }, { id: 'build', label: 'Build' }, { id: 'strat', label: 'Stratagems' }], (id) => { tab = id; render(); }, tab), content);
-    if (m) m.box.querySelector('.body').replaceChildren(body); else m = sheet(k.name, body, [], { side: 'right' });
+    if (m) keepScroll(m.box.querySelector('.body'), body); else m = sheet(k.name, body, [], { side: 'right' });
   };
   render();
 }
@@ -794,7 +798,7 @@ function diplomacySheet(focusKid) {
           h('div', { class: 'muted', style: { fontSize: '13px' } }, `${kingdomTerritories(st, o.id).length} lands · strength ${pw > 1.5 ? 'far stronger' : pw > 1.1 ? 'stronger' : pw > 0.8 ? 'even' : pw > 0.5 ? 'weaker' : 'far weaker'} · opinion ${Math.round(op)}${wl != null ? ` · ${wl > 0.5 ? 'open to an alliance' : wl > 0.3 ? 'unsure' : 'unwilling'}` : ''}`),
           acts.length ? h('div', { class: 'row wrap' }, acts) : null);
       }));
-    if (m) m.box.querySelector('.body').replaceChildren(body); else m = sheet('Diplomacy', body, [], { side: 'right' });
+    if (m) keepScroll(m.box.querySelector('.body'), body); else m = sheet('Diplomacy', body, [], { side: 'right' });
   };
   render();
 }
@@ -931,7 +935,7 @@ function battleChooser(list) {
       segmented([{ value: 'auto', label: 'Auto' }, { value: 'fight', label: 'Fight' }], choice[key], (v) => { choice[key] = v; sfx('click'); }));
   }).filter(Boolean);
   const body = h('div', { class: 'col' }, h('div', { class: 'muted', style: { fontSize: '13px' } }, 'Choose which battles to command yourself. The rest are settled by your generals.'), rows(),
-    h('div', { class: 'row' }, btn('All auto', () => { for (const k2 in choice) choice[k2] = 'auto'; mm.box.querySelector('.body').replaceChildren(body); }, 'tiny'), btn('Fight all', () => { for (const k2 in choice) choice[k2] = 'fight'; go2(); }, 'tiny')));
+    h('div', { class: 'row' }, btn('All auto', () => { for (const k2 in choice) choice[k2] = 'auto'; mkeepScroll(m.box.querySelector('.body'), body); }, 'tiny'), btn('Fight all', () => { for (const k2 in choice) choice[k2] = 'fight'; go2(); }, 'tiny')));
   const go2 = () => { S.choices = choice; mm.close(); nextBattle(); };
   mm = modal(`${list.length} battles this season`, body, [['Begin', () => { S.choices = choice; nextBattle(); }, 'primary']], { width: '620px' });
 }
