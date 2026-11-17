@@ -218,7 +218,7 @@ function goHome() {
   focus(tid); cam.x += (screen.w * 0.22) / cam.zoom; cam.clamp(); // the land panel opens on the right: keep home in view on the left
   S.sel = tid; sfx('open'); refreshUI(); drawMinimapUI();
 }
-function bannerIcon(k) { const el = k.banner ? bannerEl(k.banner, 1.5) : h('span', { class: 'swatch', style: { background: k.color } }); el.style.flex = 'none'; el.style.marginTop = '-4px'; return el; }
+function bannerIcon(k) { const el = k.banner ? bannerEl(k.banner, 0.8) : h('span', { class: 'swatch', style: { background: k.color } }); el.style.flex = 'none'; el.style.marginTop = '-4px'; return el; }
 function showBorders() { try { return localStorage.getItem('ikkr-dw-borders') === '1'; } catch { return false; } }
 function focus(tid) { const t = S.state.territories[tid]; cam.x = t.cx * TS + 8; cam.y = t.cy * TS + 8; cam.clamp(); }
 

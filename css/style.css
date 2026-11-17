@@ -350,3 +350,14 @@ input.text:focus { outline: none; box-shadow: 0 0 0 2px var(--gold); }
 .bottombar { max-width: calc(100vw - 200px); flex-wrap: nowrap; gap: 4px; }
 .bottombar .btn { white-space: nowrap; flex-shrink: 1; min-width: 0; }
 .bottombar .home-btn { font-size: 20px; padding-left: 10px; padding-right: 10px; flex-shrink: 0; }
+/* banner maker v2 */
+.bm-stage { flex: none; width: 190px; display: grid; place-items: center; border-radius: 4px;
+  background: radial-gradient(ellipse at 50% 35%, #3a6fb0 0%, #24427a 55%, #18233f 100%); box-shadow: inset 0 0 0 3px #1a1420, inset 0 -38px 0 #3c7a35, inset 0 -41px 0 #2c5a27; }
+.bm-stage canvas { filter: drop-shadow(3px 4px 0 rgba(0,0,0,.35)); margin-bottom: 18px; }
+.bm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 6px; }
+.bm-grid.small { grid-template-columns: repeat(auto-fill, minmax(66px, 1fr)); }
+.bm-tile { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 2px 4px; background: #241d33; border: 2px solid #3d3352; border-radius: 4px; color: #e8dfc8; font: inherit; font-size: 11px; cursor: pointer; }
+.bm-tile.on { border-color: var(--gold); background: #3a2e4f; box-shadow: 0 0 0 2px rgba(245,216,96,.25); }
+.bm-tile canvas { image-rendering: pixelated; }
+.bm-palette { display: grid; grid-template-columns: repeat(12, 30px); gap: 5px; }
+@media (max-width: 760px) { .bm-palette { grid-template-columns: repeat(8, 30px); } .bm-stage { width: 150px; } }

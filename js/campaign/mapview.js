@@ -676,7 +676,7 @@ export function drawTowns(ctx, state, time, view) {
       drawSpriteRef(ctx, r, px, py);
       if (kind === 'town' && !far) smoke(ctx, ax - 10, py + 14, time, t.id * 13);
       const kb = t.owner >= 0 && state.kingdoms[t.owner] ? state.kingdoms[t.owner].banner : null;
-      if (kb) drawBanner(ctx, kb, Math.round(px + w - 8), Math.round(py + 18), time, t.id); else if (col) flag(ctx, Math.round(px + w - 6), Math.round(py + 2), col, time, t.id);
+      if (kb) drawBanner(ctx, kb, Math.round(px - 6), Math.round(ay - 4), time, t.id); // left of the town; hero pins sit on the right else if (col) flag(ctx, Math.round(px + w - 6), Math.round(py + 2), col, time, t.id);
     } else if (st) {
       // ground patch so the cluster reads as a place
       if (!far) { ctx.fillStyle = 'rgba(70,50,30,.16)'; ctx.beginPath(); ctx.ellipse(ax + 2, ay - 8, kind === 'hamlet' ? 22 : 36, kind === 'hamlet' ? 13 : 20, 0, 0, Math.PI * 2); ctx.fill(); }
@@ -697,7 +697,7 @@ export function drawTowns(ctx, state, time, view) {
       const top = pieces.reduce((m, p) => (p[3] < m[3] ? p : m), pieces[0] || [0, 0, 0, 0]);
       if (pieces.length && !far) smoke(ctx, ax + top[2] - 2, ay + top[3] - 15, time, t.id * 7);
       const kb2 = t.owner >= 0 && state.kingdoms[t.owner] ? state.kingdoms[t.owner].banner : null;
-      if (kb2) drawBanner(ctx, kb2, Math.round(ax + 16), Math.round(ay - (kind === 'hamlet' ? 12 : 22)), time, t.id); else if (col) flag(ctx, Math.round(ax + 16), Math.round(ay - (kind === 'hamlet' ? 30 : 40)), col, time, t.id);
+      if (kb2) drawBanner(ctx, kb2, Math.round(ax - (kind === 'hamlet' ? 30 : 42)), Math.round(ay - 4), time, t.id); else if (col) flag(ctx, Math.round(ax + 16), Math.round(ay - (kind === 'hamlet' ? 30 : 40)), col, time, t.id);
     }
   }
   // capture sweeps
