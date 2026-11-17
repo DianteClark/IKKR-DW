@@ -8,7 +8,7 @@ import { img } from '../engine/assets.js';
 import { hashStr } from '../engine/rng.js';
 import { drawUnit, drawHero, drawSpriteRef, DUNGEON_TILES } from '../data/art.js';
 import { SPELLS } from '../data/spells.js';
-import { createBattle, step, command, aiThink, battleResult, snapshot, applySnapshot, liveCount, DT, stratagemTargets, planRoute, routeProblem, SKILLS, queuePoints, canClimb, ladderSpot } from '../battle/sim.js';
+import { serializeSim, deserializeSim, createBattle, step, command, aiThink, battleResult, snapshot, applySnapshot, liveCount, DT, stratagemTargets, planRoute, routeProblem, SKILLS, queuePoints, canClimb, ladderSpot } from '../battle/sim.js';
 const FORMS = ['wedge', 'line', 'square']; // Loose was retired: three formations, one clear cycle
 import { renderGround, drawFieldOverlay, postRef, TS, nearestPost, nearestRoadPoint, terrainAt, TERRAIN } from '../battle/field.js';
 import { createFx } from '../battle/fx.js';
@@ -18,6 +18,8 @@ import { alliesOf } from '../game/diplomacy.js';
 import { line } from '../game/dialogue.js';
 import { portrait, unitIcon } from '../campaign/widgets.js';
 import { sfx, music } from '../engine/audio.js';
+import { prefs, buzz } from '../engine/prefs.js';
+import { saveBattle, clearBattle } from '../game/save.js';
 import { net } from '../net/net.js';
 
 const cam = new Camera();
@@ -67,10 +69,13 @@ window.__dw = Object.assign(window.__dw || {}, { B, cam, sendCmd: (c) => send(c)
 const SPELL = Object.fromEntries(SPELLS.map((s) => [s.id, s]));
 const stratIcon = (id, scale = 2) => { const s = SPELL[STRATAGEMS[id].icon]; return s && s.icon ? sprite(s.icon, 0, 0, 16, 16, scale) : null; };
 
-// args: { state, battle, control:{att,def}, me } (host/single) or { client:true, setup, items, me, state }
+// args: { state, battle, control:{att,def}, me, key?, saveCtx? } (host/single) or { client:true, setup, items, me, state }
+//   or { resumeBattle: <record.battle>, state, me, key? } to pick up a single-player battle saved mid-fight
 registerScene('battle', {
   enter(args) {
-    Object.assign(B, { kills: new Map(), sel: null, selected: [], box: false, drag: null, pick: null, freeze: 0, slow: 0, duel: null, acc: 0, render: new Map(), fx: [], seenEv: 0, paused: false, speed: 1, ended: false, started: false, aim: null, queue: false, auto: false });
+    const R = args.resumeBattle || null;
+    if (R) args = { ...args, setup: R.setup, battle: R.b, saveCtx: R.ctx, me: args.me ?? R.me ?? 0 };
+    Object.assign(B, { practice: args.practice || null, coach: null, origArgs: args.practice ? null : args, resumed: !!R, battle: args.battle || null, saveCtx: args.saveCtx ?? null, key: args.key ?? null, _savedAt: 0, kills: new Map(), sel: null, selected: [], box: false, drag: null, pick: null, freeze: 0, slow: 0, duel: null, acc: 0, render: new Map(), fx: [], seenEv: 0, paused: false, speed: 1, ended: false, started: false, aim: null, queue: false, auto: false });
     let setup = args.setup;
     if (!setup) {
       const st = args.state, b = args.battle;
@@ -95,6 +100,7 @@ registerScene('battle', {
       };
       B.state = st;
     }
+    if (R) B.state = args.state || null;
     B.setup = setup;
     B.client = !!args.client;
     if (B.client) B.state = args.state || null;
@@ -104,8 +110,10 @@ registerScene('battle', {
     const rgb = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
     const [a, d] = [rgb(B.colors.att), rgb(B.colors.def)];
     if (Math.hypot(a[0] - d[0], a[1] - d[1], a[2] - d[2]) < 130) B.colors.def = a[2] > 150 ? '#f5c630' : '#3a7bf0';
-    B.sim = createBattle({ ...setup, items: B.state ? B.state.items : (args.items || {}) });
+    const simSetup = { ...setup, items: B.state ? B.state.items : (args.items || {}) };
+    B.sim = R ? deserializeSim(simSetup, R.sim) : createBattle(simSetup);
     B.sim.ai = { att: setup.control.att === 'ai', def: setup.control.def === 'ai' };
+    if (R) { B.kills = new Map(R.kills || []); B.speed = R.speed || 1; B.seenEv = B.sim.evSeq; }
     B.ground = renderGround(B.sim.field);
     if (B.setup.season === 'Autumn' && !['sand', 'lava', 'ice', 'christmas'].includes(B.setup.biome)) autumnizeCanvas(B.ground);
     B.juice = createFx();
@@ -117,15 +125,20 @@ registerScene('battle', {
     music.start('battle');
     fitCamera();
     buildUI();
-    intro();
+    B._hide = () => { if (document.visibilityState === 'hidden') saveNow(true); };
+    B._pagehide = () => saveNow(true);
+    document.addEventListener('visibilitychange', B._hide); window.addEventListener('pagehide', B._pagehide);
+    if (B.practice) startCoach();
+    if (R) resumeIntro(); else if (B.practice) practiceIntro(); else intro();
   },
   exit() {
+    document.removeEventListener('visibilitychange', B._hide); window.removeEventListener('pagehide', B._pagehide);
     net.off('cmd'); net.off('snap'); net.off('battleEnd'); net.off('battleGo');
     if (B._down) { canvas.removeEventListener('pointerdown', B._down); canvas.removeEventListener('pointermove', B._move); canvas.removeEventListener('pointerup', B._up); }
   },
   update(dt) {
     const sim = B.sim; if (!sim) return;
-    B.freeze = Math.max(0, B.freeze - dt);
+    B.freeze = prefs.lowFx ? 0 : Math.max(0, B.freeze - dt); // low effects: no hit-stop
     B.slow = Math.max(0, B.slow - dt);
     if (!B.client && B.started && !B.paused && !B.ended && B.freeze <= 0) {
       B.acc += dt * B.speed * (B.slow > 0 ? 0.3 : 1);
@@ -139,6 +152,8 @@ registerScene('battle', {
       }
       if (sim.winner && !B.ended) { if (net.role === 'host') net.send({ t: 'snap', s: snapshot(sim) }); B.ended = true; setTimeout(() => finish(), 1400); }
     }
+    if (B.started && !B.ended && game.time - B._savedAt > 5) saveNow(false);
+    if (B.coach) coachTick();
     consumeEvents();
     updateRender(dt);
     B.juice.update(dt);
@@ -183,7 +198,7 @@ function fitCamera() {
 // ---------- render state ----------
 function updateRender(dt) {
   if (B.pick && (B.pick.t -= dt) <= 0) B.pick = null;
-  if (B.duel && (B.duel.age += dt) >= B.duel.life) B.duel = null;
+  if (B.duel) { const D = B.duel; D.age += dt; if (D.age > 0.7 && D.age < D.life - 0.5 && (D.clashT = (D.clashT || 0) - dt) <= 0) { D.clashT = 0.55 + Math.random() * 0.35; sfx('duelClash'); } if (D.age >= D.life) B.duel = null; }
   const since = B.client && B.snapAt ? Math.min(0.15, (performance.now() - B.snapAt) / 1000) : 0;
   for (const s of B.sim.squads) {
     let r = B.render.get(s.id);
@@ -235,7 +250,7 @@ function consumeEvents() {
       if (e.by != null && e.by >= 0) B.kills.set(e.by, (B.kills.get(e.by) || 0) + 1);
       const s = sq(e.id), r = B.render.get(e.id); if (!s || !r) continue;
       const i = s.soldiers.findIndex((x) => x.idx === e.idx), p = r.soldiers[i];
-      if (p) { B.fx.push({ k: 'corpse', x: p.x, y: p.y, fid: s.fid, unit: s.unit, stage: s.soldiers[i].s, flip: Math.cos(s.dir) < 0, age: 0, life: 6 }); J.dust(p.x, p.y); }
+      if (p) { B.fx.push({ k: 'corpse', x: p.x, y: p.y, fid: s.fid, unit: s.unit, stage: s.soldiers[i].s, flip: Math.cos(s.dir) < 0, age: 0, life: prefs.lowFx ? 2.5 : 6 }); J.dust(p.x, p.y); }
       sfx('death');
       if (e.elite && mineSide(s.side)) toast(`${e.elite} has fallen!`, 'bad');
     } else if (e.k === 'hit') {
@@ -243,12 +258,12 @@ function consumeEvents() {
       r.flash = 1;
       r.dmg = (r.dmg || 0) + e.d;
       J.hit(r.x * TS + (Math.random() - 0.5) * 10, r.y * TS - 4, '#fff');
-      if (e.d >= 14 && (B._bigHit || 0) < game.time) { B._bigHit = game.time + 0.6; B.freeze = Math.max(B.freeze, 0.06); J.sparks(r.x * TS, r.y * TS - 6, '#ffd86b'); J.shake(2, 0.15); }
-      sfx('hit');
+      if (e.d >= 14 && (B._bigHit || 0) < game.time) { B._bigHit = game.time + 0.6; B.freeze = Math.max(B.freeze, 0.06); J.sparks(r.x * TS, r.y * TS - 6, '#ffd86b'); J.shake(2, 0.15); const hs = sq(e.id); if (hs && mineSide(hs.side)) buzz('hit'); }
+      sfx(e.d >= 14 ? 'heavy' : 'hit');
     } else if (e.k === 'shot') {
       const a = B.render.get(e.from), b = B.render.get(e.to); if (!a || !b) continue;
       for (let i = 0; i < 3; i++) B.fx.push({ k: 'arrow', x1: a.x * TS + (i - 1) * 4, y1: a.y * TS - 6 + i * 3, x2: b.x * TS + (i - 1) * 5, y2: b.y * TS - 4, age: -i * 0.06, life: 0.4 });
-      sfx('arrow');
+      if (Math.random() < 0.3) sfx('volley', { n: 3 + Math.floor(Math.random() * 3) }); else sfx('arrow');
     } else if (e.k === 'spell') {
       B.fx.push({ k: 'spell', spell: SPELL[e.spell], x: e.x * TS, y: e.y * TS, age: 0, life: 1.1 });
       J.shockwave(e.x * TS, e.y * TS, '#ffd86b'); J.shake(4, 0.35); sfx('spell');
@@ -256,7 +271,8 @@ function consumeEvents() {
     } else if (e.k === 'capture') {
       const p = sim.field.posts[e.post];
       B.fx.push({ k: 'flash', x: p.x * TS, y: p.y * TS, age: 0, life: 0.8, side: e.side });
-      J.confetti(p.x * TS, p.y * TS - 20); sfx(mineSide(e.side) || (!B.side && e.side === 'att') ? 'capture' : 'lost');
+      J.confetti(p.x * TS, p.y * TS - 20);
+      { const good = mineSide(e.side) || (!B.side && e.side === 'att'); sfx(p.main ? (good ? 'fanfare' : 'mainLost') : good ? 'capture' : 'lost'); if (B.side) buzz(p.main ? 'heavy' : good ? 'tap' : 'alert'); }
       B.fx.push({ k: 'flag', x: p.x * TS + 10, y: p.y * TS - 8, age: 0, life: 2.4, col: B.colors[e.side] });
       if (p.main) { B.slow = 1.6; J.shake(6, 0.6); J.shockwave(p.x * TS, p.y * TS, '#ffd86b'); }
       if (B.side) banner(p.main ? (e.side === B.side ? 'MAIN POST TAKEN' : 'MAIN POST LOST') : e.side === B.side ? 'Post captured' : 'Post lost', e.side === B.side ? 'good' : 'bad');
@@ -265,14 +281,16 @@ function consumeEvents() {
     } else if (e.k === 'rout') {
       const s = sq(e.id), r = B.render.get(e.id);
       if (r) { J.floatText(r.x * TS, r.y * TS - 30, 'ROUTED!', mineSide(s && s.side) ? '#ff6a5a' : '#8fd06b'); B.fx.push({ k: 'whiteflag', x: r.x * TS + 8, y: r.y * TS - 10, age: 0, life: 2 }); }
+      sfx('rout');
+      if (s && mineSide(s.side)) buzz('lose');
       if (s && mineSide(s.side)) toast(`${s.name}'s squad is routing!`, 'bad');
     } else if (e.k === 'flank') {
-      J.floatText(e.x * TS, e.y * TS - 24, e.rear ? 'REAR ATTACK!' : 'FLANKED!', '#ffb347');
+      J.floatText(e.x * TS, e.y * TS - 24, e.rear ? 'REAR ATTACK!' : 'FLANKED!', '#ffb347'); sfx('flank');
     } else if (e.k === 'charge') {
       const s = sq(e.id);
       if (e.broken) { J.floatText(e.x * TS, e.y * TS - 26, 'BROKEN ON PIKES!', '#ff6a5a'); J.sparks(e.x * TS, e.y * TS - 6, '#ff9a7a'); }
       else { J.floatText(e.x * TS, e.y * TS - 26, 'CHARGE!', '#ffd86b'); J.shockwave(e.x * TS, e.y * TS, '#ffd86b'); J.shake(4, 0.3); B.freeze = Math.max(B.freeze, 0.08); }
-      sfx(e.broken ? 'hit' : 'clash');
+      sfx(e.broken ? 'heavy' : 'charge');
       if (s && mineSide(s.side) && e.broken) toast(`${s.name}'s charge broke on enemy pikes`, 'bad');
     } else if (e.k === 'reserve') {
       const s = sq(e.id); J.shockwave(e.x * TS, e.y * TS, '#8fd06b'); sfx('horn');
@@ -308,7 +326,7 @@ function consumeEvents() {
       const a = sq(e.a), b = sq(e.b);
       B.duel = { a: e.a, b: e.b, age: 0, life: 3.6 };
       B.slow = Math.max(B.slow, 1.1); // heroes meet: a breath of slow motion
-      sfx('clash'); J.shake(3, 0.25);
+      sfx('duel'); J.shake(3, 0.25);
       banner(e.challenge ? 'CHALLENGE!' : 'DUEL!', mineSide(a && a.side) || mineSide(b && b.side) ? '' : 'blue', `${a ? a.name : '?'} vs ${b ? b.name : '?'}`);
     } else if (e.k === 'duelEnd') {
       if (B.duel) B.duel.life = Math.min(B.duel.life, B.duel.age + 0.4);
@@ -322,11 +340,11 @@ function consumeEvents() {
     } else if (e.k === 'gateHit') {
       if ((B._gateT || 0) < game.time) { B._gateT = game.time + 0.45; J.sparks(e.x * TS, e.y * TS, '#ffd86b'); J.shake(1.5, 0.12); sfx('hit'); }
     } else if (e.k === 'gateBroken') {
-      J.shockwave(e.x * TS, e.y * TS, '#ffb347'); J.shake(7, 0.6); B.freeze = Math.max(B.freeze, 0.15); sfx('quake');
+      J.shockwave(e.x * TS, e.y * TS, '#ffb347'); J.shake(7, 0.6); B.freeze = Math.max(B.freeze, 0.15); sfx('gate'); buzz('heavy');
       for (let i = 0; i < 8; i++) J.smoke(e.x * TS + (Math.random() - 0.5) * 30, e.y * TS + (Math.random() - 0.5) * 20);
       banner('THE GATE FALLS!', B.side === 'att' ? 'good' : B.side === 'def' ? 'bad' : '', 'The way into the keep is open');
     } else if (e.k === 'ladder') {
-      const s = sq(e.id); J.dust(e.x * TS, e.y * TS); sfx('march');
+      const s = sq(e.id); J.dust(e.x * TS, e.y * TS); sfx('ladder');
       if (s && B.side && s.side !== B.side) toast('Ladders on the walls! Shoot the climbers', 'bad');
     } else if (e.k === 'ladderFail') {
       const s = sq(e.id); if (s && mineSide(s.side)) toast(`${s.name} can't reach that stretch of wall`, 'bad');
@@ -372,7 +390,7 @@ function draw() {
   for (const f of sim.fires) {
     ctx.fillStyle = `rgba(255,${100 + Math.sin(time * 9) * 30 | 0},40,0.22)`;
     ctx.beginPath(); ctx.ellipse(f.x * TS, f.y * TS, f.r * TS, f.r * TS * 0.7, 0, 0, Math.PI * 2); ctx.fill();
-    if (Math.random() < 0.5) B.juice.fire(f.x * TS + (Math.random() - 0.5) * f.r * TS * 1.6, f.y * TS + (Math.random() - 0.5) * f.r * TS);
+    if (Math.random() < (prefs.lowFx ? 0.12 : 0.5)) B.juice.fire(f.x * TS + (Math.random() - 0.5) * f.r * TS * 1.6, f.y * TS + (Math.random() - 0.5) * f.r * TS);
   }
   const selList = selSquads();
   const sel = selList[0] || null;
@@ -408,6 +426,7 @@ function draw() {
     }
   }
   drawSiege(time);
+  if (B.coach) drawCoach(time);
   const list = [];
   for (const f of B.fx) if (f.k === 'corpse') list.push({ y: f.y - 1, f });
   for (const s of sim.squads) {
@@ -958,6 +977,12 @@ function intro() {
     return;
   }
   if (!side && net.role === 'host') { const m = modal(`Battle of ${st.place}`, body, []); setTimeout(() => { m.close(); start(); }, 2500); return; }
+  if (side && net.role === 'single' && !practiced()) {
+    const orig = B.origArgs;
+    modal(`Battle of ${st.place}`, h('div', { class: 'col' }, body, h('div', { class: 'gold', style: { fontSize: '12px' } }, 'First battle? A two-minute practice fight shows you the controls.')),
+      [['Skip', () => { setPracticed(); start(); }], ['Practice first', () => startPractice({ back: 'battle', backArgs: orig }), 'primary']]);
+    return;
+  }
   modal(`Battle of ${st.place}`, body, [['Begin', start, 'primary']]);
 }
 
@@ -1015,9 +1040,10 @@ function finish() {
 
 function endBattle(result) {
   B.ended = true;
+  if (canSave()) clearBattle(B.state.cid, B.key);
   const sim = B.sim;
   const won = B.side ? result.winner === B.side : null;
-  sfx(won === false ? 'defeat' : 'victory');
+  sfx(won === false ? 'defeat' : 'victory'); buzz(won === false ? 'lose' : 'win');
   banner(won == null ? (result.winner === 'att' ? 'ATTACKERS WIN' : 'DEFENDERS WIN') : won ? 'VICTORY' : 'DEFEAT', won === false ? 'bad' : 'good', B.setup.place);
   if (won) B.juice.confetti(sim.field.W * TS / 2, sim.field.H * TS / 2);
   // recap: losses on each side, the squad of the battle, elites lost, heroes wounded or taken
@@ -1041,7 +1067,112 @@ function endBattle(result) {
   ];
   setTimeout(() => modal(won == null ? (result.winner === 'att' ? 'Attackers win' : 'Defenders win') : won ? 'Victory!' : 'Defeat',
     h('div', { class: 'col recap' }, result.retreated ? h('div', { class: 'muted' }, `${result.retreated === 'att' ? 'The attackers' : 'The defenders'} retreated.`) : null, lines),
-    [['Continue', () => go('campaign', { resume: B.client ? true : result }), 'primary']]), 900);
+    [['Continue', () => (B.practice ? leavePractice() : go('campaign', { resume: B.client ? true : result })), 'primary']]), 900);
+}
+
+// ---------- guided practice battle ----------
+const PRACTICED = 'ikkr-dw-practiced';
+export function practiced() { try { return !!localStorage.getItem(PRACTICED); } catch { return true; } }
+function setPracticed() { try { localStorage.setItem(PRACTICED, '1'); } catch {} }
+// opts.back: scene to return to afterwards ('title' by default), opts.backArgs: its args
+export function startPractice(opts = {}) {
+  const back = opts.back || 'title', backArgs = opts.backArgs || {};
+  const troops = (n) => Array.from({ length: n }, (_, i) => ({ s: i < 2 ? 2 : 1, r: 0, xp: 0 }));
+  const capt = (id, name, gender, unit) => ({ id, name, gender, fid: 'castle', ufid: 'castle', unit, troops: troops(8), formation: 'line', loyalty: 100, level: 3, atk: 5, def: 4, lead: 6, int: 3, spell: null, role: null, secret: -1, gear: {}, portrait: 0 });
+  const setup = {
+    seed: 4242, biome: 'grass', season: 'Spring', level: 0, place: 'Training Field', siege: false,
+    attackers: [capt(9001, 'Captain Aldric', 'm', 0), capt(9002, 'Sergeant Mira', 'f', 1)], defenders: [],
+    attFid: 'castle', defFid: 'orcs', attName: 'Your Company', defName: 'Training Raiders', attKid: -1, defKid: -2, attMorale: 80, defMorale: 35,
+    attLoadout: ['rally', 'march'], defLoadout: [], attPool: 6, defPool: 0,
+    colors: { att: '#3a7bf0', def: '#d8402f' }, control: { att: 0, def: 'ai' },
+    garrison: { squads: 2, size: 4 }, skirmish: true, weather: null, nemesis: [], intel: true,
+    land: { forest: 0, mtn: 0, river: false, lake: false, coast: false, island: false, sites: [] }, reinforce: { att: [], def: [] },
+  };
+  go('battle', { setup, items: {}, me: 0, practice: { back, backArgs } });
+}
+function leavePractice() {
+  setPracticed();
+  const P = B.practice; B.practice = null; B.coach = null;
+  go(P.back, P.backArgs);
+}
+const COACH = [
+  { text: 'Tap one of your squads (on the field or in the list on the left).', done: () => B.selected.length > 0, glow: '.battle-left .bsq', ring: () => own()[0] },
+  { text: 'Now tap the glowing outpost to march there and capture it.', done: () => own().some((q) => q.goal != null || (q.path && q.path.length)), ring: () => nextPost() },
+  { text: 'Tap an enemy squad (red) to attack it.', done: () => own().some((q) => q.chase != null || q.state === 'fight'), ring: () => foes()[0] },
+  { text: 'Change formation: pick Wedge, Line or Square in the bar below. Wedge beats Line, Line beats Square, Square beats Wedge.', done: () => own().some((q) => q.reform || q.formation !== 'line'), glow: '.battle-bottom .bpanel', ring: () => (B.selected.length ? null : own()[0]) },
+  { text: 'Use a stratagem on the right: Rally lifts every squad\u2019s morale.', done: () => B.sim.strat.att.list.some((x) => x.used), glow: '.strat-mini:not(.disabled)' },
+  { text: 'Last step: take the enemy main base (the big flag). Win the battle!', done: () => B.sim.winner === 'att', ring: () => B.sim.field.posts.find((p) => p.main) },
+];
+const own = () => B.sim.squads.filter((q) => q.side === 'att' && !HIDDEN(q));
+const foes = () => B.sim.squads.filter((q) => q.side === 'def' && !HIDDEN(q) && q.state !== 'rout');
+function nextPost() {
+  const ps = B.sim.field.posts.filter((p) => p.owner !== 'att' && !p.main);
+  const o = own()[0]; if (!ps.length) return B.sim.field.posts.find((p) => p.main);
+  return o ? ps.sort((a, b) => Math.hypot(a.x - o.x, a.y - o.y) - Math.hypot(b.x - o.x, b.y - o.y))[0] : ps[0];
+}
+function startCoach() {
+  B.coach = { i: 0, el: null, glowed: [] };
+  B.sim.eventsLeft = 0; B.sim.nextEvent = 1e9; // no rockslides while learning
+}
+function practiceIntro() {
+  modal('Practice battle', h('div', { class: 'col' },
+    h('div', {}, 'Two of your squads against a pair of raiders. Follow the prompts at the top to learn the controls.'),
+    h('div', { class: 'muted', style: { fontSize: '12px' } }, 'You can skip at any time.')),
+  [['Skip practice', () => leavePractice()], ['Start', () => { B.started = true; sfx('horn'); banner('PRACTICE', '', 'Training Field'); refreshHUD(true); coachRender(); }, 'primary']]);
+}
+function coachRender() {
+  const C = B.coach; if (!C) return;
+  if (!C.el || !C.el.isConnected) C.el = mount(h('div', { class: 'coach' }));
+  const st = COACH[C.i];
+  C.el.innerHTML = '';
+  if (!st) return;
+  C.el.append(h('span', { class: 'coach-n' }, `${C.i + 1}/${COACH.length}`), h('span', { class: 'coach-t grow' }, st.text), btn('Skip', () => confirm('Skip the practice?', 'You can replay it later from How to play.', 'Skip', 'Keep going').then((ok) => ok && leavePractice()), 'tiny'));
+  C.el.classList.remove('coach-pop'); void C.el.offsetWidth; C.el.classList.add('coach-pop');
+}
+function coachTick() {
+  const C = B.coach;
+  if (!B.started || B.ended) return;
+  if (B.sim.t > 150 && C.i < COACH.length - 1) B.sim.t = 150; // the clock waits while you learn
+  const st = COACH[C.i];
+  if (st && st.done()) {
+    C.i++; sfx('coin'); buzz('tap');
+    coachRender();
+  }
+  // glow the UI element the step is about
+  for (const el of C.glowed) el.classList.remove('coach-glow');
+  C.glowed = [];
+  const cur = COACH[C.i];
+  if (cur && cur.glow) C.glowed = [...document.querySelectorAll(cur.glow)];
+  for (const el of C.glowed) el.classList.add('coach-glow');
+}
+function drawCoach(time) {
+  const st = COACH[B.coach.i]; if (!st || !st.ring || !B.started) return;
+  const t = st.ring(); if (!t) return;
+  const r = t.soldiers ? B.render.get(t.id) : null;
+  const x = (r ? r.x : t.x) * TS, y = (r ? r.y : t.y) * TS;
+  const k = (time * 1.6) % 1;
+  ctx.strokeStyle = `rgba(255,216,107,${1 - k})`; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.ellipse(x, y, (1.4 + k * 1.6) * TS, (0.9 + k * 1.1) * TS, 0, 0, Math.PI * 2); ctx.stroke();
+  const bob = Math.sin(time * 6) * 3;
+  ctx.fillStyle = '#ffd86b'; ctx.strokeStyle = '#0b0a10'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(x, y - 24 + bob); ctx.lineTo(x - 6, y - 34 + bob); ctx.lineTo(x + 6, y - 34 + bob); ctx.closePath(); ctx.fill(); ctx.stroke();
+}
+
+// ---------- mid-battle saves (single player campaign only) ----------
+function canSave() { return net.role === 'single' && !B.client && !B.practice && B.state && B.state.cid && B.sim && B.battle; }
+function saveNow(sync) {
+  B._savedAt = game.time;
+  if (!canSave() || !B.started || B.ended || B.sim.winner) return;
+  const data = { v: 1, setup: B.setup, sim: serializeSim(B.sim), b: B.battle, ctx: B.saveCtx, me: B.me, kills: [...B.kills], speed: B.speed, place: B.setup.place, t: B.sim.t };
+  saveBattle(B.state.cid, B.key, data, B.state, { sync });
+}
+function resumeIntro() {
+  const st = B.setup;
+  const left = Math.max(0, Math.round(240 - B.sim.t));
+  modal(`Battle of ${st.place}`, h('div', { class: 'col' },
+    h('div', {}, 'The battle was saved mid-fight. Your squads stand where you left them.'),
+    h('div', { class: 'muted', style: { fontSize: '12px' } }, `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')} left on the clock.`)),
+  [['Resume', () => { B.started = true; sfx('horn'); banner('BATTLE RESUMED', '', st.place); refreshHUD(true); }, 'primary']]);
 }
 
 // the other player dropped mid-battle: their squads fight on under AI control (host), the client waits for a resync
