@@ -1,11 +1,11 @@
 import { registerScene, go, game } from '../main.js';
-import { ctx, screen, Camera } from '../engine/view.js';
+import { ctx, screen, Camera, canvas } from '../engine/view.js';
 import { h, btn, mount, modal, toast, bar, sprite, clearUI, banner, stratagemCard, chip, confirm } from '../engine/ui.js';
 import { img } from '../engine/assets.js';
 import { hashStr } from '../engine/rng.js';
 import { drawUnit, drawHero, drawSpriteRef, DUNGEON_TILES } from '../data/art.js';
 import { SPELLS } from '../data/spells.js';
-import { createBattle, step, command, aiThink, battleResult, snapshot, applySnapshot, liveCount, DT, stratagemTargets } from '../battle/sim.js';
+import { createBattle, step, command, aiThink, battleResult, snapshot, applySnapshot, liveCount, DT, stratagemTargets, planRoute, routeProblem } from '../battle/sim.js';
 import { renderGround, drawFieldOverlay, postRef, TS } from '../battle/field.js';
 import { createFx } from '../battle/fx.js';
 import { formationSlots, FORMATIONS, FORMATION_IDS, STRATAGEMS, commandPool, tierIndex } from '../game/rules.js';
@@ -16,15 +16,15 @@ import { sfx, music } from '../engine/audio.js';
 import { net } from '../net/net.js';
 
 const cam = new Camera();
-const B = { sim: null, ground: null, side: null, sel: null, acc: 0, render: new Map(), fx: [], seenEv: 0, paused: false, speed: 1, ended: false, started: false, colors: null, setup: null, state: null, juice: null, aim: null };
-window.__dw = Object.assign(window.__dw || {}, { B, cam, sendCmd: (c) => send(c) });
+const B = { sim: null, ground: null, side: null, sel: null, selected: [], box: false, drag: null, pick: null, freeze: 0, slow: 0, duel: null, acc: 0, render: new Map(), fx: [], seenEv: 0, paused: false, speed: 1, ended: false, started: false, colors: null, setup: null, state: null, juice: null, aim: null };
+window.__dw = Object.assign(window.__dw || {}, { B, cam, sendCmd: (c) => send(c), tapWorld: (wx, wy) => { const p = cam.toScreen ? cam.toScreen(wx * TS, wy * TS) : null; if (p) tap(p.x, p.y); } });
 const SPELL = Object.fromEntries(SPELLS.map((s) => [s.id, s]));
 const stratIcon = (id, scale = 2) => { const s = SPELL[STRATAGEMS[id].icon]; return s && s.icon ? sprite(s.icon, 0, 0, 16, 16, scale) : null; };
 
 // args: { state, battle, control:{att,def}, me } (host/single) or { client:true, setup, items, me, state }
 registerScene('battle', {
   enter(args) {
-    Object.assign(B, { sel: null, acc: 0, render: new Map(), fx: [], seenEv: 0, paused: false, speed: 1, ended: false, started: false, aim: null });
+    Object.assign(B, { sel: null, selected: [], box: false, drag: null, pick: null, freeze: 0, slow: 0, duel: null, acc: 0, render: new Map(), fx: [], seenEv: 0, paused: false, speed: 1, ended: false, started: false, aim: null });
     let setup = args.setup;
     if (!setup) {
       const st = args.state, b = args.battle;
@@ -61,17 +61,27 @@ registerScene('battle', {
       net.send({ t: 'battleStart', setup, items: B.state.items });
       net.on('cmd', (m) => { const side = setup.control.att === 1 ? 'att' : setup.control.def === 1 ? 'def' : null; if (side) command(B.sim, side, m.c); });
     }
-    if (B.client) { net.on('snap', (m) => applySnapshot(B.sim, m.s)); net.on('battleEnd', (m) => endBattle(m.result)); }
+    if (B.client) { net.on('snap', (m) => { const now = performance.now(), prev = new Map(B.sim.squads.map((q) => [q.id, [q.x, q.y]])); const gap = Math.min(0.4, Math.max(0.05, (now - (B.snapAt || now - 100)) / 1000)); applySnapshot(B.sim, m.s); B.snapAt = now; for (const q of B.sim.squads) { const o = prev.get(q.id); q._vx = o ? (q.x - o[0]) / gap : 0; q._vy = o ? (q.y - o[1]) / gap : 0; } }); net.on('battleEnd', (m) => endBattle(m.result)); }
     music.start('battle');
     fitCamera();
     buildUI();
     intro();
+    // slow presses (>0.5s without moving) still count as taps on a battlefield
+    B._down = (e) => { B._press = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false }; };
+    B._move = (e) => { if (B._press && Math.hypot(e.clientX - B._press.x, e.clientY - B._press.y) > 9) B._press.moved = true; };
+    B._up = (e) => { const p = B._press; B._press = null; if (p && !p.moved && performance.now() - p.t >= 500 && performance.now() - p.t < 1600) tap(e.clientX, e.clientY); };
+    canvas.addEventListener('pointerdown', B._down); canvas.addEventListener('pointermove', B._move); canvas.addEventListener('pointerup', B._up);
   },
-  exit() { net.off('cmd'); net.off('snap'); net.off('battleEnd'); net.off('battleGo'); },
+  exit() {
+    net.off('cmd'); net.off('snap'); net.off('battleEnd'); net.off('battleGo');
+    if (B._down) { canvas.removeEventListener('pointerdown', B._down); canvas.removeEventListener('pointermove', B._move); canvas.removeEventListener('pointerup', B._up); }
+  },
   update(dt) {
     const sim = B.sim; if (!sim) return;
-    if (!B.client && B.started && !B.paused && !B.ended) {
-      B.acc += dt * B.speed;
+    B.freeze = Math.max(0, B.freeze - dt);
+    B.slow = Math.max(0, B.slow - dt);
+    if (!B.client && B.started && !B.paused && !B.ended && B.freeze <= 0) {
+      B.acc += dt * B.speed * (B.slow > 0 ? 0.3 : 1);
       let n = 0;
       while (B.acc >= DT && n++ < 10) {
         B.acc -= DT;
@@ -89,29 +99,50 @@ registerScene('battle', {
   },
   render() { draw(); },
   onTap(sx, sy) { tap(sx, sy); },
-  onPan(dx, dy) { cam.x -= dx / cam.zoom; cam.y -= dy / cam.zoom; cam.clamp(); },
-  onPinch(cx, cy, f, mx, my) { cam.zoomAt(cx, cy, f); cam.x -= mx / cam.zoom; cam.y -= my / cam.zoom; cam.clamp(); },
+  onPanStart(sx, sy) { dragStart(sx, sy); },
+  onPan(dx, dy, x, y) {
+    if (B.drag && B.drag.mode !== 'pan') { B.drag.x = x; B.drag.y = y; return; }
+    cam.x -= dx / cam.zoom; cam.y -= dy / cam.zoom; cam.clamp();
+  },
+  onPinch(cx, cy, f, mx, my) { B.drag = null; cam.zoomAt(cx, cy, f); cam.x -= mx / cam.zoom; cam.y -= my / cam.zoom; cam.clamp(); },
+  onGestureEnd(x, y) { dragEnd(x, y); },
   onResize() { fitCamera(); },
 });
 
-const LEFT = 84, RIGHT = 0;
+const LEFT = 92;
+const RIGHT = () => (B.side && B.sim && B.sim.strat[B.side].list.length ? 84 : 0);
 function fitCamera() {
   const F = B.sim.field;
   const W = F.W * TS, H = F.H * TS;
-  const availW = screen.w - LEFT - 8 - RIGHT, availH = screen.h - 8;
+  const availW = screen.w - LEFT - 8 - RIGHT(), availH = screen.h - 52;
   cam.zoom = Math.min(availW / W, availH / H);
   cam.min = cam.zoom; cam.max = Math.max(cam.zoom * 4, 3);
-  cam.bounds = { x: -LEFT / cam.zoom, y: 0, w: W + LEFT / cam.zoom, h: H };
-  cam.x = W / 2 - (LEFT / 2) / cam.zoom; cam.y = H / 2;
+  cam.bounds = { x: -LEFT / cam.zoom, y: -44 / cam.zoom, w: W + (LEFT + RIGHT()) / cam.zoom, h: H + 44 / cam.zoom };
+  cam.x = W / 2 - ((LEFT - RIGHT()) / 2) / cam.zoom; cam.y = H / 2 - 20 / cam.zoom;
 }
 
 // ---------- render state ----------
 function updateRender(dt) {
+  if (B.pick && (B.pick.t -= dt) <= 0) B.pick = null;
+  if (B.duel && (B.duel.age += dt) >= B.duel.life) B.duel = null;
+  const since = B.client && B.snapAt ? Math.min(0.15, (performance.now() - B.snapAt) / 1000) : 0;
   for (const s of B.sim.squads) {
     let r = B.render.get(s.id);
-    if (!r) { r = { x: s.x, y: s.y, soldiers: s.soldiers.map(() => ({ x: s.x * TS, y: s.y * TS })), hx: s.x * TS, hy: s.y * TS, flash: 0 }; B.render.set(s.id, r); }
-    const k = Math.min(1, dt * (B.client ? 8 : 14));
-    r.x += (s.x - r.x) * k; r.y += (s.y - r.y) * k;
+    if (!r) { r = { x: s.x, y: s.y, soldiers: s.soldiers.map(() => ({ x: s.x * TS, y: s.y * TS })), hx: s.x * TS, hy: s.y * TS, flash: 0, dmg: 0, dmgT: 0, dustT: 0 }; B.render.set(s.id, r); }
+    const tx0 = s.x + (s._vx || 0) * since, ty0 = s.y + (s._vy || 0) * since;
+    const k = Math.min(1, dt * (B.client ? 10 : 14));
+    r.x += (tx0 - r.x) * k; r.y += (ty0 - r.y) * k;
+    // aggregated damage numbers: one number per squad every ~0.35s instead of a cloud
+    r.dmgT -= dt;
+    if (r.dmg > 0 && r.dmgT <= 0) { if (r.dmg >= 3) B.juice.damage(r.x * TS, r.y * TS - 16, r.dmg, r.dmg >= 20 ? '#ff9a7a' : '#ffd0c0'); r.dmg = 0; r.dmgT = 0.35; }
+    // dust kicked up by marching / charging squads
+    r.dustT -= dt;
+    if (s.state === 'move' && r.dustT <= 0 && s.state !== 'dead') {
+      r.dustT = s.chase != null ? 0.12 : 0.3;
+      const live = r.soldiers.filter((_, i) => s.soldiers[i] && s.soldiers[i].alive);
+      const p = live[Math.floor(Math.random() * live.length)];
+      if (p) B.juice.dust(p.x, p.y);
+    }
     r.flash = Math.max(0, r.flash - dt * 4);
     const alive = s.soldiers.filter((x) => x.alive);
     const f = s.reform && s.reform.t / (s.reform.total || 1) > 0.5 ? s.reform.to : s.formation;
@@ -150,8 +181,9 @@ function consumeEvents() {
     } else if (e.k === 'hit') {
       const r = B.render.get(e.id); if (!r) continue;
       r.flash = 1;
-      if (e.d >= 4) J.damage(r.x * TS, r.y * TS - 14, e.d, '#ffd0c0');
+      r.dmg = (r.dmg || 0) + e.d;
       J.hit(r.x * TS + (Math.random() - 0.5) * 10, r.y * TS - 4, '#fff');
+      if (e.d >= 14 && (B._bigHit || 0) < game.time) { B._bigHit = game.time + 0.6; B.freeze = Math.max(B.freeze, 0.06); J.sparks(r.x * TS, r.y * TS - 6, '#ffd86b'); J.shake(2, 0.15); }
       sfx('hit');
     } else if (e.k === 'shot') {
       const a = B.render.get(e.from), b = B.render.get(e.to); if (!a || !b) continue;
@@ -165,9 +197,11 @@ function consumeEvents() {
       const p = sim.field.posts[e.post];
       B.fx.push({ k: 'flash', x: p.x * TS, y: p.y * TS, age: 0, life: 0.8, side: e.side });
       J.confetti(p.x * TS, p.y * TS - 20); sfx(mineSide(e.side) || (!B.side && e.side === 'att') ? 'capture' : 'lost');
+      B.fx.push({ k: 'flag', x: p.x * TS + 10, y: p.y * TS - 8, age: 0, life: 2.4, col: B.colors[e.side] });
+      if (p.main) { B.slow = 1.6; J.shake(6, 0.6); J.shockwave(p.x * TS, p.y * TS, '#ffd86b'); }
       if (B.side) banner(p.main ? (e.side === B.side ? 'MAIN POST TAKEN' : 'MAIN POST LOST') : e.side === B.side ? 'Post captured' : 'Post lost', e.side === B.side ? 'good' : 'bad');
     } else if (e.k === 'heroDown') {
-      const s = sq(e.id); if (s) { toast(`${s.name}: “${line('heroDown', null, e.seq)}”`, mineSide(s.side) ? 'bad' : 'good'); const r = B.render.get(e.id); if (r) J.shockwave(r.hx, r.hy, '#ff6a5a'); J.shake(3, 0.3); }
+      const s = sq(e.id); if (s) { toast(`${s.name}: “${line('heroDown', null, e.seq)}”`, mineSide(s.side) ? 'bad' : 'good'); const r = B.render.get(e.id); if (r) J.shockwave(r.hx, r.hy, '#ff6a5a'); J.shake(3, 0.3); B.freeze = Math.max(B.freeze, 0.12); }
     } else if (e.k === 'rout') {
       const s = sq(e.id); if (s && mineSide(s.side)) toast(`${s.name}'s squad is routing!`, 'bad');
     } else if (e.k === 'trap') {
@@ -189,6 +223,24 @@ function consumeEvents() {
       banner(S.name.toUpperCase(), mineSide(e.side) ? 'good' : 'bad', mineSide(e.side) ? 'Stratagem' : 'Enemy stratagem!');
       if (e.x || e.y) { J.shockwave(e.x * TS, e.y * TS, mineSide(e.side) ? '#6bb6ff' : '#ff6a5a'); if (e.id === 'fire') for (let i = 0; i < 10; i++) J.fire(e.x * TS + (Math.random() - 0.5) * 50, e.y * TS + (Math.random() - 0.5) * 30); }
       if (e.id === 'ambush') J.shake(5, 0.4);
+    } else if (e.k === 'duelStart') {
+      const a = sq(e.a), b = sq(e.b);
+      B.duel = { a: e.a, b: e.b, age: 0, life: 3.6 };
+      sfx('clash'); J.shake(3, 0.25);
+      banner('DUEL!', mineSide(a && a.side) || mineSide(b && b.side) ? '' : 'blue', `${a ? a.name : '?'} vs ${b ? b.name : '?'}`);
+    } else if (e.k === 'duelEnd') {
+      if (B.duel) B.duel.life = Math.min(B.duel.life, B.duel.age + 0.4);
+      if (e.win != null) {
+        const w = sq(e.win), l = sq(e.lose);
+        B.freeze = Math.max(B.freeze, 0.15); J.shake(5, 0.4);
+        if (e.x != null) { J.shockwave(e.x * TS, e.y * TS, '#ffd86b'); J.sparks(e.x * TS, e.y * TS - 8, '#ffd86b'); }
+        sfx(mineSide(w && w.side) ? 'capture' : 'lost');
+        if (w) banner(`${w.name.toUpperCase()} WINS THE DUEL`, mineSide(w.side) ? 'good' : B.side ? 'bad' : '', l ? `${l.name} is wounded` : '');
+      }
+    } else if (e.k === 'arrive') {
+      const s = sq(e.id); if (s && mineSide(s.side)) { const r = B.render.get(s.id); if (r) B.fx.push({ k: 'ring', x: r.x * TS, y: r.y * TS, age: 0, life: 0.45, col: '#8fd06b' }); }
+    } else if (e.k === 'disengage') {
+      const s = sq(e.id); if (s && mineSide(s.side)) toast(`${s.name} breaks off the fight`);
     } else if (e.k === 'reform') {
       const s = sq(e.id); if (s && mineSide(s.side)) sfx('march');
     }
@@ -216,12 +268,9 @@ function draw() {
     ctx.beginPath(); ctx.ellipse(f.x * TS, f.y * TS, f.r * TS, f.r * TS * 0.7, 0, 0, Math.PI * 2); ctx.fill();
     if (Math.random() < 0.5) B.juice.fire(f.x * TS + (Math.random() - 0.5) * f.r * TS * 1.6, f.y * TS + (Math.random() - 0.5) * f.r * TS);
   }
-  const sel = B.sel != null ? sim.squads.find((s) => s.id === B.sel) : null;
-  if (sel && sel.goal != null) {
-    const p = sim.field.posts[sel.goal];
-    ctx.strokeStyle = '#ffd25a'; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]); ctx.lineDashOffset = -time * 10;
-    ctx.beginPath(); ctx.moveTo(sel.x * TS, sel.y * TS); ctx.lineTo(p.x * TS, p.y * TS); ctx.stroke(); ctx.setLineDash([]);
-  }
+  const selList = selSquads();
+  const sel = selList[0] || null;
+  drawRoutes(selList, time);
   // stratagem targeting highlights
   if (B.aim) {
     const pulse = 0.6 + 0.4 * Math.sin(time * 8);
@@ -239,7 +288,7 @@ function draw() {
     ctx.fillStyle = col; ctx.globalAlpha = 0.22;
     ctx.beginPath(); ctx.ellipse(p.x * TS, p.y * TS, 2.4 * TS, 1.6 * TS, 0, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
     if (p.fort) { ctx.strokeStyle = '#9fd0ff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(p.x * TS, p.y * TS, 2.5 * TS, 1.7 * TS, 0, 0, Math.PI * 2); ctx.stroke(); }
-    if (sel && sel.side === B.side && !p.camp) { ctx.strokeStyle = 'rgba(255,210,90,.5)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.ellipse(p.x * TS, p.y * TS, 2.4 * TS, 1.6 * TS, 0, 0, Math.PI * 2); ctx.stroke(); }
+    if (sel && !B.aim) { ctx.strokeStyle = `rgba(255,210,90,${0.35 + 0.2 * Math.sin(time * 4 + p.id)})`; ctx.lineWidth = 1; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.ellipse(p.x * TS, p.y * TS, 2.4 * TS, 1.6 * TS, 0, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); }
     drawSpriteRef(ctx, ref, p.x * TS - w / 2, p.y * TS - hh + 8, w, hh);
     ctx.fillStyle = '#0b0a10'; ctx.fillRect(p.x * TS + w / 2 - 3, p.y * TS - hh, 1, 14);
     ctx.fillStyle = col; ctx.fillRect(p.x * TS + w / 2 - 2, p.y * TS - hh + Math.sin(time * 4 + p.id), 7, 5);
@@ -262,9 +311,13 @@ function draw() {
     if (s.state === 'dead') continue;
     const r = B.render.get(s.id);
     const rad = 1.1 + Math.sqrt(liveCount(s)) * 0.12;
-    ctx.fillStyle = B.colors[s.side]; ctx.globalAlpha = s.id === B.sel ? 0.55 : 0.28;
+    const isSel = B.selected.includes(s.id);
+    ctx.fillStyle = B.colors[s.side]; ctx.globalAlpha = isSel ? 0.45 : 0.24;
     ctx.beginPath(); ctx.ellipse(r.x * TS, r.y * TS + 2, rad * TS, rad * 0.66 * TS, 0, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
-    if (s.id === B.sel) { ctx.strokeStyle = '#ffd25a'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(r.x * TS, r.y * TS + 2, rad * TS + 1 + Math.sin(time * 6), rad * 0.7 * TS, 0, 0, Math.PI * 2); ctx.stroke(); }
+    if (isSel) {
+      ctx.strokeStyle = '#0b0a10'; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(r.x * TS, r.y * TS + 2, rad * TS + 1, rad * 0.7 * TS, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = '#ffd25a'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(r.x * TS, r.y * TS + 2, rad * TS + 1, rad * 0.7 * TS, 0, 0, Math.PI * 2); ctx.stroke();
+    }
   }
   list.sort((a, b) => a.y - b.y);
   for (const d of list) {
@@ -291,7 +344,14 @@ function draw() {
     if (s.reform) { ctx.fillStyle = '#ffd86b'; ctx.fillRect(x, y + 4, 20 * Math.min(1, s.reform.t / (s.reform.total || 1)), 1); }
     if (s.special >= 1 && s.side === B.side && s.heroAlive) { ctx.fillStyle = '#ffd25a'; ctx.fillRect(x + 21, y - 1, 3, 7); }
     if (s.buffs && (s.buffs.confused > 0 || s.state === 'confused')) { ctx.fillStyle = '#c48bff'; ctx.fillRect(x + 6 + Math.sin(time * 8) * 4, y - 5, 3, 3); }
+    drawBadge(s, x - 9, y - 2, time);
+    if (B.selected.includes(s.id)) {
+      const ay = y - 9 + Math.round(Math.sin(time * 6) * 1.5), ax = Math.round(r.x * TS);
+      ctx.fillStyle = '#0b0a10'; ctx.beginPath(); ctx.moveTo(ax - 5, ay - 1); ctx.lineTo(ax + 5, ay - 1); ctx.lineTo(ax, ay + 5); ctx.fill();
+      ctx.fillStyle = '#ffd25a'; ctx.beginPath(); ctx.moveTo(ax - 3.5, ay); ctx.lineTo(ax + 3.5, ay); ctx.lineTo(ax, ay + 3.5); ctx.fill();
+    }
   }
+  drawOverlays(time);
   for (const f of B.fx) {
     if (f.age < 0) continue;
     if (f.k === 'arrow') {
@@ -304,20 +364,127 @@ function draw() {
       ctx.strokeStyle = B.colors[f.side]; ctx.lineWidth = 2; ctx.globalAlpha = 1 - f.age / f.life;
       ctx.beginPath(); ctx.arc(f.x, f.y, 10 + f.age * 50, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
     } else if (f.k === 'trap' && dt) ctx.drawImage(dt, 192 + 48, 176, 16, 16, f.x - 8, f.y - 12, 16, 16);
+    else if (f.k === 'ring') {
+      const k = f.age / f.life; ctx.strokeStyle = f.col; ctx.globalAlpha = 1 - k; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(f.x, f.y + 2, 10 + k * 14, 7 + k * 9, 0, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
+    } else if (f.k === 'flag') {
+      // pole rises, then the new colours unfurl
+      const k = Math.min(1, f.age / 0.7), h0 = 26;
+      const top = f.y - h0 * k;
+      ctx.fillStyle = '#0b0a10'; ctx.fillRect(f.x - 1, top, 2, h0 * k);
+      if (k >= 1) { const wv = Math.sin(f.age * 10) * 1.5; ctx.fillStyle = '#0b0a10'; ctx.fillRect(f.x + 1, top - 1, 12, 9); ctx.fillStyle = f.col; ctx.fillRect(f.x + 1, top, 11, 7 + wv * 0.3); ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.fillRect(f.x + 1, top, 11, 2); }
+    }
   }
+  drawDuel(time);
   B.juice.draw(ctx);
   if (sim.fog > 0) { ctx.fillStyle = `rgba(200,210,225,${Math.min(0.28, sim.fog / 30 * 0.28)})`; ctx.fillRect(0, 0, sim.field.W * TS, sim.field.H * TS); }
 }
 
+// planned route for each selected squad: dotted, animated, along the real roads
+function drawRoutes(list, time) {
+  const sim = B.sim;
+  for (const s of list) {
+    const r = B.render.get(s.id) || s;
+    let pts = null, col = '#ffd25a';
+    if (s.chase != null) { const t = sim.squads.find((q) => q.id === s.chase && q.state !== 'dead'); if (t) { pts = [[r.x, r.y], [t.x, t.y]]; col = '#ff6a5a'; } }
+    else if (s.path && s.path.length) pts = [[r.x, r.y], ...s.path.map((p) => [p.x, p.y])];
+    else if (s.goal != null && s.state === 'move') { const ids = planRoute(sim, s, s.goal); if (ids) pts = [[r.x, r.y], ...ids.map((id) => [sim.field.posts[id].x, sim.field.posts[id].y])]; }
+    if (!pts || pts.length < 2) continue;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(10,8,16,.55)'; ctx.lineWidth = 3.5; ctx.setLineDash([4, 4]); ctx.lineDashOffset = -time * 14;
+    ctx.beginPath(); ctx.moveTo(pts[0][0] * TS, pts[0][1] * TS); for (const p of pts.slice(1)) ctx.lineTo(p[0] * TS, p[1] * TS); ctx.stroke();
+    ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(pts[0][0] * TS, pts[0][1] * TS); for (const p of pts.slice(1)) ctx.lineTo(p[0] * TS, p[1] * TS); ctx.stroke();
+    ctx.setLineDash([]);
+    const e = pts[pts.length - 1];
+    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(e[0] * TS, e[1] * TS, 2.5, 0, Math.PI * 2); ctx.fill();
+  }
+}
+// small pixel status icon: marching, fighting, holding, reforming, routing
+function drawBadge(s, x, y, time) {
+  let kind = s.state === 'rout' ? 'rout' : s.reform ? 'reform' : s.state === 'fight' || s.state === 'shoot' ? 'fight' : s.state === 'move' ? 'march' : 'hold';
+  const bg = { rout: '#ff6a5a', reform: '#ffd25a', fight: '#ff9a3a', march: '#6bb6ff', hold: '#8fd06b' }[kind];
+  ctx.fillStyle = '#0b0a10'; ctx.fillRect(x - 1, y - 1, 9, 9);
+  ctx.fillStyle = bg; ctx.fillRect(x, y, 7, 7);
+  ctx.fillStyle = '#0b0a10';
+  if (kind === 'march') { ctx.fillRect(x + 1, y + 3, 4, 1); ctx.fillRect(x + 4, y + 2, 1, 3); ctx.fillRect(x + 5, y + 3, 1, 1); }
+  else if (kind === 'fight') { for (let i = 0; i < 5; i++) { ctx.fillRect(x + 1 + i, y + 1 + i, 1, 1); ctx.fillRect(x + 5 - i, y + 1 + i, 1, 1); } }
+  else if (kind === 'hold') { ctx.fillRect(x + 2, y + 1, 3, 4); ctx.fillRect(x + 3, y + 5, 1, 1); ctx.fillStyle = bg; ctx.fillRect(x + 3, y + 2, 1, 2); }
+  else if (kind === 'reform') { const k = Math.floor(time * 6) % 4; const pts = [[1, 1], [5, 1], [5, 5], [1, 5]]; for (let i = 0; i < 4; i++) if (i !== k) ctx.fillRect(x + pts[i][0], y + pts[i][1], 1, 1); }
+  else if (kind === 'rout') { ctx.fillRect(x + 3, y + 1, 1, 3); ctx.fillRect(x + 3, y + 5, 1, 1); }
+}
+// screen-level overlays drawn in world space: order confirmation ring, drag order arrow, duel spotlight
+function drawOverlays(time) {
+  if (B.pick) {
+    const k = 1 - B.pick.t / 0.8;
+    ctx.strokeStyle = B.pick.foe ? '#ff6a5a' : '#ffd25a'; ctx.globalAlpha = Math.max(0, 1 - k); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(B.pick.x * TS, B.pick.y * TS, (1 + k * 2) * TS, (0.7 + k * 1.4) * TS, 0, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
+  }
+  const d = B.drag;
+  if (d && d.mode === 'order') {
+    const a = selSquads(); const w = cam.toWorld(d.x, d.y);
+    for (const s of a) {
+      const r = B.render.get(s.id) || s;
+      ctx.strokeStyle = 'rgba(255,210,90,.9)'; ctx.lineWidth = 2; ctx.setLineDash([5, 3]);
+      ctx.beginPath(); ctx.moveTo(r.x * TS, r.y * TS); ctx.lineTo(w.x, w.y); ctx.stroke(); ctx.setLineDash([]);
+    }
+    ctx.fillStyle = 'rgba(255,210,90,.9)'; ctx.beginPath(); ctx.arc(w.x, w.y, 4, 0, Math.PI * 2); ctx.fill();
+  }
+  if (d && d.mode === 'box') {
+    const a = cam.toWorld(d.sx, d.sy), b = cam.toWorld(d.x, d.y);
+    ctx.fillStyle = 'rgba(255,210,90,.12)'; ctx.fillRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+    ctx.strokeStyle = '#ffd25a'; ctx.lineWidth = 1; ctx.setLineDash([3, 2]); ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y)); ctx.setLineDash([]);
+  }
+}
+// duel spotlight sits above everything in world space
+function drawDuel(time) {
+  const D = B.duel; if (!D) return;
+  const a = B.render.get(D.a), b = B.render.get(D.b); if (!a || !b) return;
+  const x = (a.x + b.x) / 2 * TS, y = (a.y + b.y) / 2 * TS;
+  const F = B.sim.field;
+  const k = Math.min(1, D.age / 0.3) * Math.min(1, Math.max(0, (D.life - D.age) / 0.3));
+  ctx.save();
+  ctx.fillStyle = `rgba(8,6,14,${0.45 * k})`;
+  ctx.beginPath(); ctx.rect(-40, -40, F.W * TS + 80, F.H * TS + 80); ctx.arc(x, y, 3.2 * TS, 0, Math.PI * 2, true); ctx.fill('evenodd');
+  ctx.strokeStyle = `rgba(255,216,107,${0.8 * k})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 3.2 * TS + Math.sin(time * 8), 0, Math.PI * 2); ctx.stroke();
+  ctx.restore();
+}
+
 // ---------- input ----------
+// Taps: tap your squad to select it (or a card on the left); "All" selects the whole army; with "Box" on,
+// dragging on the ground draws a selection box. Dragging FROM one of your squads gives an order where you let go.
+// With squads selected: tap an enemy to attack it, tap a base (anywhere in its ring) or the ground near a road
+// to march to the nearest base. Taps that don't fit an order explain why instead of dropping the selection.
+const hitR = () => Math.max(1.3, 30 / (cam.zoom * TS)); // ~30 CSS px, in tiles
+function selSquads() {
+  const sim = B.sim; if (!sim) return [];
+  B.selected = B.selected.filter((id) => { const s = sim.squads.find((q) => q.id === id); return s && s.state !== 'dead' && s.side === B.side; });
+  B.sel = B.selected[0] ?? null;
+  return B.selected.map((id) => sim.squads.find((q) => q.id === id));
+}
+function setSel(ids) { B.selected = ids.slice(); B.sel = ids[0] ?? null; refreshHUD(true); }
+function squadAt(wx, wy, side, r) {
+  let best = null, bd = r;
+  for (const s of B.sim.squads) {
+    if (s.state === 'dead' || (side && s.side !== side)) continue;
+    const rr = B.render.get(s.id) || s;
+    const d = Math.hypot(rr.x - wx, rr.y - 0.35 - wy);
+    if (d < bd) { bd = d; best = s; }
+  }
+  return best;
+}
+function postAt(wx, wy, r) {
+  let best = null, bd = r;
+  for (const p of B.sim.field.posts) { const d = Math.hypot(p.x - wx, (p.y - wy) * 1.3); if (d < bd) { bd = d; best = p; } }
+  return best;
+}
 function tap(sx, sy) {
   if (!B.started || B.ended || !B.side) return;
   const w = cam.toWorld(sx, sy);
   const wx = w.x / TS, wy = w.y / TS;
-  const sim = B.sim;
+  const sim = B.sim, R = hitR();
   if (B.aim) {
-    // pick the closest valid target
-    let best = null, bd = 3.2;
+    let best = null, bd = Math.max(3.2, R * 1.4);
     for (const t of B.aim.targets) {
       let x, y;
       if (t.kind === 'squad') { const s = sim.squads.find((q) => q.id === t.id); if (!s) continue; x = s.x; y = s.y; }
@@ -326,25 +493,75 @@ function tap(sx, sy) {
       const d = Math.hypot(x - wx, y - wy); if (d < bd) { bd = d; best = t; }
     }
     if (best) { send({ type: 'strat', id: B.aim.id, target: best }); B.aim = null; refreshHUD(true); }
-    else toast('Tap a highlighted target');
+    else toast('Tap one of the glowing targets');
     return;
   }
-  let best = null, bd = 1.8;
-  for (const s of sim.squads) { if (s.state === 'dead') continue; const d = Math.hypot(s.x - wx, s.y - (wy + 0.3)); if (d < bd) { bd = d; best = s; } }
-  if (best && best.side === B.side) { B.sel = best.id; sfx('click'); refreshHUD(true); return; }
-  const sel = B.sel != null ? sim.squads.find((s) => s.id === B.sel && s.state !== 'dead' && s.side === B.side) : null;
-  if (!sel) return;
-  if (best && best.side !== B.side) { send({ type: 'chase', squad: sel.id, target: best.id }); sfx('clash'); toast(`Attacking ${best.name}`); return; }
-  let post = null, pd = 3;
-  for (const p of sim.field.posts) { const d = Math.hypot(p.x - wx, p.y - wy); if (d < pd) { pd = d; post = p; } }
-  if (post) { send({ type: 'move', squad: sel.id, post: post.id }); sfx('march'); return; }
-  B.sel = null; refreshHUD(true);
+  const own = squadAt(wx, wy, B.side, R);
+  const sel = selSquads();
+  if (own && !(sel.length && postAt(wx, wy, 1.2) && !squadAt(wx, wy, B.side, R * 0.6))) {
+    if (sel.length === 1 && sel[0].id === own.id) { pulseSquad(own); return; }
+    setSel([own.id]); sfx('click'); pulseSquad(own); return;
+  }
+  const foe = squadAt(wx, wy, B.side === 'att' ? 'def' : 'att', R);
+  if (!sel.length) { toast(foe ? `${foe.name} · ${liveCount(foe)} troops. Select one of your squads first` : 'Tap one of your squads first, or use All'); return; }
+  if (foe) { orderAttack(sel, foe); return; }
+  let post = postAt(wx, wy, Math.max(2.8, R));
+  if (!post) {
+    // ground near a road: march to the nearest base
+    const near = postAt(wx, wy, 8);
+    if (near) post = near;
+  }
+  if (post) { orderMove(sel, post); return; }
+  toast('Tap a base or an enemy to give an order');
+}
+function pulseSquad(s) { const r = B.render.get(s.id); if (r) B.fx.push({ k: 'ring', x: r.x * TS, y: r.y * TS, age: 0, life: 0.45, col: '#ffd25a' }); }
+function orderMove(list, post) {
+  let ok = 0, why = null;
+  for (const s of list) {
+    const prob = routeProblem(B.sim, s, post.id);
+    if (prob) { why = prob; continue; }
+    send({ type: 'move', squad: s.id, post: post.id }); ok++;
+  }
+  if (ok) {
+    B.pick = { x: post.x, y: post.y, t: 0.8 };
+    sfx('march');
+    if (why) toast(`${list.length - ok} squad${list.length - ok > 1 ? 's' : ''} can't get there: ${why.toLowerCase()}`, 'bad');
+  } else { toast(why || 'No route there', 'bad'); sfx('alert'); }
+}
+function orderAttack(list, foe) {
+  for (const s of list) send({ type: 'chase', squad: s.id, target: foe.id });
+  B.pick = { x: foe.x, y: foe.y, t: 0.8, foe: true };
+  sfx('clash'); toast(`Attacking ${foe.name}`);
+}
+function dragStart(sx, sy) {
+  B.drag = null;
+  if (!B.started || B.ended || !B.side || B.aim) return;
+  const w = cam.toWorld(sx, sy), wx = w.x / TS, wy = w.y / TS;
+  const own = squadAt(wx, wy, B.side, hitR());
+  if (own) {
+    if (!B.selected.includes(own.id)) setSel([own.id]);
+    B.drag = { mode: 'order', sx, sy, x: sx, y: sy };
+  } else if (B.box) B.drag = { mode: 'box', sx, sy, x: sx, y: sy };
+  else B.drag = { mode: 'pan' };
+}
+function dragEnd(x, y) {
+  const d = B.drag; B.drag = null;
+  cam.clamp();
+  if (!d || d.mode === 'pan' || x == null) return;
+  if (d.mode === 'order') { tap(x, y); return; }
+  if (d.mode === 'box') {
+    const a = cam.toWorld(Math.min(d.sx, x), Math.min(d.sy, y)), b = cam.toWorld(Math.max(d.sx, x), Math.max(d.sy, y));
+    const ids = B.sim.squads.filter((s) => s.side === B.side && s.state !== 'dead' && s.x * TS >= a.x - 8 && s.x * TS <= b.x + 8 && s.y * TS >= a.y - 8 && s.y * TS <= b.y + 8).map((s) => s.id);
+    if (ids.length) { setSel(ids); sfx('click'); toast(`${ids.length} squad${ids.length > 1 ? 's' : ''} selected`); }
+    else toast('No squads in the box');
+  }
 }
 
 function send(c) {
   if (B.client) net.send({ t: 'cmd', c });
   else command(B.sim, B.side, c);
-  if (B.client && c.type === 'move') { const s = B.sim.squads.find((q) => q.id === c.squad); if (s) s.goal = c.post; }
+  if (B.client && c.type === 'move') { const s = B.sim.squads.find((q) => q.id === c.squad); if (s) { s.goal = c.post; s.state = 'move'; } }
+  if (B.client && c.type === 'chase') { const s = B.sim.squads.find((q) => q.id === c.squad); if (s) { s.chase = c.target; s.goal = null; } }
 }
 
 function startAim(id) {
@@ -358,67 +575,103 @@ function startAim(id) {
 }
 
 // ---------- HUD ----------
+// Left: your squads (tap a card to select; All / Box above). Right: stratagems. Top: battle info and controls.
+// Bottom: the selected squad(s) with formations, Hold, special and deselect.
 let hud = {};
 function buildUI() {
   clearUI();
-  hud.left = mount(h('div', { class: 'col scroll battle-left', style: { position: 'absolute', left: 'calc(4px + var(--sal))', top: 'calc(4px + var(--sat))', bottom: 'calc(4px + var(--sab))', width: LEFT - 6 + 'px', gap: '4px' } }));
-  hud.top = mount(h('div', { class: 'topbar', style: { left: `calc(${LEFT}px + var(--sal))` } }));
-  hud.bottom = mount(h('div', { style: { position: 'absolute', bottom: 'calc(4px + var(--sab))', left: `calc(${LEFT}px + var(--sal))`, right: 'calc(4px + var(--sar))', display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'flex-end', pointerEvents: 'none' } }));
+  const hasStrat = B.side && B.sim.strat[B.side].list.length;
+  hud.left = mount(h('div', { class: 'col battle-left', style: { position: 'absolute', left: 'calc(4px + var(--sal))', top: 'calc(4px + var(--sat))', bottom: 'calc(4px + var(--sab))', width: LEFT - 6 + 'px', gap: '4px' } }));
+  hud.right = hasStrat ? mount(h('div', { class: 'col battle-right', style: { position: 'absolute', right: 'calc(4px + var(--sar))', top: 'calc(50px + var(--sat))', bottom: 'calc(4px + var(--sab))', width: RIGHT() - 6 + 'px', gap: '6px' } })) : null;
+  hud.top = mount(h('div', { class: 'topbar battle-top', style: { left: `calc(${LEFT}px + var(--sal))` } }));
+  hud.bottom = mount(h('div', { class: 'battle-bottom', style: { left: `calc(${LEFT}px + var(--sal))`, right: `calc(${RIGHT() + 4}px + var(--sar))` } }));
+  hud.key = null; hud.leftKey = null;
   refreshHUD(true);
 }
+
+function squadCard(s) {
+  const dead = s.state === 'dead';
+  const n = liveCount(s);
+  const st = B.state && s.hero != null ? hero(B.state, s.hero) : null;
+  const icon = s.hero != null && st ? portrait(st, 1.6) : unitIcon(s.fid, s.unit, 1, 1.6);
+  const isSel = B.selected.includes(s.id);
+  return h('div', { class: 'card tap bsq' + (isSel ? ' sel' : '') + (dead ? ' dim' : '') + (s.state === 'rout' ? ' rout' : ''), onClick: () => {
+    if (dead || !B.side) return;
+    if (isSel && B.selected.length === 1) { focusSquad(s); return; }
+    setSel([s.id]); sfx('click');
+  } },
+    h('div', { class: 'row', style: { gap: '3px' } }, icon, h('b', { class: 'bsq-n' }, dead ? '✝' : `${n}`), s.special >= 1 && !dead && s.heroAlive ? h('span', { class: 'gold bsq-star' }, '★') : null),
+    bar(s.soldiers.length ? n / s.soldiers.length : 0, 'thin'), bar(Math.max(0, s.morale) / 100, 'mor thin'));
+}
+function focusSquad(s) { cam.x = s.x * TS; cam.y = s.y * TS; if (cam.zoom < cam.min * 1.6) cam.zoom = cam.min * 1.6; cam.clamp(); }
 
 function refreshHUD(full) {
   if (!hud.left || !B.sim) return;
   const sim = B.sim;
-  const mine = sim.squads.filter((s) => s.side === B.side);
-  hud.left.innerHTML = '';
-  for (const s of (B.side ? mine : sim.squads.filter((q) => q.side === 'att'))) {
-    const dead = s.state === 'dead';
-    const n = liveCount(s);
-    const st = B.state && s.hero != null ? hero(B.state, s.hero) : null;
-    const icon = s.hero != null && st ? portrait(st, 1.75) : unitIcon(s.fid, s.unit, 1, 1.75);
-    const el = h('div', { class: 'card tap' + (s.id === B.sel ? ' sel' : '') + (dead ? ' dim' : ''), style: { padding: '4px', flexDirection: 'column', alignItems: 'stretch', gap: '3px', pointerEvents: 'auto' }, onClick: () => { if (!dead && B.side) { B.sel = s.id; sfx('click'); refreshHUD(true); } } },
-      h('div', { class: 'row', style: { gap: '4px' } }, icon, h('b', { style: { fontSize: '14px' } }, dead ? '✝' : `${n}`), s.reform ? h('span', { class: 'gold', style: { fontSize: '11px' } }, '⟳') : null),
-      bar(s.soldiers.length ? n / s.soldiers.length : 0, 'thin'), bar(Math.max(0, s.morale) / 100, 'mor thin'),
-      s.special >= 1 && !dead && s.heroAlive && B.side ? btn('★', () => { send({ type: 'special', squad: s.id }); }, 'tiny primary') : null);
-    hud.left.appendChild(el);
+  const sels = selSquads();
+  const mine = B.side ? sim.squads.filter((s) => s.side === B.side) : sim.squads.filter((q) => q.side === 'att');
+  const leftKey = mine.map((s) => `${s.id}${s.state[0]}${liveCount(s)}${Math.round(s.morale / 5)}${s.special >= 1 ? 1 : 0}`).join() + '|' + B.selected.join() + B.box;
+  if (full || leftKey !== hud.leftKey) {
+    hud.leftKey = leftKey;
+    hud.left.innerHTML = '';
+    if (B.side) hud.left.appendChild(h('div', { class: 'row', style: { gap: '3px' } },
+      btn('All', () => { const ids = mine.filter((s) => s.state !== 'dead').map((s) => s.id); setSel(ids); sfx('click'); }, 'tiny grow'),
+      btn('Box', () => { B.box = !B.box; toast(B.box ? 'Box select on: drag on the ground to select squads' : 'Box select off: drag pans the map'); refreshHUD(true); }, 'tiny grow' + (B.box ? ' primary' : ''))));
+    const list = h('div', { class: 'col scroll grow', style: { gap: '4px', minHeight: 0 } }, mine.map(squadCard));
+    hud.left.appendChild(list);
   }
   const posts = sim.field.posts;
   const ownP = B.side ? posts.filter((p) => p.owner === B.side).length : 0;
   const left = Math.max(0, 240 - sim.t);
   const stS = B.side ? sim.strat[B.side] : null;
-  hud.top.innerHTML = '';
-  hud.top.append(...[
-    h('span', { class: 'chip' }, B.setup.place),
-    h('span', { class: 'chip ' + (left < 30 ? 'bad' : '') }, `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}`),
-    B.side ? h('span', { class: 'chip' }, `Posts ${ownP}/${posts.length}`) : h('span', { class: 'chip' }, 'Spectating'),
-    stS && stS.list.length ? h('span', { class: 'chip gold' }, `⚑ ${stS.pool}/${stS.max}`) : null,
-    h('span', { class: 'grow' }),
-    !B.client && net.role === 'single' ? btn(B.paused ? '▶' : '❚❚', () => { B.paused = !B.paused; refreshHUD(true); }, 'small') : null,
-    !B.client && net.role === 'single' ? btn(B.speed === 1 ? '1x' : '2x', () => { B.speed = B.speed === 1 ? 2 : 1; refreshHUD(true); }, 'small') : null,
-    B.side ? btn('Retreat', () => confirm('Sound the retreat?', 'Your army withdraws and the battle is lost. Heroes still standing escape.', 'Retreat', 'Fight on', 'danger').then((ok) => ok && send({ type: 'retreat' })), 'danger small') : null,
-  ].filter(Boolean));
-  const sel = B.sel != null ? sim.squads.find((s) => s.id === B.sel && s.state !== 'dead' && s.side === B.side) : null;
-  const key = (sel ? sel.id + sel.formation + (sel.reform ? sel.reform.to : '') : '') + '|' + (stS ? stS.pool + stS.list.map((x) => x.used).join() : '') + '|' + (B.aim ? B.aim.id : '');
+  const topKey = `${Math.floor(left)}|${ownP}|${stS ? stS.pool : ''}|${B.paused}|${B.speed}`;
+  if (full || topKey !== hud.topKey) {
+    hud.topKey = topKey;
+    hud.top.innerHTML = '';
+    hud.top.append(...[
+      h('span', { class: 'chip ellipsis', style: { maxWidth: '150px' } }, B.setup.place),
+      h('span', { class: 'chip ' + (left < 30 ? 'bad' : '') }, `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}`),
+      B.side ? h('span', { class: 'chip' }, `⚑ ${ownP}/${posts.length}`) : h('span', { class: 'chip' }, 'Watching'),
+      stS && stS.list.length ? h('span', { class: 'chip gold', title: 'Command points' }, `✦ ${stS.pool}`) : null,
+      h('span', { class: 'grow' }),
+      !B.client && net.role === 'single' ? btn(B.paused ? '▶' : '❚❚', () => { B.paused = !B.paused; refreshHUD(true); }, 'tiny') : null,
+      !B.client && net.role === 'single' ? btn(B.speed === 1 ? '1x' : '2x', () => { B.speed = B.speed === 1 ? 2 : 1; refreshHUD(true); }, 'tiny') : null,
+      B.side ? btn('Retreat', () => confirm('Sound the retreat?', 'Your army withdraws and the battle is lost. Heroes still standing escape.', 'Retreat', 'Fight on', 'danger').then((ok) => ok && send({ type: 'retreat' })), 'danger tiny') : null,
+    ].filter(Boolean));
+  }
+  if (hud.right && stS) {
+    const rk = stS.pool + stS.list.map((x) => x.used).join() + (B.aim ? B.aim.id : '') + B.started;
+    if (full || rk !== hud.rightKey) {
+      hud.rightKey = rk;
+      hud.right.innerHTML = '';
+      for (const x of stS.list) {
+        const S = STRATAGEMS[x.id];
+        const off = x.used || S.cost > stS.pool || !B.started;
+        hud.right.appendChild(h('div', { class: 'strat-mini' + (off ? ' disabled' : '') + (B.aim && B.aim.id === x.id ? ' aiming' : '') }, stratagemCard({ name: S.name, icon: stratIcon(x.id, 1.5), cost: S.cost, disabled: off, onClick: () => { if (!off) startAim(x.id); } })));
+      }
+    }
+  }
+  const key = sels.map((q) => q.id + q.formation + (q.reform ? q.reform.to : '') + (q.special >= 1 ? '*' : '') + (q.holdFast ? 'h' : '')).join() + '|' + (B.aim ? B.aim.id : '') + B.started;
   if (full || hud.key !== key) {
     hud.key = key;
     hud.bottom.innerHTML = '';
     if (B.aim) {
-      hud.bottom.appendChild(h('div', { class: 'chip', style: { pointerEvents: 'auto' } }, `${STRATAGEMS[B.aim.id].name}: tap a highlighted target `, btn('Cancel', () => { B.aim = null; refreshHUD(true); }, 'tiny')));
-    } else if (sel) {
-      const reformTo = sel.reform ? sel.reform.to : null;
-      hud.bottom.appendChild(h('div', { class: 'row', style: { pointerEvents: 'auto', background: 'rgba(20,18,28,.9)', padding: '5px', borderRadius: '4px', border: '2px solid #6b4a2a', gap: '4px' } },
-        h('span', { style: { fontSize: '13px', maxWidth: '110px', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', fontWeight: 700 } }, sel.name),
-        ...FORMATION_IDS.map((f) => btn(FORMATIONS[f].name + (reformTo === f ? ' ⟳' : ''), () => { send({ type: 'formation', squad: sel.id, formation: f }); refreshHUD(true); }, 'small' + (sel.formation === f && !reformTo ? ' sel' : '') + (reformTo === f ? ' primary' : ''))),
-        btn('Hold', () => send({ type: 'hold', squad: sel.id }), 'small')));
+      hud.bottom.appendChild(h('div', { class: 'bpanel' }, h('span', { class: 'gold' }, `${STRATAGEMS[B.aim.id].name}:`), h('span', {}, 'tap a glowing target'), btn('Cancel', () => { B.aim = null; refreshHUD(true); }, 'tiny')));
+    } else if (sels.length) {
+      const one = sels.length === 1 ? sels[0] : null;
+      const forms = new Set(sels.map((q) => (q.reform ? q.reform.to : q.formation)));
+      const cur = forms.size === 1 ? [...forms][0] : null;
+      const reforming = sels.some((q) => q.reform);
+      const specials = sels.filter((q) => q.special >= 1 && q.heroAlive);
+      hud.bottom.appendChild(h('div', { class: 'bpanel' },
+        h('span', { class: 'bpanel-name ellipsis' }, one ? one.name : `${sels.length} squads`),
+        ...FORMATION_IDS.map((f) => btn(FORMATIONS[f].name + (reforming && cur === f ? '…' : ''), () => { for (const q of sels) send({ type: 'formation', squad: q.id, formation: f }); refreshHUD(true); }, 'tiny' + (cur === f ? (reforming ? ' primary' : ' sel') : ''))),
+        btn('Hold', () => { for (const q of sels) send({ type: 'hold', squad: q.id }); toast('Holding position'); refreshHUD(true); }, 'tiny' + (sels.every((q) => q.holdFast) ? ' sel' : '')),
+        specials.length ? btn('★', () => { for (const q of specials) send({ type: 'special', squad: q.id }); }, 'tiny primary') : null,
+        btn('✕', () => { setSel([]); }, 'tiny')));
+    } else if (B.started && B.side) {
+      hud.bottom.appendChild(h('div', { class: 'bpanel hint' }, 'Tap a squad, then a base or an enemy · drag from a squad to order'));
     }
-    if (stS && stS.list.length && B.started && !B.aim) {
-      hud.bottom.appendChild(h('div', { class: 'row', style: { pointerEvents: 'auto', gap: '4px' } }, stS.list.map((x) => {
-        const S = STRATAGEMS[x.id];
-        return h('div', { class: 'strat-mini' + (x.used || S.cost > stS.pool ? ' disabled' : '') }, stratagemCard({ name: S.name, icon: stratIcon(x.id, 1.5), cost: S.cost, disabled: x.used || S.cost > stS.pool, onClick: () => { if (!x.used && S.cost <= stS.pool) startAim(x.id); } }));
-      })));
-    }
-    if (!sel && !B.aim && B.started && B.side && !(stS && stS.list.length)) hud.bottom.appendChild(h('div', { class: 'chip', style: { pointerEvents: 'none' } }, 'Tap a squad, then a post or an enemy'));
   }
 }
 
