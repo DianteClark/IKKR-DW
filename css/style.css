@@ -410,3 +410,12 @@ body.side-open #toasts { left: calc(26vw + 6px); max-width: 48vw; }
 .howto-line { background: rgba(255,255,255,.04); border-left: 3px solid var(--gold); padding: 6px 10px; border-radius: 2px; line-height: 1.35; }
 .stat-legend { font-size: 12px; color: #c9bfa8; line-height: 1.35; }
 .stat-legend b { color: var(--gold); }
+/* battle 13 */
+.coach { position: absolute; top: calc(48px + var(--sat)); left: calc(98px + var(--sal)); right: calc(92px + var(--sar)); z-index: 6; display: flex; align-items: center; gap: 8px;
+  background: rgba(20,18,28,.92); border: 2px solid var(--gold); border-radius: 3px; padding: 5px 6px 5px 8px; box-shadow: 0 3px 0 #0b0a10; font-size: 14px; line-height: 1.25; }
+.coach-n { color: var(--gold); font-weight: 700; white-space: nowrap; }
+.coach-t { min-width: 0; }
+.coach-pop { animation: coachPop .35s ease-out; }
+@keyframes coachPop { from { transform: translateY(-6px); opacity: 0; } to { transform: none; opacity: 1; } }
+.coach-glow { outline: 2px solid var(--gold); outline-offset: 1px; animation: coachGlow 1s ease-in-out infinite; }
+@keyframes coachGlow { 50% { outline-color: rgba(255,216,107,.25); box-shadow: 0 0 10px rgba(255,216,107,.55); } }

@@ -75,7 +75,7 @@ registerScene('battle', {
   enter(args) {
     const R = args.resumeBattle || null;
     if (R) args = { ...args, setup: R.setup, battle: R.b, saveCtx: R.ctx, me: args.me ?? R.me ?? 0 };
-    Object.assign(B, { resumed: !!R, battle: args.battle || null, saveCtx: args.saveCtx ?? null, key: args.key ?? null, _savedAt: 0, kills: new Map(), sel: null, selected: [], box: false, drag: null, pick: null, freeze: 0, slow: 0, duel: null, acc: 0, render: new Map(), fx: [], seenEv: 0, paused: false, speed: 1, ended: false, started: false, aim: null, queue: false, auto: false });
+    Object.assign(B, { practice: args.practice || null, coach: null, origArgs: args.practice ? null : args, resumed: !!R, battle: args.battle || null, saveCtx: args.saveCtx ?? null, key: args.key ?? null, _savedAt: 0, kills: new Map(), sel: null, selected: [], box: false, drag: null, pick: null, freeze: 0, slow: 0, duel: null, acc: 0, render: new Map(), fx: [], seenEv: 0, paused: false, speed: 1, ended: false, started: false, aim: null, queue: false, auto: false });
     let setup = args.setup;
     if (!setup) {
       const st = args.state, b = args.battle;
@@ -128,7 +128,8 @@ registerScene('battle', {
     B._hide = () => { if (document.visibilityState === 'hidden') saveNow(true); };
     B._pagehide = () => saveNow(true);
     document.addEventListener('visibilitychange', B._hide); window.addEventListener('pagehide', B._pagehide);
-    if (R) resumeIntro(); else intro();
+    if (B.practice) startCoach();
+    if (R) resumeIntro(); else if (B.practice) practiceIntro(); else intro();
   },
   exit() {
     document.removeEventListener('visibilitychange', B._hide); window.removeEventListener('pagehide', B._pagehide);
@@ -152,6 +153,7 @@ registerScene('battle', {
       if (sim.winner && !B.ended) { if (net.role === 'host') net.send({ t: 'snap', s: snapshot(sim) }); B.ended = true; setTimeout(() => finish(), 1400); }
     }
     if (B.started && !B.ended && game.time - B._savedAt > 5) saveNow(false);
+    if (B.coach) coachTick();
     consumeEvents();
     updateRender(dt);
     B.juice.update(dt);
@@ -424,6 +426,7 @@ function draw() {
     }
   }
   drawSiege(time);
+  if (B.coach) drawCoach(time);
   const list = [];
   for (const f of B.fx) if (f.k === 'corpse') list.push({ y: f.y - 1, f });
   for (const s of sim.squads) {
@@ -974,6 +977,12 @@ function intro() {
     return;
   }
   if (!side && net.role === 'host') { const m = modal(`Battle of ${st.place}`, body, []); setTimeout(() => { m.close(); start(); }, 2500); return; }
+  if (side && net.role === 'single' && !practiced()) {
+    const orig = B.origArgs;
+    modal(`Battle of ${st.place}`, h('div', { class: 'col' }, body, h('div', { class: 'gold', style: { fontSize: '12px' } }, 'First battle? A two-minute practice fight shows you the controls.')),
+      [['Skip', () => { setPracticed(); start(); }], ['Practice first', () => startPractice({ back: 'battle', backArgs: orig }), 'primary']]);
+    return;
+  }
   modal(`Battle of ${st.place}`, body, [['Begin', start, 'primary']]);
 }
 
@@ -1058,7 +1067,95 @@ function endBattle(result) {
   ];
   setTimeout(() => modal(won == null ? (result.winner === 'att' ? 'Attackers win' : 'Defenders win') : won ? 'Victory!' : 'Defeat',
     h('div', { class: 'col recap' }, result.retreated ? h('div', { class: 'muted' }, `${result.retreated === 'att' ? 'The attackers' : 'The defenders'} retreated.`) : null, lines),
-    [['Continue', () => go('campaign', { resume: B.client ? true : result }), 'primary']]), 900);
+    [['Continue', () => (B.practice ? leavePractice() : go('campaign', { resume: B.client ? true : result })), 'primary']]), 900);
+}
+
+// ---------- guided practice battle ----------
+const PRACTICED = 'ikkr-dw-practiced';
+export function practiced() { try { return !!localStorage.getItem(PRACTICED); } catch { return true; } }
+function setPracticed() { try { localStorage.setItem(PRACTICED, '1'); } catch {} }
+// opts.back: scene to return to afterwards ('title' by default), opts.backArgs: its args
+export function startPractice(opts = {}) {
+  const back = opts.back || 'title', backArgs = opts.backArgs || {};
+  const troops = (n) => Array.from({ length: n }, (_, i) => ({ s: i < 2 ? 2 : 1, r: 0, xp: 0 }));
+  const capt = (id, name, gender, unit) => ({ id, name, gender, fid: 'castle', ufid: 'castle', unit, troops: troops(8), formation: 'line', loyalty: 100, level: 3, atk: 5, def: 4, lead: 6, int: 3, spell: null, role: null, secret: -1, gear: {}, portrait: 0 });
+  const setup = {
+    seed: 4242, biome: 'grass', season: 'Spring', level: 0, place: 'Training Field', siege: false,
+    attackers: [capt(9001, 'Captain Aldric', 'm', 0), capt(9002, 'Sergeant Mira', 'f', 1)], defenders: [],
+    attFid: 'castle', defFid: 'orcs', attName: 'Your Company', defName: 'Training Raiders', attKid: -1, defKid: -2, attMorale: 80, defMorale: 35,
+    attLoadout: ['rally', 'march'], defLoadout: [], attPool: 6, defPool: 0,
+    colors: { att: '#3a7bf0', def: '#d8402f' }, control: { att: 0, def: 'ai' },
+    garrison: { squads: 2, size: 4 }, skirmish: true, weather: null, nemesis: [], intel: true,
+    land: { forest: 0, mtn: 0, river: false, lake: false, coast: false, island: false, sites: [] }, reinforce: { att: [], def: [] },
+  };
+  go('battle', { setup, items: {}, me: 0, practice: { back, backArgs } });
+}
+function leavePractice() {
+  setPracticed();
+  const P = B.practice; B.practice = null; B.coach = null;
+  go(P.back, P.backArgs);
+}
+const COACH = [
+  { text: 'Tap one of your squads (on the field or in the list on the left).', done: () => B.selected.length > 0, glow: '.battle-left .bsq', ring: () => own()[0] },
+  { text: 'Now tap the glowing outpost to march there and capture it.', done: () => own().some((q) => q.goal != null || (q.path && q.path.length)), ring: () => nextPost() },
+  { text: 'Tap an enemy squad (red) to attack it.', done: () => own().some((q) => q.chase != null || q.state === 'fight'), ring: () => foes()[0] },
+  { text: 'Change formation: pick Wedge, Line or Square in the bar below. Wedge beats Line, Line beats Square, Square beats Wedge.', done: () => own().some((q) => q.reform || q.formation !== 'line'), glow: '.battle-bottom .bpanel', ring: () => (B.selected.length ? null : own()[0]) },
+  { text: 'Use a stratagem on the right: Rally lifts every squad\u2019s morale.', done: () => B.sim.strat.att.list.some((x) => x.used), glow: '.strat-mini:not(.disabled)' },
+  { text: 'Last step: take the enemy main base (the big flag). Win the battle!', done: () => B.sim.winner === 'att', ring: () => B.sim.field.posts.find((p) => p.main) },
+];
+const own = () => B.sim.squads.filter((q) => q.side === 'att' && !HIDDEN(q));
+const foes = () => B.sim.squads.filter((q) => q.side === 'def' && !HIDDEN(q) && q.state !== 'rout');
+function nextPost() {
+  const ps = B.sim.field.posts.filter((p) => p.owner !== 'att' && !p.main);
+  const o = own()[0]; if (!ps.length) return B.sim.field.posts.find((p) => p.main);
+  return o ? ps.sort((a, b) => Math.hypot(a.x - o.x, a.y - o.y) - Math.hypot(b.x - o.x, b.y - o.y))[0] : ps[0];
+}
+function startCoach() {
+  B.coach = { i: 0, el: null, glowed: [] };
+  B.sim.eventsLeft = 0; B.sim.nextEvent = 1e9; // no rockslides while learning
+}
+function practiceIntro() {
+  modal('Practice battle', h('div', { class: 'col' },
+    h('div', {}, 'Two of your squads against a pair of raiders. Follow the prompts at the top to learn the controls.'),
+    h('div', { class: 'muted', style: { fontSize: '12px' } }, 'You can skip at any time.')),
+  [['Skip practice', () => leavePractice()], ['Start', () => { B.started = true; sfx('horn'); banner('PRACTICE', '', 'Training Field'); refreshHUD(true); coachRender(); }, 'primary']]);
+}
+function coachRender() {
+  const C = B.coach; if (!C) return;
+  if (!C.el || !C.el.isConnected) C.el = mount(h('div', { class: 'coach' }));
+  const st = COACH[C.i];
+  C.el.innerHTML = '';
+  if (!st) return;
+  C.el.append(h('span', { class: 'coach-n' }, `${C.i + 1}/${COACH.length}`), h('span', { class: 'coach-t grow' }, st.text), btn('Skip', () => confirm('Skip the practice?', 'You can replay it later from How to play.', 'Skip', 'Keep going').then((ok) => ok && leavePractice()), 'tiny'));
+  C.el.classList.remove('coach-pop'); void C.el.offsetWidth; C.el.classList.add('coach-pop');
+}
+function coachTick() {
+  const C = B.coach;
+  if (!B.started || B.ended) return;
+  if (B.sim.t > 150 && C.i < COACH.length - 1) B.sim.t = 150; // the clock waits while you learn
+  const st = COACH[C.i];
+  if (st && st.done()) {
+    C.i++; sfx('coin'); buzz('tap');
+    coachRender();
+  }
+  // glow the UI element the step is about
+  for (const el of C.glowed) el.classList.remove('coach-glow');
+  C.glowed = [];
+  const cur = COACH[C.i];
+  if (cur && cur.glow) C.glowed = [...document.querySelectorAll(cur.glow)];
+  for (const el of C.glowed) el.classList.add('coach-glow');
+}
+function drawCoach(time) {
+  const st = COACH[B.coach.i]; if (!st || !st.ring || !B.started) return;
+  const t = st.ring(); if (!t) return;
+  const r = t.soldiers ? B.render.get(t.id) : null;
+  const x = (r ? r.x : t.x) * TS, y = (r ? r.y : t.y) * TS;
+  const k = (time * 1.6) % 1;
+  ctx.strokeStyle = `rgba(255,216,107,${1 - k})`; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.ellipse(x, y, (1.4 + k * 1.6) * TS, (0.9 + k * 1.1) * TS, 0, 0, Math.PI * 2); ctx.stroke();
+  const bob = Math.sin(time * 6) * 3;
+  ctx.fillStyle = '#ffd86b'; ctx.strokeStyle = '#0b0a10'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(x, y - 24 + bob); ctx.lineTo(x - 6, y - 34 + bob); ctx.lineTo(x + 6, y - 34 + bob); ctx.closePath(); ctx.fill(); ctx.stroke();
 }
 
 // ---------- mid-battle saves (single player campaign only) ----------
