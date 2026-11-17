@@ -1,5 +1,5 @@
 // DOM helpers and the UI component kit for the overlay.
-import { url, img } from './assets.js';
+import { url, img, loadImage } from './assets.js';
 
 export const uiRoot = document.getElementById('ui');
 
@@ -106,7 +106,7 @@ export function banner(text, cls = '', sub = '') {
 export function sprite(src, sx, sy, sw, sh, scale = 2, extra = {}) {
   const im = img(src);
   const W = im ? im.width : 0, H = im ? im.height : 0;
-  return h('span', {
+  const el = h('span', {
     class: 'spr ' + (extra.class || ''),
     style: {
       width: sw * scale + 'px', height: sh * scale + 'px',
@@ -116,6 +116,8 @@ export function sprite(src, sx, sy, sw, sh, scale = 2, extra = {}) {
       ...(extra.style || {}),
     },
   });
+  if (!W) loadImage(src).then((i) => { if (i && i.width) el.style.backgroundSize = `${i.width * scale}px ${i.height * scale}px`; });
+  return el;
 }
 
 // UI icons from the HAS icon sheet (16x16 cells, 6 cols)
