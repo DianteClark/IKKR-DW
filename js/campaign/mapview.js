@@ -40,7 +40,7 @@ export function renderTerrain(T) {
   }
   const deep = new Uint8Array(N);
   const dn = makeNoise(T.decorSeed ^ 0x3a);
-  for (let i = 0; i < N; i++) if (!land[i] && wdist[i] >= 3 && (wdist[i] >= 7 || dn((i % W) / 6, ((i / W) | 0) / 6, 2) > 0.45)) deep[i] = 1;
+  for (let i = 0; i < N; i++) if (!land[i] && wdist[i] >= 3 + (dn((i % W) / 7, ((i / W) | 0) / 7, 2) > 0.62 ? 1 : 0)) deep[i] = 1;
   // deep patches need to be at least 2 cells thick for the blob tiles
   for (let pass = 0; pass < 2; pass++) for (let y = 1; y < H - 1; y++) for (let x2 = 1; x2 < W - 1; x2++) {
     const i = y * W + x2; if (!deep[i]) continue;
@@ -61,7 +61,7 @@ export function renderTerrain(T) {
     }
   }
   // rivers
-  for (const r of T.rivers || []) paintRiver(x, r.filter((_, i) => i % 2 === 0 || i === r.length - 1), { w0: 3, w1: 5.5 });
+  for (const r of T.rivers || []) paintRiver(x, r.filter((_, i) => i % 2 === 0 || i === r.length - 1), { w0: 2.2, w1: 3.6 });
   // roads (bridges where they cross rivers)
   const roadSheet = img(ROAD_SHEET);
   if (T.road && roadSheet) {
@@ -168,34 +168,31 @@ export function renderOverlay(T, state) {
   const x = c.getContext('2d');
   const ownerOf = (i) => (i < 0 || terr[i] < 0 ? -2 : state.territories[terr[i]].owner);
   const at = (cx, cy) => (cx < 0 || cy < 0 || cx >= W || cy >= H ? -1 : cy * W + cx);
+  // clean frontiers: realm edge = kingdom-coloured line on a dark backing with a soft inner glow;
+  // lands inside one realm are split by a faint dotted line; no full-map tint
   for (let cy = 0; cy < H; cy++) for (let cx = 0; cx < W; cx++) {
     const i = cy * W + cx; const t = terr[i]; if (t < 0) continue;
-    const o = state.territories[t].owner; if (o < 0) continue;
-    const col = state.kingdoms[o].color;
-    x.fillStyle = hexA(col, 0.13);
-    x.fillRect(cx * TS, cy * TS, TS, TS);
-  }
-  // borders: realm borders = bright 2px line with dark backing; territory borders inside a realm = dotted
-  for (let cy = 0; cy < H; cy++) for (let cx = 0; cx < W; cx++) {
-    const i = cy * W + cx; const t = terr[i]; if (t < 0) continue;
-    const o = state.territories[t].owner; if (o < 0) continue;
-    const col = state.kingdoms[o].color;
+    const o = state.territories[t].owner;
+    const col = o >= 0 ? state.kingdoms[o].color : '#c8c0b0';
+    const px = cx * TS, py = cy * TS;
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const j = at(cx + dx, cy + dy);
       const nt = j < 0 ? -1 : terr[j];
       if (nt === t || nt < 0) continue;
       const realm = ownerOf(j) !== o;
-      const px = cx * TS, py = cy * TS;
-      if (realm) {
-        x.fillStyle = 'rgba(10,8,16,.55)';
-        if (dx === 1) x.fillRect(px + TS - 3, py, 1, TS); if (dx === -1) x.fillRect(px + 2, py, 1, TS);
-        if (dy === 1) x.fillRect(px, py + TS - 3, TS, 1); if (dy === -1) x.fillRect(px, py + 2, TS, 1);
-        x.fillStyle = col;
-        if (dx === 1) x.fillRect(px + TS - 2, py, 2, TS); if (dx === -1) x.fillRect(px, py, 2, TS);
-        if (dy === 1) x.fillRect(px, py + TS - 2, TS, 2); if (dy === -1) x.fillRect(px, py, TS, 2);
+      const rect = (off, w, a) => {
+        x.fillStyle = a;
+        if (dx === 1) x.fillRect(px + TS - off - w, py, w, TS); if (dx === -1) x.fillRect(px + off, py, w, TS);
+        if (dy === 1) x.fillRect(px, py + TS - off - w, TS, w); if (dy === -1) x.fillRect(px, py + off, TS, w);
+      };
+      if (realm && o >= 0) {
+        rect(2, 3, hexA(col, 0.28)); rect(5, 3, hexA(col, 0.12));
+        rect(0, 2, col); rect(2, 1, 'rgba(10,8,16,.55)');
+      } else if (realm) {
+        rect(0, 1, 'rgba(10,8,16,.35)');
       } else {
-        x.fillStyle = hexA(col, 0.7);
-        for (let k = 0; k < TS; k += 4) {
+        x.fillStyle = 'rgba(255,255,255,.45)';
+        for (let k = 1; k < TS; k += 5) {
           if (dx === 1) x.fillRect(px + TS - 1, py + k, 1, 2); if (dx === -1) x.fillRect(px, py + k, 1, 2);
           if (dy === 1) x.fillRect(px + k, py + TS - 1, 2, 1); if (dy === -1) x.fillRect(px + k, py, 2, 1);
         }

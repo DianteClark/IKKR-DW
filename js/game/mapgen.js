@@ -144,19 +144,58 @@ export function generateTerrain(seed, opts) {
     }
     minD -= 0.75;
   }
+  // grow lands outward from their seeds by travel cost: high ground and wild noise are slow to cross,
+  // so borders settle along ridges and read as natural frontiers instead of random zig-zags
   const terr = new Int16Array(N).fill(-1);
-  let q = seeds.map((s, i) => { terr[s] = i; return s; });
-  while (q.length) {
-    const nq = [];
-    rng.shuffle(q);
-    for (const j of q) {
+  const nBorder = makeNoise(seed ^ 0x9a9a);
+  const stepCost = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const x = i % W, y = (i / W) | 0;
+    const ridge = 1 - Math.abs(2 * nMtn(x / 11, y / 11, 3) - 1);
+    stepCost[i] = 1 + Math.max(0, ridge - 0.7) * 14 + nBorder(x / 5, y / 5, 2) * 0.9;
+  }
+  {
+    const best = new Float32Array(N).fill(Infinity);
+    const heap = [];
+    const push = (f, i) => { heap.push([f, i]); let k = heap.length - 1; while (k > 0) { const p = (k - 1) >> 1; if (heap[p][0] <= heap[k][0]) break; [heap[p], heap[k]] = [heap[k], heap[p]]; k = p; } };
+    const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let k = 0; for (;;) { const l = 2 * k + 1, r = l + 1; let m = k; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === k) break; [heap[m], heap[k]] = [heap[k], heap[m]]; k = m; } } return top; };
+    seeds.forEach((s0, i) => { best[s0] = 0; terr[s0] = i; push(0, s0); });
+    while (heap.length) {
+      const [g, j] = pop(); if (g > best[j]) continue;
       const x = j % W, y = (j / W) | 0;
       for (const [dx, dy] of DIRS4) {
         const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-        const k = ny * W + nx; if (land[k] && terr[k] < 0) { terr[k] = terr[j]; nq.push(k); }
+        const k = ny * W + nx; if (!land[k]) continue;
+        const ng = g + stepCost[k];
+        if (ng < best[k]) { best[k] = ng; terr[k] = terr[j]; push(ng, k); }
       }
     }
-    q = nq;
+  }
+  // smooth borders: majority vote, never orphaning a seed
+  const seedSet = new Set(seeds);
+  for (let pass = 0; pass < 2; pass++) {
+    const copy = terr.slice();
+    for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+      const i = y * W + x; if (!land[i] || seedSet.has(i)) continue;
+      const cnt = new Map();
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const t = copy[(y + dy) * W + x + dx]; if (t >= 0) cnt.set(t, (cnt.get(t) || 0) + 1); }
+      let bt = copy[i], bc = cnt.get(copy[i]) || 0;
+      for (const [t, c] of cnt) if (c > bc) { bt = t; bc = c; }
+      if (bc >= 6) terr[i] = bt;
+    }
+  }
+  // drop disconnected crumbs of a land into whichever neighbour surrounds them
+  {
+    const seen = new Uint8Array(N);
+    for (let s0 = 0; s0 < seeds.length; s0++) {
+      const st = [seeds[s0]]; seen[seeds[s0]] = 1;
+      while (st.length) { const j = st.pop(); const x = j % W, y = (j / W) | 0; for (const [dx, dy] of DIRS4) { const k = (y + dy) * W + x + dx; if (!seen[k] && terr[k] === s0) { seen[k] = 1; st.push(k); } } }
+    }
+    for (let pass = 0; pass < 6; pass++) for (let i = 0; i < N; i++) {
+      if (!land[i] || seen[i]) continue;
+      const x = i % W, y = (i / W) | 0;
+      for (const [dx, dy] of DIRS4) { const k = (y + dy) * W + x + dx; if (seen[k] && terr[k] >= 0) { terr[i] = terr[k]; seen[i] = 1; break; } }
+    }
   }
   const used = new Set();
   const T = seeds.map((s, i) => ({ id: i, cells: 0, sx: 0, sy: 0, biomeCount: new Array(BIOME_IDS.length).fill(0), nb: new Set(), comp: L.id[s], coastal: [] }));
@@ -184,10 +223,13 @@ export function generateTerrain(seed, opts) {
         const d = Math.hypot(x - cx, y - cy) + (zoneBlocked(x, y, o.id) ? 25 : 0);
         if (d < bd) { bd = d; best = k; }
       }
+    // tundra/desert/etc. read by the land: one biome per land so terrain and borders agree
     const b = o.biomeCount.indexOf(Math.max(...o.biomeCount));
     return { id: o.id, name: placeName(rng, used), cx: best % W, cy: (best / W) | 0, biome: BIOME_IDS[b], size: o.cells, nb: [...o.nb] };
   });
 
+  for (let i = 0; i < N; i++) if (terr[i] >= 0) biome[i] = BIOME_IDS.indexOf(territories[terr[i]].biome);
+  // water cells next to land take that land's biome (for coast texturing)
   // town footprint occupancy (no trees/roads through the town itself)
   const occ = new Uint8Array(N); // 1 town, 2 road, 3 field, 4 house/landmark, 5 river
   const townZone = (t, fn) => { for (let dy = -4; dy <= 0; dy++) for (let dx = -2; dx <= 3; dx++) { const x = t.cx + dx, y = t.cy + dy; if (x >= 0 && y >= 0 && x < W && y < H) fn(y * W + x, dx, dy); } };
@@ -266,7 +308,7 @@ export function generateTerrain(seed, opts) {
   for (let i = 0; i < N; i++) height[i] = dist[i] * 0.8 + nMtn((i % W) / 9, ((i / W) | 0) / 9, 3) * 6 + nMeander((i % W) / 4, ((i / W) | 0) / 4, 2) * 7;
   const river = new Uint8Array(N);
   const rivers = [];
-  const nRivers = { small: 3, medium: 6, large: 9, huge: 10 }[size];
+  const nRivers = { small: 2, medium: 3, large: 5, huge: 5 }[size];
   const srcCands = landCells.filter((c) => dist[c] >= 5 && !occ[c]).sort((a, b) => height[b] - height[a]);
   for (let r = 0, tries = 0; r < nRivers && tries < 60; tries++) {
     const src = srcCands[Math.floor(Math.pow(rng(), 2) * Math.min(srcCands.length, 400))];
@@ -291,25 +333,44 @@ export function generateTerrain(seed, opts) {
     r++;
   }
 
-  // ---- features: forests + mountains in smooth blobs ----
+  // ---- features: dense forests and mountain ranges ----
+  // forests: large masses (~40% of open land); mountains: ridgelines, strongest along frontiers between lands
   const feat = new Uint8Array(N);
+  const border = new Uint8Array(N);
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+    const i = y * W + x; if (terr[i] < 0) continue;
+    for (const [dx, dy] of DIRS4) { const k = (y + dy) * W + x + dx; if (terr[k] >= 0 && terr[k] !== terr[i]) border[i] = 1; }
+  }
+  const nogrow = { sand: 1, cave: 1, dungeon: 1 };
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = y * W + x; if (!land[i] || occ[i] || dist[i] < 2) continue;
-    const f = nForest(x / 7, y / 7, 3), m = nMtn(x / 9, y / 9, 3);
-    if (m > 0.66 && dist[i] >= 3) feat[i] = 2; else if (f > 0.58) feat[i] = 1;
+    const ridge = 1 - Math.abs(2 * nMtn(x / 11, y / 11, 3) - 1);
+    const f = nForest(x / 8, y / 8, 3);
+    const bid = BIOME_IDS[biome[i]];
+    const nearBorder = border[i] || border[i - 1] || border[i + 1] || border[i - W] || border[i + W];
+    if (dist[i] >= 3 && (ridge > 0.9 || (nearBorder && ridge > 0.72 && nMtn(x / 4, y / 4, 2) > 0.45))) feat[i] = 2;
+    else if (!nogrow[bid] && f > 0.45) feat[i] = 1;
+    else if (bid === 'sand' && f > 0.66) feat[i] = 2;
   }
-  // keep a ring clear around towns for houses/fields/heroes
+  // keep a clearing around towns for houses/fields/heroes
   for (const t of territories) for (let dy = -6; dy <= 3; dy++) for (let dx = -5; dx <= 6; dx++) {
     const x = t.cx + dx, y = t.cy + dy; if (x < 0 || y < 0 || x >= W || y >= H) continue;
-    if (Math.hypot(dx * 0.9, dy * 1.1) < 5.2) feat[y * W + x] = 0;
+    if (Math.hypot(dx * 0.9, dy * 1.1) < 3.4) feat[y * W + x] = 0;
   }
 
   // ---- roads between land neighbours ----
   const road = new Uint8Array(N);
   const gate = (t) => (t.cy + 1) * W + t.cx;
-  for (const t of territories) for (const n of T[t.id].nb) {
-    if (n < t.id) continue;
-    const u = territories[n];
+  // a road network, not a web: spanning tree over neighbouring lands (shortest first) plus a few loops
+  const edges = [];
+  for (const t of territories) for (const n of T[t.id].nb) if (n > t.id) edges.push([t.id, n, tdist(t, territories[n])]);
+  edges.sort((a, b) => a[2] - b[2]);
+  const uf = territories.map((_, i) => i);
+  const find = (a) => (uf[a] === a ? a : (uf[a] = find(uf[a])));
+  const roadEdges = [];
+  for (const e of edges) { const a = find(e[0]), b = find(e[1]); if (a !== b) { uf[a] = b; roadEdges.push(e); } else if (rng() < 0.22) roadEdges.push(e); }
+  for (const [ta, tb] of roadEdges) {
+    const t = territories[ta], u = territories[tb];
     const path = astar(W, H, gate(t), gate(u), (k) => {
       if (!land[k]) return Infinity;
       if (occ[k] === 1) return Infinity;

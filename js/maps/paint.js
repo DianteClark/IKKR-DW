@@ -1,7 +1,7 @@
 // Shared terrain painting: smooth HAS-style coasts, deep water, rivers, autotiles.
 // Everything works on 16px cells and paints into canvases once (baked), so drawing each frame is one drawImage.
 import { img, loadImage } from '../engine/assets.js';
-import { makeRng } from '../engine/rng.js';
+import { makeRng, makeNoise } from '../engine/rng.js';
 import { BIOMES, BIOME_IDS, TILE, OCEAN } from '../data/art.js';
 
 export const TS = 16;
@@ -50,7 +50,7 @@ export function paintLandWater(cells, seed, opts = {}) {
   const { W, H, land, biomeIdx } = cells;
   const PW = W * TS, PH = H * TS;
   const c = document.createElement('canvas'); c.width = PW; c.height = PH;
-  const x = c.getContext('2d'); x.imageSmoothingEnabled = false;
+  const x = c.getContext('2d', { willReadFrequently: true }); x.imageSmoothingEnabled = false;
   const rng = makeRng(seed);
   const ocean = img(OCEAN);
   const tiles = BIOME_IDS.map((b) => img(BIOMES[b].src));
@@ -79,23 +79,12 @@ export function paintLandWater(cells, seed, opts = {}) {
       x.drawImage(ocean, t[0], t[1], 16, 16, cx * TS, cy * TS, TS, TS);
     }
   }
-  // 2) land layer (every cell textured so rounded coast pixels have texture)
+  // 2) land layer: biomes layered by priority using each tileset's own transparent edge pieces,
+  //    plain ground with organic textured patches (the HAS look)
   const lc = document.createElement('canvas'); lc.width = PW; lc.height = PH;
-  const lx = lc.getContext('2d'); lx.imageSmoothingEnabled = false;
-  for (let cy = 0; cy < H; cy++) for (let cx = 0; cx < W; cx++) {
-    const i = cy * W + cx;
-    const ts = tiles[biomeIdx[i]];
-    const t = opts.plain && rng() < 0.6 ? TILE.plain : TILE.textured[Math.floor(rng() * TILE.textured.length)];
-    if (ts) lx.drawImage(ts, t[0], t[1], 16, 16, cx * TS, cy * TS, TS, TS);
-  }
-  // biome seam dither on the land layer
+  const lx = lc.getContext('2d', { willReadFrequently: true }); lx.imageSmoothingEnabled = false;
+  paintBiomeLayer(lx, W, H, biomeIdx, tiles, seed, opts);
   const ld = lx.getImageData(0, 0, PW, PH), lp = ld.data;
-  const cp = (sx, sy, dx, dy) => { const s = (sy * PW + sx) * 4, d = (dy * PW + dx) * 4; lp[d] = lp[s]; lp[d + 1] = lp[s + 1]; lp[d + 2] = lp[s + 2]; };
-  for (let cy = 0; cy < H; cy++) for (let cx = 0; cx < W; cx++) {
-    const i = cy * W + cx;
-    if (cx + 1 < W && biomeIdx[i + 1] !== biomeIdx[i]) for (let py = 0; py < TS; py++) for (let k = 1; k <= 4; k++) if (rng() < 0.62 - k * 0.13) cp(cx * TS + TS - 1 + k, cy * TS + py, cx * TS + TS - k, cy * TS + py);
-    if (cy + 1 < H && biomeIdx[i + W] !== biomeIdx[i]) for (let px = 0; px < TS; px++) for (let k = 1; k <= 4; k++) if (rng() < 0.62 - k * 0.13) cp(cx * TS + px, cy * TS + TS - 1 + k, cx * TS + px, cy * TS + TS - k);
-  }
   // 3) smooth land mask: bilinear of cell centres + a little noise
   const M = new Uint8Array(PW * PH);
   const val = (cx, cy) => (cx < 0 || cy < 0 || cx >= W || cy >= H ? 0 : land[cy * W + cx]);
@@ -203,16 +192,77 @@ export function paintRiver(ctx, path, opts = {}) {
   return pts;
 }
 
-// 3x3 blob autotile from the TreesAndMountains sheet. feat grid values; f = value to draw; base [x,y] of 13x3 block.
+// Forests and mountains: stamp the single tree / peak sprite of a block on the same staggered lattice the
+// sheet's own fills use (16px grid + half-offset rows), so masses read as dense, overlapping woods and ridges
+// with naturally ragged edges. baseFor(cx,cy) -> [x,y] of the 13x3 block in the TreesAndMountains sheet.
+export const BIG_PEAK = 'assets/starter/SP-Mountains.png';
 export function drawBlobs(ctx, sheet, W, H, feat, f, baseFor) {
   if (!sheet) return;
   const has = (cx, cy) => cx >= 0 && cy >= 0 && cx < W && cy < H && feat[cy * W + cx] === f;
+  const hash = (a, b) => { let h = (a * 374761393 + b * 668265263) | 0; h = (h ^ (h >>> 13)) * 1274126177; return ((h ^ (h >>> 16)) >>> 0) % 1000; };
+  const pts = [];
+  const peak = img(BIG_PEAK);
+  const bigUsed = new Uint8Array(W * H);
   for (let cy = 0; cy < H; cy++) for (let cx = 0; cx < W; cx++) {
-    if (feat[cy * W + cx] !== f) continue;
+    if (!has(cx, cy)) continue;
     const base = baseFor(cx, cy); if (!base) continue;
-    const L = has(cx - 1, cy), R = has(cx + 1, cy), U = has(cx, cy - 1), D = has(cx, cy + 1);
-    const col = !L ? 0 : !R ? 2 : 1, row = !U ? 0 : !D ? 2 : 1;
-    ctx.drawImage(sheet, base[0] + 16 + col * 16, base[1] + row * 16, 16, 16, cx * TS, cy * TS, TS, TS);
+    const h = hash(cx, cy);
+    const inner = has(cx - 1, cy) && has(cx + 1, cy) && has(cx, cy - 1) && has(cx, cy + 1);
+    // occasional big peak inside brown ranges
+    if (f === 2 && peak && base[0] === 0 && inner && has(cx + 1, cy + 1) && has(cx - 1, cy - 1) && h < 70 && !bigUsed[cy * W + cx]) {
+      let ok = true; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (bigUsed[(cy + dy) * W + cx + dx]) ok = false;
+      if (ok) { bigUsed[cy * W + cx] = 1; pts.push([cx * TS - 8, cy * TS - 12, null, 1]); continue; }
+    }
+    if (inner || h > 160) pts.push([cx * TS, cy * TS, base]);
+    if (has(cx + 1, cy) && has(cx, cy + 1) && has(cx + 1, cy + 1)) pts.push([cx * TS + 8, cy * TS + 8, base]);
+    else if (h > 820 && (has(cx + 1, cy) || has(cx, cy + 1))) pts.push([cx * TS + 8, cy * TS + 6, base]);
+  }
+  pts.sort((a, b) => (a[1] + (a[3] ? 22 : 0)) - (b[1] + (b[3] ? 22 : 0)) || a[0] - b[0]);
+  for (const [px, py, base, big] of pts) {
+    if (big) ctx.drawImage(peak, 208, 0, 32, 32, px, py, 32, 32);
+    else ctx.drawImage(sheet, base[0] + 16, base[1], 16, 16, px, py, 16, 16);
+  }
+}
+
+// Biome ground. Higher-priority biomes are laid over lower ones with their own ragged edge pieces
+// (plain blob at 160,272), and plain ground gets textured patches (textured blob at 160,224).
+const PRIORITY = { cave: 1, sand: 2, dirt: 3, marsh: 4, deepmarsh: 5, grass: 6, dungeon: 7, lava: 8, ice: 9, christmas: 10 };
+export function paintBiomeLayer(ctx, W, H, biomeIdx, tiles, seed, opts = {}) {
+  const pr = BIOME_IDS.map((b) => PRIORITY[b] || 0);
+  const nz = makeNoise(seed ^ 0x5eed);
+  const at = (cx, cy) => biomeIdx[Math.max(0, Math.min(H - 1, cy)) * W + Math.max(0, Math.min(W - 1, cx))];
+  const piece = (same) => { const L = same(-1, 0), R = same(1, 0), U = same(0, -1), D = same(0, 1); return [!L ? 0 : !R ? 2 : 1, !U ? 0 : !D ? 2 : 1]; };
+  // texture patches
+  const patch = new Uint8Array(W * H);
+  const thr = opts.patch ?? 0.56;
+  for (let cy = 0; cy < H; cy++) for (let cx = 0; cx < W; cx++) {
+    const b = biomeIdx[cy * W + cx];
+    let uniform = true; for (let dy = -1; dy <= 1 && uniform; dy++) for (let dx = -1; dx <= 1; dx++) if (at(cx + dx, cy + dy) !== b) { uniform = false; break; }
+    if (uniform && nz(cx / 4.5, cy / 4.5, 3) > thr) patch[cy * W + cx] = 1;
+  }
+  for (let pass = 0; pass < 2; pass++) for (let cy = 0; cy < H; cy++) for (let cx = 0; cx < W; cx++) {
+    const i = cy * W + cx; if (!patch[i]) continue;
+    const p = (dx, dy) => { const x2 = cx + dx, y2 = cy + dy; return x2 >= 0 && y2 >= 0 && x2 < W && y2 < H && patch[y2 * W + x2]; };
+    if (!(p(-1, 0) || p(1, 0)) || !(p(0, -1) || p(0, 1))) patch[i] = 0;
+  }
+  const P = TILE.plain;
+  for (let cy = 0; cy < H; cy++) for (let cx = 0; cx < W; cx++) {
+    const i = cy * W + cx, b = biomeIdx[i], ts = tiles[b]; if (!ts) continue;
+    const px = cx * TS, py = cy * TS;
+    // lowest-priority different neighbour decides the ground underneath an edge
+    let under = -1;
+    for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) { const nb = at(cx + dx, cy + dy); if (pr[nb] < pr[b] && (under < 0 || pr[nb] < pr[under])) under = nb; }
+    if (under >= 0) {
+      if (tiles[under]) ctx.drawImage(tiles[under], P[0], P[1], 16, 16, px, py, TS, TS);
+      const [c, r] = piece((dx, dy) => pr[at(cx + dx, cy + dy)] >= pr[b]);
+      ctx.drawImage(ts, 160 + c * 16, 272 + r * 16, 16, 16, px, py, TS, TS);
+      continue;
+    }
+    ctx.drawImage(ts, P[0], P[1], 16, 16, px, py, TS, TS);
+    if (patch[i]) {
+      const [c, r] = piece((dx, dy) => { const x2 = cx + dx, y2 = cy + dy; return x2 >= 0 && y2 >= 0 && x2 < W && y2 < H && patch[y2 * W + x2]; });
+      ctx.drawImage(ts, 160 + c * 16, 224 + r * 16, 16, 16, px, py, TS, TS);
+    }
   }
 }
 
@@ -279,7 +329,7 @@ export const LANDMARKS = {
   dragonvein: { w: 16, h: 16, frames: [1, 2, 3, 4].map((i) => `${B}1x1/Animated/DragonVein(Frame ${i}).png`) },
   rallyflag: { w: 16, h: 16, frames: [1, 2, 3, 4].map((i) => `${B}1x1/Animated/RallyFlag(Frame ${i}).png`) },
 };
-export function preloadLandmarks() { for (const L of Object.values(LANDMARKS)) for (const f of L.frames) loadImage(f); loadImage(ROAD_SHEET); loadImage(FENCE_SHEET); }
+export function preloadLandmarks() { for (const L of Object.values(LANDMARKS)) for (const f of L.frames) loadImage(f); loadImage(ROAD_SHEET); loadImage(FENCE_SHEET); loadImage(BIG_PEAK); }
 export function drawLandmark(ctx, kind, x, y, time, phase = 0) {
   const L = LANDMARKS[kind]; if (!L) return;
   const im = img(L.frames[Math.floor(time * 5 + phase) % L.frames.length]) || img(L.frames[0]);
