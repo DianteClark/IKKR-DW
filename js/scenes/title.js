@@ -1,3 +1,4 @@
+import { makeRng } from '../engine/rng.js';
 import { registerScene, go, game } from '../main.js';
 import { ctx, canvas, screen } from '../engine/view.js';
 import { h, btn, mount, modal, toggle } from '../engine/ui.js';
@@ -9,7 +10,8 @@ import { music, sfx, isMuted, setMuted } from '../engine/audio.js';
 // Title backdrop: a small generated realm seen from above, slowly panning, with settlements, heroes walking the
 // roads, cloud shadows drifting over the land and spring petals in the air.
 import { generateTerrain } from '../game/mapgen.js';
-import { renderTerrain, drawTerrain, drawOverlay, drawAnimated, drawTowns, drawHeroes, drawSites, drawSeason } from '../campaign/mapview.js';
+import { renderTerrain, drawTerrain, drawGuards, drawAnimated, drawTowns, drawHeroes, drawSites, drawSeason } from '../campaign/mapview.js';
+import { randomBanner } from '../engine/banner.js';
 import { ROAD_SHEET } from '../maps/paint.js';
 import { STRUCT } from '../data/art.js';
 
@@ -24,7 +26,7 @@ function buildVignette() {
   const seed = 1117 + Math.floor(Math.random() * 6);
   const T = generateTerrain(seed, { size: 'small' });
   renderTerrain(T);
-  const kingdoms = KCOL.map((color, i) => ({ color, fid: KFID[i], tier: i < 3 ? 'kingdom' : 'village', capital: -1 }));
+  const kingdoms = KCOL.map((color, i) => ({ color, fid: KFID[i], tier: i < 3 ? 'kingdom' : 'village', capital: -1, banner: randomBanner(makeRng(1234 + i * 77), color) }));
   const territories = T.territories.map((t, i) => ({ ...t, owner: i % 4 === 3 ? -1 : i % 5, level: (i * 7) % 4, ruined: 0 }));
   kingdoms.forEach((k, i) => { const c = territories.find((t) => t.owner === i); if (c) { k.capital = c.id; c.level = 3; } });
   const heroes = [];
@@ -78,7 +80,7 @@ function renderScene() {
   ctx.fillStyle = '#249fde'; ctx.fillRect(vx, vy, vw, vh);
   drawTerrain(ctx, T, view);
   drawAnimated(ctx, T, game.time, view);
-  drawOverlay(ctx, T, st, view);
+  drawGuards(ctx, T, st, game.time, view);
   drawSites(ctx, st, T, game.time, view);
   drawTowns(ctx, st, game.time, view);
   const travel = new Map();
