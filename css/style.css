@@ -373,3 +373,8 @@ input.text:focus { outline: none; box-shadow: 0 0 0 2px var(--gold); }
 
 .bottombar.narrow { max-width: calc(54vw - 16px); overflow-x: auto; scrollbar-width: none; }
 .bottombar.narrow .btn { padding-left: 8px; padding-right: 8px; font-size: 14px; }
+
+/* battle 12 */
+.recap { gap: 6px; min-width: min(78vw, 420px); }
+.recap-row { gap: 6px; font-size: 14px; align-items: center; }
+.recap-row .swatch { width: 10px; height: 10px; }
