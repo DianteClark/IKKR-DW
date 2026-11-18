@@ -226,12 +226,20 @@ export function routeProblem(sim, s, post) {
   return sim.field.blocked.length ? 'The road there has been cut' : 'No road leads there';
 }
 // spread squads that share a destination into slots around the post instead of one shoving pile
-const SLOTS = [[0, 0], [2.6, 1.2], [-2.6, 1.2], [2.6, -1.3], [-2.6, -1.3], [0, 2.5], [0, -2.5], [4.4, 0], [-4.4, 0]];
+// (all inside the capture ring, so every squad that arrives helps take the post)
+const SLOTS = [[0, 0], [1.7, 0.8], [-1.7, 0.8], [1.7, -0.9], [-1.7, -0.9], [0, 1.6], [0, -1.6], [2.2, 0], [-2.2, 0]];
 function slotFor(sim, s, post) {
-  const mates = sim.squads.filter((q) => q.side === s.side && alive(q) && q.goal === post && q.id !== s.id).length;
-  const [ox, oy] = SLOTS[mates % SLOTS.length];
-  const p = sim.field.posts[post];
-  return { x: Math.max(1, Math.min(sim.field.W - 1, p.x + ox)), y: Math.max(1.4, Math.min(sim.field.H - 1, p.y + oy)) };
+  const p = sim.field.posts[post], F = sim.field;
+  // the spots friends bound for the same post already claimed (their last waypoint)
+  const taken = sim.squads.filter((q) => q.side === s.side && alive(q) && q.goal === post && q.id !== s.id && q.path.length).map((q) => q.path[q.path.length - 1]);
+  let first = null;
+  for (const [ox, oy] of SLOTS) {
+    const at = { x: Math.max(1, Math.min(F.W - 1, p.x + ox)), y: Math.max(1.4, Math.min(F.H - 1, p.y + oy)) };
+    if (!passable(F, at.x, at.y)) continue; // never a slot in the water or a wall: it could not be reached
+    if (!first) first = at;
+    if (taken.every((t) => Math.hypot(t.x - at.x, t.y - at.y) > 0.8)) return at;
+  }
+  return first || { x: p.x, y: p.y };
 }
 function routeTo(sim, s, post, forced) {
   const ids = planRoute(sim, s, post);
@@ -640,6 +648,21 @@ function aiDuelPick(sim, d, q, o, last) {
 
 // ---------- stratagems ----------
 function touchesCamp(sim, i) { const [a, b] = sim.field.edges[i]; return sim.field.posts[a].camp || sim.field.posts[b].camp; }
+// would cutting this road split the field in two (an army stranded, the main post out of reach for good)?
+function splitsField(sim, i) {
+  const F = sim.field, n = F.posts.length, seen = new Uint8Array(n), q = [0];
+  seen[0] = 1;
+  while (q.length) {
+    const u = q.pop();
+    F.edges.forEach(([a, b], ei) => {
+      if (ei === i || F.blocked.includes(ei)) return;
+      const v = a === u ? b : b === u ? a : -1;
+      if (v >= 0 && !seen[v]) { seen[v] = 1; q.push(v); }
+    });
+  }
+  return seen.some((x) => !x);
+}
+const cuttable = (sim, i) => !sim.field.blocked.includes(i) && !touchesCamp(sim, i) && !splitsField(sim, i);
 export function stratagemTargets(sim, side, id) {
   const st = STRATAGEMS[id];
   const S = sim.squads;
@@ -649,7 +672,7 @@ export function stratagemTargets(sim, side, id) {
   if (st.target === 'enemy') return S.filter((s) => s.side !== side && alive(s)).map((s) => ({ kind: 'squad', id: s.id }));
   if (st.target === 'enemyFighting') return S.filter((s) => s.side !== side && alive(s) && s.state === 'fight').map((s) => ({ kind: 'squad', id: s.id }));
   if (st.target === 'post') return sim.field.posts.filter((p) => p.owner === side).map((p) => ({ kind: 'post', id: p.id }));
-  if (st.target === 'route') return sim.field.edges.map((e, i) => i).filter((i) => !sim.field.blocked.includes(i) && !touchesCamp(sim, i)).map((i) => ({ kind: 'edge', id: i }));
+  if (st.target === 'route') return sim.field.edges.map((e, i) => i).filter((i) => cuttable(sim, i)).map((i) => ({ kind: 'edge', id: i }));
   return [];
 }
 
@@ -781,14 +804,14 @@ export function step(sim) {
   for (const k of ['att', 'def']) { if (sim.reveal[k] > 0) sim.reveal[k] -= DT; if (sim.trapsSeen[k] > 0) sim.trapsSeen[k] -= DT; }
   if (sim.t >= sim.nextEvent && sim.eventsLeft > 0) {
     sim.eventsLeft--; sim.nextEvent = sim.t + 50 + ((sim.seed + sim.tick) % 40);
-    const spots = (sim.field.eventSpots || []).filter((s) => !sim.field.blocked.includes(s.edge) && !touchesCamp(sim, s.edge));
+    const spots = (sim.field.eventSpots || []).filter((s) => cuttable(sim, s.edge));
     if (spots.length) { const sp = spots[(sim.seed + sim.tick) % spots.length]; mapEvent(sim, sp.edge, sp.kind); }
     else { sim.fog = 30; ev(sim, { k: 'fog' }); }
   }
   for (const s of S) {
     if (!alive(s)) continue;
     const f = FORMATIONS[s.formation];
-    if (buff(s, 'confused')) { s.state = 'confused'; continue; }
+    if (buff(s, 'confused') && s.state !== 'rout') { s.state = 'confused'; continue; } // a routing squad keeps running
     const ter = TERRAIN[terrainAt(sim.field, s.x, s.y)] || TERRAIN[0];
     let speed = (sim.weather === 'blizzard' ? 0.8 : 1) * s.spd * f.spd * 2.1 * (0.75 + 0.25 * s.morale / 100) * (s.reform ? 0.5 : 1) * (buff(s, 'march') ? (s.role === 'scout' ? 1.5 : 1.6) : 1) * ter.spd;
     if (s.state === 'rout') {
@@ -822,7 +845,7 @@ export function step(sim) {
       if (s.state === 'siege') s.state = 'hold';
     }
     if (s.chase) { const c = S.find((q) => q.id === s.chase); if (!c || !alive(c) || c.side === s.side) s.chase = null; else { foe = c; fd = dist(s, c); } }
-    if (buff(s, 'feint') && s.path.length) { const wp = s.path[0]; if (dist(s, wp) < 1.3) s.path.shift(); else moveToward(s, wp, speed * 1.2); s.state = 'move'; continue; }
+    if (buff(s, 'feint') && s.path.length) { const wp = s.path[0]; if (dist(s, wp) < 1.3) s.path.shift(); else moveToward(s, wp, speed * 1.2, sim.field); s.state = 'move'; continue; }
     // a direct order is obeyed: march on through, ignoring skirmishers along the way
     if (s.forced && s.path.length && !s.chase) {
       // passing a friend locked in melee: if the march ends near that fight anyway, wade in instead of walking by
@@ -830,9 +853,7 @@ export function step(sim) {
         const end = s.path[s.path.length - 1], b = brawlNear(sim, s, 2.6);
         if (b && Math.hypot(b.x - end.x, b.y - end.y) < 5) { s.chase = b.id; s.path = []; s.goal = null; s.rally = null; ev(sim, { k: 'join', id: s.id, x: b.x, y: b.y }); continue; }
       }
-      const wp = s.path[0];
-      if (dist(s, wp) < (s.path.length === 1 ? 0.5 : 0.7)) s.path.shift();
-      else moveToward(s, wp, speed * (s.buffs.exposed > 0 ? 0.85 : 1), sim.field);
+      followPath(sim, s, speed * (s.buffs.exposed > 0 ? 0.85 : 1));
       s.state = 'move'; s.engaged = null;
       if (!s.path.length) {
         s.forced = false; s.state = 'hold';
@@ -879,9 +900,7 @@ export function step(sim) {
     }
     if (s.path.length) {
       // attack-move (AI marches): stop to fight anyone who blocks the road
-      const wp = s.path[0];
-      if (dist(s, wp) < (s.path.length === 1 ? 0.5 : 0.7)) s.path.shift();
-      else moveToward(s, wp, speed, sim.field);
+      followPath(sim, s, speed);
       s.state = 'move';
       if (!s.path.length) nextQueued(sim, s);
       if (!s.ranged) { const b = foe && fd < 2.0 ? foe : brawlNear(sim, s, 3.2); if (b) s.chase = b.id; }
@@ -1035,6 +1054,24 @@ function nearestOwnedPost(sim, s) {
   let best = null, bd = 1e9;
   for (const p of sim.field.posts) if (p.owner === s.side) { const d = dist(s, p); if (d < bd) { bd = d; best = p; } }
   return best || { x: s.side === 'att' ? 1 : sim.field.W - 1, y: s.y, id: null };
+}
+// march along the path one step. A squad that makes no headway for a while (a river in the way of a shortcut,
+// friends shoving over the same spot) re-plans by road, or counts a waypoint it can't get closer to as reached.
+function followPath(sim, s, speed) {
+  const wp = s.path[0], d = dist(s, wp);
+  if (d < (s.path.length === 1 ? 0.5 : 0.7)) { s.path.shift(); s._bd = null; return; }
+  moveToward(s, wp, speed, sim.field);
+  const d2 = dist(s, wp);
+  if (s._bd == null || d2 < s._bd - 0.05) { s._bd = d2; s._bt = 0; return; }
+  if ((s._bt = (s._bt || 0) + DT) < 2) return;
+  s._bd = null; s._bt = 0;
+  const F = sim.field, np = F.posts[nearestPost(F, s.x, s.y)], last = s.path.length === 1;
+  if (!np || (last && (d2 < 2.2 || s.goal === np.id)) || Math.hypot(wp.x - np.x, wp.y - np.y) < 0.5 || dist(s, np) < 1) { s.path.shift(); return; }
+  if (s.goal != null) {
+    const ids = shortestPath(F, np.id, s.goal);
+    if (ids[ids.length - 1] === s.goal) { const end = s.path[s.path.length - 1]; s.path = [...ids.slice(0, -1).map((id) => ({ x: F.posts[id].x, y: F.posts[id].y })), end]; return; }
+  }
+  s.path.unshift({ x: np.x, y: np.y });
 }
 function moveToward(s, t, speed, F) {
   const dx = t.x - s.x, dy = t.y - s.y, d = Math.hypot(dx, dy);
@@ -1274,6 +1311,8 @@ export function aiThink(sim, side, alliesOnly = false) {
         continue;
       }
     }
+    // already wading into a fight nearby (joined a friend's brawl): don't march it off again
+    if (s.chase != null && !s.ranged) { const c = sim.squads.find((q) => q.id === s.chase); if (c && fighting(c) && c.side !== side && dist(c, s) < 9) continue; }
     if (s._obj && sim.obj && !sim.obj.done) {
       if (near && !s.ranged && dist(near, s) < 3) { if (s.chase !== near.id) command(sim, side, { type: 'chase', squad: s.id, target: near.id }); }
       continue;
@@ -1428,7 +1467,7 @@ export function snapshot(sim) {
       Math.ceil(s.skillCd), queuePoints(sim, s), s.rally ? [+s.rally.x.toFixed(1), +s.rally.y.toFixed(1)] : 0, s.holdFast ? 1 : 0, s.chase ?? -1,
       s.path.map((p) => [+p.x.toFixed(1), +p.y.toFixed(1)]),
       Math.ceil(s.abCd || 0), s.ammo || 0, s.guard ? [s.guard.x, s.guard.y, s.guard.r] : 0, s.regroup || 0,
-      s.charge ? [s.charge.x0, s.charge.y0, s.charge.x, s.charge.y] : 0, s.dive ? s.dive.id : -1, s.revived || 0]),
+      s.charge ? [s.charge.x0, s.charge.y0, s.charge.x, s.charge.y] : 0, s.dive ? s.dive.id : -1, s.revived || 0, s.engaged ?? -1]),
     n: sim.night ? 1 : 0,
     hl: sim.hills.map((h) => [h.owner, Math.round(h.prog * 100), h.by]),
     du: sim.duel ? [sim.duel.a, sim.duel.b, sim.duel.round, +sim.duel.rt.toFixed(2), sim.duel.pa ? 1 : 0, sim.duel.pb ? 1 : 0, sim.duel.wins[0], sim.duel.wins[1], sim.duel.edge] : 0,
@@ -1461,6 +1500,7 @@ export function applySnapshot(sim, snap) {
       s.abCd = q[20]; s.ammo = q[21]; s.guard = q[22] ? { x: q[22][0], y: q[22][1], r: q[22][2] } : null; s.regroup = q[23];
       s.charge = q[24] ? { x0: q[24][0], y0: q[24][1], x: q[24][2], y: q[24][3], t: 0, hit: [] } : null; s.dive = q[25] >= 0 ? { id: q[25], t: 0 } : null; s.revived = q[26];
     }
+    if (q.length > 27) s.engaged = q[27] >= 0 ? q[27] : null; // the melee matchup arrow on the client
   }
   if (snap.g) snap.g.forEach((hp, i) => { if (sim.gates[i]) sim.gates[i].hp = hp; });
   if (snap.l) sim.ladders = snap.l.map(([id, x, y, side]) => ({ id, x, y, side }));

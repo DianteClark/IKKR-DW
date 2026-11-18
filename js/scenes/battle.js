@@ -108,6 +108,11 @@ registerScene('battle', {
     if (B.client) B.state = args.state || null;
     B.me = args.me ?? 0;
     B.side = setup.control.att === B.me ? 'att' : setup.control.def === B.me ? 'def' : null;
+    // saves from before Auto kept your seat: Auto used to hand the seat to the AI, which resumed you as a watcher
+    if (R && !B.side && B.state && B.state.players && B.state.players[B.me]) {
+      const k = B.state.players[B.me].kingdom, sd = setup.attKid === k ? 'att' : setup.defKid === k ? 'def' : null;
+      if (sd) { setup.control[sd] = B.me; B.side = sd; R.auto = true; }
+    }
     B.colors = { ...setup.colors };
     const rgb = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
     const [a, d] = [rgb(B.colors.att), rgb(B.colors.def)];
@@ -115,13 +120,14 @@ registerScene('battle', {
     const simSetup = { ...setup, items: B.state ? B.state.items : (args.items || {}) };
     B.sim = R ? deserializeSim(simSetup, R.sim) : createBattle(simSetup);
     B.sim.ai = { att: setup.control.att === 'ai', def: setup.control.def === 'ai' };
-    if (R) { B.kills = new Map(R.kills || []); B.speed = R.speed || 1; B.seenEv = B.sim.evSeq; }
+    if (R) { B.kills = new Map(R.kills || []); B.speed = R.speed || 1; B.seenEv = B.sim.evSeq; if (R.auto && B.side) { B.auto = true; B.sim.ai[B.side] = true; } }
     B.ground = renderGround(B.sim.field);
     if (B.setup.season === 'Autumn' && !['sand', 'lava', 'ice', 'christmas'].includes(B.setup.biome)) autumnizeCanvas(B.ground);
     B.juice = createFx();
     if (net.role === 'host') {
       net.send({ t: 'battleStart', setup, items: B.state.items });
-      net.on('cmd', (m) => { const side = setup.control.att === 1 ? 'att' : setup.control.def === 1 ? 'def' : null; if (!side) return; if (m.c.type === 'auto') { setup.control[side] = 'ai'; toast('The other player let their generals take over'); return; } command(B.sim, side, m.c); });
+      // the other player's orders (Auto keeps their seat, so a later Retreat still counts)
+      net.on('cmd', (m) => { const side = setup.control.att === 1 ? 'att' : setup.control.def === 1 ? 'def' : null; if (!side) return; if (m.c.type === 'auto') { B.sim.ai[side] = true; toast('The other player let their generals take over'); return; } command(B.sim, side, m.c); });
     }
     if (net.role !== 'single') net.on('chat', (m) => showChat(m.text, false));
     if (B.client) { net.on('snap', (m) => { const now = performance.now(), prev = new Map(B.sim.squads.map((q) => [q.id, [q.x, q.y]])); const gap = Math.min(0.4, Math.max(0.05, (now - (B.snapAt || now - 100)) / 1000)); applySnapshot(B.sim, m.s); B.snapAt = now; for (const q of B.sim.squads) { const o = prev.get(q.id); q._vx = o ? (q.x - o[0]) / gap : 0; q._vy = o ? (q.y - o[1]) / gap : 0; } }); net.on('battleEnd', (m) => endBattle(m.result)); }
@@ -148,7 +154,7 @@ registerScene('battle', {
       let n = 0;
       while (B.acc >= DT && n++ < 10) {
         B.acc -= DT;
-        for (const side of ['att', 'def']) aiThink(sim, side, B.setup.control[side] !== 'ai');
+        for (const side of ['att', 'def']) aiThink(sim, side, !sim.ai[side]); // AI generals, or just the allies of a human side
         step(sim);
         if (net.role === 'host' && sim.tick % 2 === 0) net.send({ t: 'snap', s: snapshot(sim) });
         if (sim.winner) break;
@@ -329,7 +335,7 @@ function consumeEvents() {
     } else if (e.k === 'duelStart') {
       const a = sq(e.a), b = sq(e.b);
       B.duel = { a: e.a, b: e.b, age: 0, life: 99 };
-      if (B.side && !B.auto && (mineSide(a && a.side) || mineSide(b && b.side))) toast('Duel! Choose Strike, Guard or Feint below each round', 'gold');
+      if (myDuel()) toast('Duel! Choose Strike, Guard or Feint below each round', 'gold'); // only when the choice really is yours (not in Auto, not an ally's hero)
       B.slow = Math.max(B.slow, 1.1); // heroes meet: a breath of slow motion
       sfx('duel'); J.shake(3, 0.25);
       banner(e.challenge ? 'CHALLENGE!' : 'DUEL!', mineSide(a && a.side) || mineSide(b && b.side) ? '' : 'blue', `${a ? a.name : '?'} vs ${b ? b.name : '?'}`);
@@ -915,7 +921,8 @@ function postAt(wx, wy, r) {
   for (const p of B.sim.field.posts) { const d = Math.hypot(p.x - wx, (p.y - wy) * 1.3); if (d < bd) { bd = d; best = p; } }
   return best;
 }
-function tap(sx, sy) {
+// fromDrag: the drop point of a drag that began on one of your squads, always an order (never a reselect)
+function tap(sx, sy, fromDrag = false) {
   if (!B.started || B.ended || !B.side) return;
   const w = cam.toWorld(sx, sy);
   const wx = w.x / TS, wy = w.y / TS;
@@ -939,7 +946,7 @@ function tap(sx, sy) {
   // with squads selected, only a tap right on another squad's body selects it; a looser tap near friends is an order
   // to go there. Nothing selected: the generous radius picks the nearest squad. Stacked squads cycle on repeat taps.
   const tight = Math.max(0.8, 16 / (cam.zoom * TS));
-  const pool = squadsAt(wx, wy, B.side, sel.length ? tight : R);
+  const pool = fromDrag ? [] : squadsAt(wx, wy, B.side, sel.length ? tight : R);
   let own = pool[0] || null;
   // the base building itself is an order target even with friends standing beside it: closer to the building than
   // to the squad's body means "go there"
@@ -947,7 +954,10 @@ function tap(sx, sy) {
     const base = postAt(wx, wy, 2.4), rr = B.render.get(own.id) || own;
     if (base && Math.hypot(base.x - wx, base.y - 0.4 - wy) < Math.hypot(rr.x - wx, rr.y - 0.35 - wy)) own = null;
   }
-  if (own && pool.length > 1 && B.lastTap && now - B.lastTap.t < 900 && pool.some((q) => q.id === B.lastTap.id)) {
+  // a quick second tap on the squad just selected is a double-tap (all of its kind), a slower one cycles the stack
+  const dbl = B.lastTap && now - B.lastTap.t < 450 && sel.length === 1 && sel[0].id === B.lastTap.id && pool.some((q) => q.id === B.lastTap.id);
+  if (dbl) own = sel[0];
+  else if (own && pool.length > 1 && B.lastTap && now - B.lastTap.t < 900 && pool.some((q) => q.id === B.lastTap.id)) {
     own = pool[(pool.findIndex((q) => q.id === B.lastTap.id) + 1) % pool.length];
   }
   if (own) {
@@ -1063,7 +1073,7 @@ function dragEnd(x, y) {
   const d = B.drag; B.drag = null;
   cam.clamp();
   if (!d || d.mode === 'pan' || x == null) return;
-  if (d.mode === 'order') { tap(x, y); return; }
+  if (d.mode === 'order') { tap(x, y, true); return; }
   if ((d.mode === 'lane' || d.mode === 'guard') && B.mode) {
     const a = cam.toWorld(d.sx, d.sy), b = cam.toWorld(x, y);
     if (d.mode === 'guard') { const r = Math.hypot(b.x - a.x, b.y - a.y) / TS; if (r < 0.9) modeOrder(b.x / TS, b.y / TS, null); else modeOrder(a.x / TS, a.y / TS, r); }
@@ -1168,7 +1178,7 @@ function refreshHUD(full) {
     hud.topKey = topKey;
     hud.top.innerHTML = '';
     hud.top.append(...[
-      h('span', { class: 'chip ellipsis', style: { maxWidth: '150px' } }, B.setup.place),
+      h('span', { class: 'chip', style: { maxWidth: '150px' } }, h('span', { class: 'ellipsis' }, B.setup.place)),
       h('span', { class: 'chip ' + (left < 30 ? 'bad' : '') }, `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}`),
       B.side ? h('span', { class: 'chip' }, picon('flag', 14), ` ${ownP}/${posts.length}`) : h('span', { class: 'chip' }, 'Watching'),
       stS && stS.list.length ? h('span', { class: 'chip gold', title: 'Command points' }, picon('points', 14), ` ${stS.pool}`) : null,
@@ -1199,7 +1209,7 @@ function refreshHUD(full) {
     if (md) {
       const R = Math.min(3, md.d.round);
       hud.bottom.appendChild(h('div', { class: 'bpanel duel-panel' },
-        h('span', { class: 'bpanel-name ellipsis' }, `${md.me.name} vs ${md.foe.name}`, h('small', { class: 'bpanel-ter' }, `Round ${R}/3 · ${md.wins[0]}–${md.wins[1]}`)),
+        h('span', { class: 'bpanel-name' }, h('span', { class: 'ellipsis' }, `${md.me.name} vs ${md.foe.name}`), h('small', { class: 'bpanel-ter' }, `Round ${R}/3 · ${md.wins[0]}–${md.wins[1]}`)),
         ...(md.pending ? [
           ...DUEL_PICKS.map((k) => btn(PICK_NAME[k], () => pickDuel(k), 'tiny duel-pick ' + k)),
           h('span', { class: 'duel-time' + (md.left < 1.6 ? ' bad' : '') }, `${Math.ceil(md.left)}s`),
@@ -1245,7 +1255,7 @@ function refreshHUD(full) {
       ].filter(Boolean);
       hud.bottom.appendChild(h('div', { class: 'bpanel bpanel2' },
         h('div', { class: 'bprow' },
-          h('span', { class: 'bpanel-name ellipsis', title: ter && ter.tip ? `${ter.name}: ${ter.tip}` : '' }, one ? one.name : `${sels.length} squads`, ter && ter.tip ? h('small', { class: 'bpanel-ter' }, ter.name) : null),
+          h('span', { class: 'bpanel-name', title: ter && ter.tip ? `${ter.name}: ${ter.tip}` : '' }, h('span', { class: 'ellipsis' }, one ? one.name : `${sels.length} squads`), ter && ter.tip ? h('small', { class: 'bpanel-ter' }, ter.name) : null),
           ...FORMS.map((f) => btn(FORMATIONS[f].name + (reforming && cur === f ? '…' : ''), () => { for (const q of sels) send({ type: 'formation', squad: q.id, formation: f }); refreshHUD(true); }, 'tiny' + (cur === f ? (reforming ? ' primary' : ' sel') : ''))),
           btn('Hold', () => { for (const q of sels) send({ type: 'hold', squad: q.id }); toast('Holding position'); refreshHUD(true); }, 'tiny' + (sels.every((q) => q.holdFast && !q.regroup) ? ' sel' : '')),
           btn('+Then', () => { B.queue = !B.queue; toast(B.queue ? 'Queue on: each order is added after the last one' : 'Queue off'); refreshHUD(true); }, 'tiny' + (B.queue ? ' primary' : '')),
@@ -1263,7 +1273,7 @@ function autoBattle() {
   const go = () => {
     B.auto = true; B.selected = []; B.aim = null;
     if (B.client) send({ type: 'auto' });
-    else { B.setup.control[B.side] = 'ai'; B.sim.ai[B.side] = true; if (net.role === 'single') B.speed = 8; }
+    else { B.sim.ai[B.side] = true; if (net.role === 'single') B.speed = 8; } // your seat stays yours (saves and Retreat keep working)
     toast(net.role === 'single' ? 'Your generals finish the battle' : 'Your generals take command');
     refreshHUD(true);
   };
@@ -1494,7 +1504,7 @@ function canSave() { return net.role === 'single' && !B.client && !B.practice &&
 function saveNow(sync) {
   B._savedAt = game.time;
   if (!canSave() || !B.started || B.ended || B.sim.winner) return;
-  const data = { v: 1, setup: B.setup, sim: serializeSim(B.sim), b: B.battle, ctx: B.saveCtx, me: B.me, kills: [...B.kills], speed: B.speed, place: B.setup.place, t: B.sim.t };
+  const data = { v: 1, setup: B.setup, sim: serializeSim(B.sim), b: B.battle, ctx: B.saveCtx, me: B.me, kills: [...B.kills], speed: B.speed, auto: B.auto || undefined, place: B.setup.place, t: B.sim.t };
   saveBattle(B.state.cid, B.key, data, B.state, { sync });
 }
 function resumeIntro() {
@@ -1510,7 +1520,7 @@ function resumeIntro() {
 export function battlePeerLost() {
   if (!B.sim || B.ended || !B.setup) return;
   if (net.role === 'host') {
-    for (const side of ['att', 'def']) if (B.setup.control[side] === 1) { B.setup.control[side] = 'ai'; B.sim.ai[side] = true; }
+    for (const side of ['att', 'def']) if (B.setup.control[side] === 1) B.sim.ai[side] = true;
     toast('Player 2 lost connection — their army fights on under their generals', 'gold');
   }
 }
