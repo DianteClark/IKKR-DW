@@ -17,8 +17,31 @@ export const SKILLS = {
   scout: { name: 'Scout Ahead', cd: 45, desc: 'Lifts the fog, reveals traps and the squad moves 50% faster for 10s.' },
 };
 
+// every troop type has one drill of its own: a button in the selection panel, on a cooldown (the AI uses them too)
+export const ABILITIES = {
+  charge: { name: 'Charge', btn: 'Charge', cd: 26, desc: 'Draw a lane: the riders thunder along it, smashing and scattering every squad in the way. Disordered for a few seconds after.' },
+  brace: { name: 'Brace Pikes', btn: 'Brace', cd: 22, desc: 'Plant the pikes for 8s: charges break on them and horsemen are punished, but the squad stands still.' },
+  fire: { name: 'Fire Arrows', btn: 'Fire', cd: 30, desc: '8s of burning volleys: harder hits that set the ground alight (weak in storms).' },
+  shields: { name: 'Shield Wall', btn: 'Shields', cd: 24, desc: 'Lock shields for 10s: arrows barely hurt and melee hurts less, but the squad crawls.' },
+  blast: { name: 'Arcane Blast', btn: 'Blast', cd: 32, desc: 'Strike the nearest enemy (and anyone beside it) with raw magic.' },
+  roar: { name: 'Roar', btn: 'Roar', cd: 28, desc: 'Terrify enemies close by: their morale drops and the faint-hearted panic.' },
+  dive: { name: 'Dive', btn: 'Dive', cd: 24, desc: 'Swoop over walls and rivers onto the nearest archers (or nearest foe) and hit hard.' },
+};
+export function abilityOf(s) {
+  if (s.mounted) return 'charge';
+  if (s.pike) return 'brace';
+  const c = unitClass(s.fid, s.unit);
+  if (s.ranged || c === 'ranged') return 'fire';
+  if (c === 'caster') return 'blast';
+  if (c === 'beast') return 'roar';
+  if (c === 'flying') return 'dive';
+  return 'shields';
+}
+export const AMMO = 24; // volleys in the quiver; refilled at your bases
+export const CHARGE_LEN = 10; // longest charge lane, in tiles
+
 export const DT = 0.05;
-const MELEE = 1.25, RANGE = 5.2, SIGHT = 5.5, CAP_R = 2.4, TIME_LIMIT = 240;
+const MELEE = 1.25, RANGE = 5.2, SIGHT = 5.5, CAP_R = 2.4, TIME_LIMIT = 240, HILL_R = 1.9;
 
 export function createBattle(setup) {
   const { seed, biome, level, attackers, defenders, attFid, defFid, items, garrison } = setup;
@@ -43,6 +66,9 @@ export function createBattle(setup) {
     reveal: { att: 0, def: 0 }, trapsSeen: { att: 0, def: 0 },
     nemesis: Array.isArray(setup.nemesis) ? setup.nemesis.filter((p) => Array.isArray(p) && p.length === 2) : [], nemesisMet: [], nemesisResult: [],
     ladders: [],
+    // ~1 in 5 battles is fought at night (or when the campaign says so): short sight, deadly ambushes, torchlight
+    night: setup.night != null ? !!setup.night : (Math.imul((seed | 0) ^ 0x5bd1e995, 2654435761) >>> 0) % 100 < 20,
+    hills: [], obj: null,
   };
   // siege: gates hold until broken; attackers can't pass an intact gate (defenders sally through it)
   const G = field._grid && field._grid.gates ? field._grid.gates : [];
@@ -79,7 +105,10 @@ export function createBattle(setup) {
       state: 'idle', path: [], goal: null, chase: null, engaged: null, forced: false, holdFast: false, shootCd: 0, reform: null, buffs: {}, formCd: 0,
       queue: [], rally: null, role: hero ? hero.role || null : null, skillCd: hero && hero.role ? 8 : 0, mounted: unitClass(fid, unit) === 'mounted',
       pike: isPike(fid, unit), moveT: 0, ally: false, arriveAt: 0,
+      abCd: 5, guard: null, charge: null, dive: null, regroup: 0, revived: 0,
     };
+    sq.abil = abilityOf(sq);
+    sq.ammoMax = sq.ranged ? AMMO : 0; sq.ammo = sq.ammoMax;
     sim.squads.push(sq);
     return sq;
   };
@@ -100,6 +129,8 @@ export function createBattle(setup) {
     const sq = mk(side, h, h.ufid || h.fid, h.unit, h.troops, h.formation, Math.max(0, entry), 1.2);
     sq.ally = true; sq.state = 'reinforce'; sq.arriveAt = 50 + i * 12 + (seed % 15); sq.allyName = h.allyName || 'Allies';
   });
+  sim.hills = findHills(field);
+  sim.obj = setupObjective(sim, setup);
   return sim;
 }
 
@@ -117,6 +148,7 @@ export function command(sim, side, c) {
   if (sim.winner) return false;
   if (c.type === 'retreat') { if (!sim.retreat) { sim.retreat = side; sim.winner = other(side); ev(sim, { k: 'end' }); } return true; }
   if (c.type === 'strat') return useStratagem(sim, side, c.id, c.target);
+  if (c.type === 'duel') return duelPick(sim, side, c.pick);
   const s = sim.squads.find((q) => q.id === c.squad);
   if (!s || s.side !== side) return false;
   if (c.type === 'reserve') { if (sim.t > 0.5 || s.ally || s.state === 'dead') return false; s.state = s.state === 'reserve' ? 'idle' : 'reserve'; return true; }
@@ -129,16 +161,21 @@ export function command(sim, side, c) {
     return true;
   }
   if (c.type === 'skill') return useSkill(sim, s);
-  if (c.type === 'ladder') { s.queue = []; return startLadder(sim, s, c.x, c.y); }
+  if (c.type === 'ability') return useAbility(sim, s, c);
+  if (s.charge || s.dive) return false; // mid-charge: the riders are committed
+  if (c.type === 'ladder') { s.queue = []; s.guard = null; s.regroup = 0; return startLadder(sim, s, c.x, c.y); }
   if (s.ladder && s.ladder.phase === 'climb') return false; // halfway up a ladder
   s.ladder = null;
-  if (c.type === 'move' || c.type === 'moveTo') {
+  if (c.type === 'move' || c.type === 'moveTo' || c.type === 'spot') {
     if (!c.queue) s.queue = [];
-    const ok = c.type === 'move' ? routeTo(sim, s, c.post, true) : routeToPoint(sim, s, c.x, c.y);
-    if (ok) disengage(sim, s);
+    const ok = c.type === 'move' ? routeTo(sim, s, c.post, true) : c.type === 'spot' ? routeToSpot(sim, s, c.x, c.y) : routeToPoint(sim, s, c.x, c.y);
+    if (ok) { disengage(sim, s); s.guard = null; s.regroup = 0; }
     return ok;
   }
   s.queue = [];
+  if (c.type === 'camp') return startRegroup(sim, s);
+  if (c.type === 'guard') return setGuard(sim, s, c.x, c.y, c.r);
+  if (c.type !== 'formation' && c.type !== 'special') { s.guard = null; s.regroup = 0; }
   if (c.type === 'chase') {
     const t = sim.squads.find((q) => q.id === c.target);
     if (!t || !alive(t) || t.side === s.side) return false;
@@ -249,7 +286,7 @@ function useSkill(sim, s) {
     if (!e) return false;
     // both heroes step out; squads close in
     s.chase = e.id; s.path = [];
-    sim.duel = { a: s.id, b: e.id, t: 0, len: 3.2, edge: s.id };
+    sim.duel = newDuel(s.id, e.id, s.id);
     ev(sim, { k: 'duelStart', a: s.id, b: e.id, x: (s.x + e.x) / 2, y: (s.y + e.y) / 2, challenge: true });
   } else if (s.role === 'strategist') {
     const st = sim.strat[s.side]; st.pool = Math.min(st.max + 3, st.pool + 3); sim.reveal[s.side] = 15;
@@ -296,6 +333,300 @@ function castSpecial(sim, s) {
   return true;
 }
 
+// ---------- battle tactics: abilities, charges, guard zones, regrouping ----------
+function attackOf(s) { let a = 0; for (const so of s.soldiers) if (so.alive) a += so.atk; return a + (s.heroAlive ? s.heroAtk : 0); }
+// march to any open spot (off-road too): roads to the nearest base, then across
+function routeToSpot(sim, s, x, y) {
+  const F = sim.field;
+  if (!passable(F, x, y)) return false;
+  let path;
+  if (Math.hypot(s.x - x, s.y - y) < 6) path = [{ x, y }];
+  else {
+    const ids = planRoute(sim, s, nearestPost(F, x, y));
+    if (!ids) return false;
+    path = [...ids.map((id) => ({ x: F.posts[id].x, y: F.posts[id].y })), { x, y }];
+  }
+  s.path = path; s.goal = null; s.chase = null; s.rally = { x, y };
+  s.forced = true; s.holdFast = false; s.engaged = null;
+  if (s.state !== 'rout') s.state = 'move';
+  return true;
+}
+// the friendly rear: attackers fall back to their camp, defenders to the keep (or their nearest base)
+export function campOf(sim, side) {
+  const P = sim.field.posts;
+  if (side === 'att') return P.find((p) => p.camp) || P.find((p) => p.owner === 'att') || null;
+  return P.find((p) => p.main && p.owner === 'def') || P.find((p) => p.owner === 'def') || null;
+}
+// guard an area: engage anything that enters it, never chase out of it
+function setGuard(sim, s, x, y, r) {
+  if (x == null || y == null || !passable(sim.field, x, y)) return false;
+  r = Math.max(1.5, Math.min(6, +r || 3));
+  s.guard = { x: +x.toFixed(2), y: +y.toFixed(2), r: +r.toFixed(1) };
+  s.chase = null; s.holdFast = false; s.regroup = 0;
+  if (Math.hypot(s.x - x, s.y - y) > 1) { if (!routeToSpot(sim, s, x, y)) s.path = [{ x, y }]; s.forced = true; s.rally = null; disengage(sim, s); }
+  else { s.path = []; s.forced = false; s.rally = null; if (s.state === 'move') s.state = 'hold'; }
+  ev(sim, { k: 'guard', id: s.id, side: s.side, x, y, r });
+  return true;
+}
+// fall back to camp to recover morale, arrows and some of the wounded; any new order sends them back out
+function startRegroup(sim, s) {
+  const camp = campOf(sim, s.side);
+  if (!camp) return false;
+  if (!routeTo(sim, s, camp.id, true) && Math.hypot(s.x - camp.x, s.y - camp.y) > 3) return false;
+  disengage(sim, s);
+  s.guard = null; s.rally = null; s.regroup = 1; s.chase = null;
+  ev(sim, { k: 'regroup', id: s.id, side: s.side });
+  return true;
+}
+export function useAbility(sim, s, c = {}) {
+  const k = s.abil, A = ABILITIES[k];
+  if (!A || s.abCd > 0 || !alive(s) || s.state === 'rout' || s.state === 'climb' || s.charge || s.dive || liveCount(s) === 0) return false;
+  const foes = sim.squads.filter((e) => e.side !== s.side && alive(e) && e.state !== 'climb' && visibleTo(sim, s.side, e));
+  const nearest = (list) => list.sort((a, b) => dist(a, s) - dist(b, s))[0] || null;
+  let x = s.x, y = s.y, to = null;
+  if (k === 'charge') {
+    let tx = c.x, ty = c.y;
+    if (tx == null || ty == null) { const t = nearest(foes.filter((e) => dist(e, s) < CHARGE_LEN)); if (!t) return false; tx = t.x; ty = t.y; }
+    const d = Math.hypot(tx - s.x, ty - s.y);
+    if (d < 1.5) return false;
+    const L = Math.min(CHARGE_LEN, d + (c.x == null ? 1.5 : 0));
+    tx = Math.max(1, Math.min(sim.field.W - 1, s.x + (tx - s.x) / d * L)); ty = Math.max(1.4, Math.min(sim.field.H - 1, s.y + (ty - s.y) / d * L));
+    if (s.engaged) { s.engaged = null; s.buffs.exposed = Math.max(s.buffs.exposed || 0, 1); }
+    s.charge = { x: +tx.toFixed(2), y: +ty.toFixed(2), x0: +s.x.toFixed(2), y0: +s.y.toFixed(2), t: 0, hit: [] };
+    s.path = []; s.chase = null; s.goal = null; s.forced = false; s.guard = null; s.regroup = 0; s.reform = null; s.holdFast = false; s.queue = []; s.state = 'charge';
+    x = tx; y = ty;
+  } else if (k === 'brace') {
+    s.buffs.brace = 8; s.path = []; s.chase = null; s.forced = false; s.holdFast = true; s.queue = [];
+    if (s.state === 'move') s.state = 'hold';
+  } else if (k === 'fire') {
+    if (s.ammo <= 0) return false;
+    s.buffs.fire = 8;
+  } else if (k === 'shields') s.buffs.shields = 10;
+  else if (k === 'blast') {
+    const t = nearest(foes.filter((e) => dist(e, s) < 7.5)); if (!t) return false;
+    const power = (5 + liveCount(s) * 1.4) * s.atkMul * (1 + s.int * 0.04);
+    for (const e of sim.squads) if (e.side !== s.side && alive(e) && dist(e, t) < 2.2) { hitSquad(sim, e, power, s); e.morale -= 8; }
+    x = t.x; y = t.y; to = t.id;
+  } else if (k === 'roar') {
+    const near = foes.filter((e) => dist(e, s) < 3.8); if (!near.length) return false;
+    for (const e of near) { e.morale -= e.morale < 40 ? 16 : 10; if (e.morale < 30 && e.state !== 'rout') e.buffs.confused = Math.max(e.buffs.confused || 0, 1.5); }
+    for (const q of sim.squads) if (q.side === s.side && alive(q) && dist(q, s) < 4) q.morale = Math.min(100, q.morale + 4);
+  } else if (k === 'dive') {
+    const t = nearest(foes.filter((e) => e.ranged && dist(e, s) < 10)) || nearest(foes.filter((e) => dist(e, s) < 7));
+    if (!t) return false;
+    s.dive = { id: t.id, t: 0 }; s.path = []; s.chase = null; s.goal = null; s.forced = false; s.guard = null; s.regroup = 0; s.engaged = null; s.queue = []; s.state = 'charge';
+    x = t.x; y = t.y; to = t.id;
+  }
+  s.abCd = A.cd;
+  sim.lastAction = sim.t;
+  ev(sim, { k: 'ability', a: k, id: s.id, side: s.side, x, y, to });
+  return true;
+}
+// riders thunder down their lane: every squad in the way is hit and knocked aside; pikes that stand braced break the charge
+function stepCharge(sim, s, speed) {
+  const C = s.charge; C.t += DT; s.state = 'charge';
+  const ok = moveToward(s, C, Math.max(speed, s.spd * 1.6) * 2.3, sim.field);
+  const atk = attackOf(s);
+  for (const e of sim.squads) {
+    if (e.side === s.side || !alive(e) || C.hit.includes(e.id) || dist(e, s) > 1.35) continue;
+    C.hit.push(e.id); sim.lastAction = sim.t;
+    if (e.pike && (buff(e, 'brace') || e.formation === 'square')) {
+      hitSquad(sim, s, atk * 0.6, e, true); s.morale -= 18;
+      ev(sim, { k: 'charge', id: s.id, x: e.x, y: e.y, broken: true });
+      endCharge(sim, s, e); return;
+    }
+    hitSquad(sim, e, atk * 0.8 * s.atkMul * (e.pike ? 0.6 : 1) * (buff(e, 'shields') ? 0.75 : 1), s, true); e.morale -= 12;
+    const dx = C.x - C.x0, dy = C.y - C.y0, L = Math.hypot(dx, dy) || 1;
+    let nx = -dy / L, ny = dx / L;
+    if ((e.x - s.x) * nx + (e.y - s.y) * ny < 0) { nx = -nx; ny = -ny; }
+    const px = e.x + nx * 1.3, py = e.y + ny * 1.3;
+    if (passable(sim.field, px, py) && !(e.side === 'att' && gateBlocks(sim.field, px, py))) { e.x = px; e.y = py; }
+    e.buffs.exposed = Math.max(e.buffs.exposed || 0, 2.5);
+    ev(sim, { k: 'chargeHit', id: s.id, to: e.id, x: e.x, y: e.y });
+  }
+  if (!ok || dist(s, C) < 0.5 || C.t > 4.5) endCharge(sim, s, null);
+}
+function endCharge(sim, s, e) {
+  s.charge = null; s.moveT = 0; s.buffs.disordered = 5; s.state = 'hold';
+  if (e) { s.engaged = e.id; s.state = 'fight'; }
+  ev(sim, { k: 'chargeEnd', id: s.id });
+}
+// flyers swoop straight over everything onto their prey
+function stepDive(sim, s) {
+  const D = s.dive; D.t += DT; s.state = 'charge';
+  const e = sim.squads.find((q) => q.id === D.id);
+  if (!e || !alive(e) || e.side === s.side || D.t > 3) { s.dive = null; s.state = 'hold'; return; }
+  const dx = e.x - s.x, dy = e.y - s.y, d = Math.hypot(dx, dy);
+  s.dir = Math.atan2(dy, dx);
+  if (d < 1.0) {
+    hitSquad(sim, e, attackOf(s) * s.atkMul * 0.8, s, true); e.morale -= 8; sim.lastAction = sim.t;
+    s.dive = null; s.engaged = e.id; s.state = 'fight';
+    ev(sim, { k: 'diveHit', id: s.id, to: e.id, x: e.x, y: e.y });
+    return;
+  }
+  const m = Math.min(d, 8 * DT); s.x += dx / d * m; s.y += dy / d * m;
+}
+// night: who can see whom (torches at your bases, fires, the clash of battle, scouts see farther)
+export function visibleTo(sim, side, e) {
+  if (!sim.night || !side || !e || e.side === side) return true;
+  if ((sim.reveal[side] || 0) > 0 || (sim.trapsSeen[side] || 0) > 0) return true;
+  if (e.state === 'fight' || e.state === 'shoot' || e.state === 'siege' || e.state === 'charge') return true;
+  for (const p of sim.field.posts) if (p.owner === side && Math.hypot(p.x - e.x, p.y - e.y) < 4) return true;
+  for (const f of sim.fires) if (Math.hypot(f.x - e.x, f.y - e.y) < f.r + 2.5) return true;
+  for (const q of sim.squads) if (q.side === side && alive(q)) { const r = q.role === 'scout' && q.heroAlive ? 9 : 4.6; if (dist(q, e) < r) return true; }
+  return false;
+}
+const onHill = (sim, s) => sim.hills.some((h) => h.owner === s.side && Math.hypot(h.x - s.x, h.y - s.y) < HILL_R + 0.6);
+// hilltops away from the bases become small capture points
+function findHills(F) {
+  const G = F._grid; if (!G || !G.terr) return [];
+  const W = F.W, H = F.H, T = G.terr, seen = new Uint8Array(W * H), out = [];
+  for (let i = 0; i < W * H; i++) {
+    if (T[i] !== 2 || seen[i]) continue;
+    const cells = [], q = [i]; seen[i] = 1;
+    while (q.length) { const j = q.pop(); cells.push(j); for (const k of [j - 1, j + 1, j - W, j + W]) if (k >= 0 && k < W * H && !seen[k] && T[k] === 2 && Math.abs((k % W) - (j % W)) <= 1) { seen[k] = 1; q.push(k); } }
+    if (cells.length < 4) continue;
+    let best = null, bs = 1e9;
+    for (const c of cells) {
+      const x = (c % W) + 0.5, y = Math.floor(c / W) + 0.5;
+      if (cells.length >= 9 && ![c - 1, c + 1, c - W, c + W].every((k) => T[k] === 2)) continue;
+      if (F.posts.some((p) => Math.hypot(p.x - x, p.y - y) < 3.2) || inWalls(F, x, y) || x < 2 || y < 2 || x > W - 2 || y > H - 2) continue;
+      const rp = nearestRoadPoint(F, x, y);
+      const sc = rp ? Math.abs(rp.d - 1.5) + Math.hypot(x - W / 2, y - H / 2) * 0.02 : 99;
+      if (sc < bs) { bs = sc; best = { x, y }; }
+    }
+    if (best && bs < 4 && out.every((h) => Math.hypot(h.x - best.x, h.y - best.y) > 6)) out.push(best);
+  }
+  out.sort((a, b) => Math.hypot(a.x - W / 2, a.y - H / 2) - Math.hypot(b.x - W / 2, b.y - H / 2));
+  return out.slice(0, 2).map((h) => ({ x: h.x, y: h.y, owner: null, prog: 0, by: null }));
+}
+function stepHills(sim) {
+  for (const h of sim.hills) {
+    let att = 0, def = 0;
+    for (const s of sim.squads) if (fighting(s) && Math.hypot(s.x - h.x, s.y - h.y) < HILL_R) { if (s.side === 'att') att++; else def++; }
+    const side = att && !def ? 'att' : def && !att ? 'def' : null, n = att + def;
+    if (!side) { if (!att && !def) h.prog = Math.max(0, h.prog - DT * 0.15); continue; }
+    if (h.owner === side) { h.prog = 0; h.by = null; continue; }
+    if (h.by !== side) { h.by = side; h.prog = 0; }
+    h.prog += DT * 0.22 * Math.min(2, 0.6 + n * 0.4);
+    if (h.prog >= 1) {
+      h.owner = side; h.prog = 0; h.by = null; sim.lastAction = sim.t;
+      for (const s of sim.squads) if (s.side === side && alive(s) && Math.hypot(s.x - h.x, s.y - h.y) < 6) s.morale = Math.min(100, s.morale + 5);
+      ev(sim, { k: 'hill', side, x: h.x, y: h.y });
+    }
+  }
+}
+// a rout spreads panic to friends nearby, unless a steady hero stands close
+function steadied(sim, q) {
+  return sim.squads.some((h) => h.side === q.side && fighting(h) && h.heroAlive && (h.role === 'commander' || h.lead >= 11) && h.morale >= 40 && dist(h, q) < 6);
+}
+function contagion(sim, s) {
+  if (sim.t - (s._routAt ?? -99) < 25) { s._routAt = sim.t; return; } // a squad that keeps breaking stops shocking anyone
+  s._routAt = sim.t;
+  for (const q of sim.squads) {
+    if (q === s || q.side !== s.side || !fighting(q)) continue;
+    const d = dist(q, s); if (d > 5.5) continue;
+    let drop = 9 * (1 - d / 5.5) + 2;
+    const calm = steadied(sim, q);
+    if (calm) drop *= 0.35;
+    q.morale -= drop;
+    if (drop > 5 || calm) ev(sim, { k: 'panic', id: q.id, side: q.side, calm, x: q.x, y: q.y });
+  }
+}
+// ---------- side objectives: a caravan to escort, supplies to burn, a captive to free ----------
+function setupObjective(sim, setup) {
+  if (setup.objective === false) return null;
+  const F = sim.field, rng = sim.rng;
+  let kind = ['caravan', 'supplies', 'captive'].includes(setup.objective) ? setup.objective : null;
+  if (!kind) { if (rng() > 0.65) return null; kind = ['caravan', 'supplies', 'captive'][Math.floor(rng() * 3)]; }
+  const camp = F.posts.find((p) => p.camp), main = F.posts.find((p) => p.main);
+  if (!camp || !main) return null;
+  const dM = (o) => Math.hypot(o.x - main.x, o.y - main.y), dC = (o) => Math.hypot(o.x - camp.x, o.y - camp.y);
+  if (kind === 'caravan') {
+    const mid = F.posts.filter((p) => !p.camp && !p.main && !inWalls(F, p.x, p.y)).sort((a, b) => Math.abs(dM(a) - dC(a)) - Math.abs(dM(b) - dC(b)))[0];
+    if (!mid) return null;
+    const x = mid.x + 0.9, y = mid.y + 0.6;
+    return { kind, x: passable(F, x, y) ? x : mid.x, y: passable(F, x, y) ? y : mid.y, done: false, by: null, prog: 0, pby: null, side: null, path: null };
+  }
+  const spots = F.edges.map((e, i) => { const A = F.posts[e[0]], B = F.posts[e[1]]; return { i, x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 }; })
+    .filter((o) => !F.blocked.includes(o.i) && passable(F, o.x, o.y) && F.posts.every((p) => Math.hypot(p.x - o.x, p.y - o.y) > 3) && !inWalls(F, o.x, o.y));
+  if (!spots.length) return null;
+  const pick = kind === 'supplies' ? spots.filter((o) => dM(o) > 4).sort((a, b) => dM(a) - dM(b))[0] : spots.sort((a, b) => Math.abs(dM(a) - dC(a)) - Math.abs(dM(b) - dC(b)))[0];
+  if (!pick) return null;
+  return { kind, x: +pick.x.toFixed(2), y: +pick.y.toFixed(2), done: false, by: null, prog: 0, pby: null };
+}
+function stepObjective(sim) {
+  const O = sim.obj; if (!O || O.done) return;
+  const near = (side, r) => { let n = 0; for (const s of sim.squads) if (s.side === side && fighting(s) && Math.hypot(s.x - O.x, s.y - O.y) < r) n++; return n; };
+  if (O.kind === 'caravan') {
+    const a = near('att', 3), d = near('def', 3);
+    const side = a && !d ? 'att' : d && !a ? 'def' : null;
+    O.pby = side;
+    if (!side) return;
+    const dest = campOf(sim, side); if (!dest) return;
+    if (O.side !== side || !O.path) {
+      O.side = side;
+      const ids = shortestPath(sim.field, nearestPost(sim.field, O.x, O.y), dest.id);
+      O.path = (ids[ids.length - 1] === dest.id ? ids : [dest.id]).map((id) => ({ x: sim.field.posts[id].x, y: sim.field.posts[id].y }));
+    }
+    while (O.path.length > 1 && Math.hypot(O.path[0].x - O.x, O.path[0].y - O.y) < 0.5) O.path.shift();
+    const t = O.path[0] || dest;
+    const dx = t.x - O.x, dy = t.y - O.y, dd = Math.hypot(dx, dy);
+    if (dd > 0.01) { const m = Math.min(dd, 0.95 * DT); O.x += dx / dd * m; O.y += dy / dd * m; }
+    O.prog = Math.max(0, Math.min(0.99, 1 - Math.hypot(dest.x - O.x, dest.y - O.y) / 30));
+    if (sim.tick % 20 === 0) sim.lastAction = sim.t;
+    if (Math.hypot(dest.x - O.x, dest.y - O.y) < 1.6) completeObjective(sim, side);
+    return;
+  }
+  const a = near('att', 1.8), d = near('def', O.kind === 'supplies' ? 2.2 : 2.6), a2 = near('att', 2.6);
+  let side = null;
+  if (O.kind === 'supplies') side = a && !d ? 'att' : null;
+  else side = a && !d ? 'att' : d && !a2 ? 'def' : null;
+  if (!side) { O.prog = Math.max(0, O.prog - DT / 14); return; }
+  if (O.pby !== side) { O.pby = side; O.prog = 0; }
+  O.prog += DT / (O.kind === 'supplies' ? 6 : 5);
+  if (O.prog >= 1) completeObjective(sim, side);
+}
+function completeObjective(sim, side) {
+  const O = sim.obj;
+  O.done = true; O.by = side; O.prog = 1; O.path = null; sim.lastAction = sim.t;
+  const st = sim.strat[side];
+  if (O.kind === 'caravan') {
+    for (const s of sim.squads) if (s.side === side && alive(s)) s.morale = Math.min(100, s.morale + 12);
+    st.pool = Math.min(st.max + 3, st.pool + 2);
+  } else if (O.kind === 'supplies') {
+    for (const s of sim.squads) if (s.side !== side && alive(s)) { s.morale -= 10; if (s.ranged) s.ammo = Math.floor(s.ammo * 0.5); }
+    sim.fires.push({ x: O.x, y: O.y, t: 6, r: 1.4, pow: 0.6, side });
+  } else {
+    for (const s of sim.squads) if (s.side === side && alive(s)) s.morale = Math.min(100, s.morale + 8);
+    st.pool = Math.min(st.max + 3, st.pool + 1);
+  }
+  ev(sim, { k: 'objective', kind: O.kind, side, x: O.x, y: O.y });
+}
+
+// ---------- hero duels: three rounds of strike / guard / feint ----------
+export const DUEL_PICKS = ['strike', 'guard', 'feint'];
+const BEATS = { strike: 'feint', feint: 'guard', guard: 'strike' }; // a strike cuts through a feint, a feint slips a guard, a guard turns a strike
+export const DUEL_PICK_TIME = 4;
+const newDuel = (a, b, edge) => ({ a, b, t: 0, round: 1, rt: -1.2, pa: null, pb: null, la: null, lb: null, wins: [0, 0], edge: edge || null });
+const duelScore = (d, q) => q.heroAtk + q.heroHp / 25 + q.morale / 40 + (q.role === 'duelist' ? 2.5 : 0) + (d.edge === q.id ? 1.2 : 0);
+function duelPick(sim, side, pick) {
+  const d = sim.duel; if (!d || !BEATS[pick] || d.rt < 0) return false;
+  const a = sim.squads.find((q) => q.id === d.a), b = sim.squads.find((q) => q.id === d.b);
+  if (a && a.side === side && !d.pa) { d.pa = pick; return true; }
+  if (b && b.side === side && !d.pb) { d.pb = pick; return true; }
+  return false;
+}
+// the computer reads the fighters: the stronger presses the attack, the weaker guards, and both try to counter the last move
+function aiDuelPick(sim, d, q, o, last) {
+  const adv = Math.max(-0.6, Math.min(0.6, (duelScore(d, q) - duelScore(d, o)) / 8));
+  const w = { strike: 1 + adv, guard: 1 - adv * 0.6, feint: 1 };
+  if (last) for (const k of DUEL_PICKS) if (BEATS[k] === last) w[k] += 0.5;
+  let r = sim.rng() * (w.strike + w.guard + w.feint);
+  for (const k of DUEL_PICKS) { r -= w[k]; if (r <= 0) return k; }
+  return 'strike';
+}
+
 // ---------- stratagems ----------
 function touchesCamp(sim, i) { const [a, b] = sim.field.edges[i]; return sim.field.posts[a].camp || sim.field.posts[b].camp; }
 export function stratagemTargets(sim, side, id) {
@@ -332,8 +663,8 @@ export function useStratagem(sim, side, id, target) {
   if (id === 'confuse') { sq.buffs.confused = 7; sq.path = []; sq.chase = null; sq.engaged = null; }
   if (id === 'ambush') {
     let total = 0; for (const so of sq.soldiers) if (so.alive) total += so.max;
-    hitSquad(sim, sq, total * 0.28 + 20, null, true);
-    sq.morale -= 25;
+    hitSquad(sim, sq, (total * 0.28 + 20) * (sim.night ? 2 : 1), null, true); // out of the dark: twice as deadly at night
+    sq.morale -= sim.night ? 40 : 25;
     for (const s of sim.squads) if (s.side === side && alive(s) && dist(s, sq) < 6) s.morale = Math.min(100, s.morale + 8);
   }
   if (id === 'fire') { const wf = sim.weather === 'storm' ? 0.4 : sim.weather === 'drought' ? 1.5 : sim.weather === 'blizzard' ? 0.7 : 1; sim.fires.push({ x: sq.x, y: sq.y, t: 8 * wf, r: 2.2 * Math.sqrt(wf), pow: 3.2 * (sim.field.underground ? 0.35 : 1), side }); }
@@ -392,6 +723,29 @@ export function step(sim) {
     }
     if (!alive(s)) continue;
     s.skillCd = Math.max(0, s.skillCd - DT);
+    s.abCd = Math.max(0, (s.abCd || 0) - DT);
+    // quivers refill at your bases (slowly while still shooting)
+    if (s.ranged && s.ammo < s.ammoMax && s.regroup !== 2 && sim.tick % 5 === 0) {
+      const p = sim.field.posts.find((q) => q.owner === s.side && Math.hypot(q.x - s.x, q.y - s.y) < CAP_R + 1.2);
+      if (p) { s._ammoT = (s._ammoT || 0) + 0.25 * (p.main || p.camp ? 2 : 1) * (s.state === 'shoot' ? 0.4 : 1); if (s._ammoT >= 1) { s._ammoT -= 1; s.ammo++; } }
+    }
+    if (s.regroup === 2) {
+      const camp = campOf(sim, s.side);
+      if (!camp || Math.hypot(s.x - camp.x, s.y - camp.y) > 4.5 || s.state === 'rout') s.regroup = 0;
+      else {
+        s.morale = Math.min(100, s.morale + DT * 5);
+        if (s.heroAlive) s.heroHp = Math.min(s.heroMax, s.heroHp + DT * 1.5);
+        for (const so of s.soldiers) if (so.alive && so.hp < so.max) so.hp = Math.min(so.max, so.hp + so.max * 0.02 * DT);
+        if (s.ranged && s.ammo < s.ammoMax && sim.tick % 8 === 0) s.ammo++;
+        s._rg = (s._rg || 0) + DT;
+        // the walking wounded rejoin, a few at a time (up to 30% of the squad)
+        if (s._rg >= 7) {
+          s._rg = 0;
+          const so = s.soldiers.find((x) => !x.alive);
+          if (so && s.revived < Math.ceil(s.soldiers.length * 0.3)) { so.alive = true; so.hp = so.max * 0.5; s.revived++; ev(sim, { k: 'rejoin', id: s.id, side: s.side, idx: so.idx }); }
+        }
+      }
+    }
     s.moveT = s.state === 'move' ? s.moveT + DT : 0;
     s.shootCd = Math.max(0, s.shootCd - DT);
     s.formCd = Math.max(0, s.formCd - DT);
@@ -434,6 +788,11 @@ export function step(sim) {
       if (s.morale >= 45) { s.state = 'hold'; s.path = []; }
       continue;
     }
+    if (s.charge) { stepCharge(sim, s, speed); continue; }
+    if (s.dive) { stepDive(sim, s); continue; }
+    if (buff(s, 'brace')) speed = 0;
+    if (buff(s, 'shields')) speed *= 0.45;
+    if (buff(s, 'disordered')) speed *= 0.8;
     if (s.ladder && stepLadder(sim, s, speed)) continue;
     let foe = null, fd = 1e9;
     for (const e of S) if (e.side !== s.side && alive(e)) { const d = dist(s, e); if (d < fd) { fd = d; foe = e; } }
@@ -462,7 +821,8 @@ export function step(sim) {
       if (!s.path.length) {
         s.forced = false; s.state = 'hold';
         ev(sim, { k: 'arrive', id: s.id, post: s.goal });
-        if (!nextQueued(sim, s) && s.rally) s.holdFast = true; // a rally point is held until told otherwise
+        if (s.regroup === 1) { s.regroup = 2; s.holdFast = true; s._rg = 0; s._rgAt = sim.t; ev(sim, { k: 'regrouped', id: s.id, side: s.side }); }
+        else if (!nextQueued(sim, s) && s.rally) s.holdFast = true; // a rally point is held until told otherwise
       }
       continue;
     }
@@ -470,10 +830,21 @@ export function step(sim) {
       if (s.engaged !== foe.id) contact(sim, s, foe);
       s.engaged = foe.id; s.state = 'fight'; face(s, foe); if (!s.chase) s.forced = false; continue;
     }
-    const range = RANGE * (sim.fog > 0 ? 0.6 : 1) * (sim.weather === 'storm' ? 0.8 : 1) * (ter.range || 1) * (s.side === 'def' && nearWallInside(sim.field, s.x, s.y) ? 1.2 : 1);
-    if (s.ranged && foe && fd < range && (s.state !== 'move' || s.chase)) {
+    const range = RANGE * (sim.fog > 0 ? 0.6 : 1) * (sim.weather === 'storm' ? 0.8 : 1) * (sim.night ? 0.8 : 1) * (ter.range || 1) * (s.side === 'def' && nearWallInside(sim.field, s.x, s.y) ? 1.2 : 1) * (onHill(sim, s) ? 1.2 : 1);
+    if (s.ranged && s.ammo > 0 && foe && fd < range && (s.state !== 'move' || s.chase) && visibleTo(sim, s.side, foe)) {
       face(s, foe); s.state = 'shoot';
       if (s.shootCd <= 0 && !s.reform) { shoot(sim, s, foe); s.shootCd = 1.1; }
+      continue;
+    }
+    // guarding an area: engage whatever enters it, never chase out of it, drift back to the middle
+    if (s.guard && !s.forced && !s.path.length) {
+      const G = s.guard, dz = (e) => Math.hypot(e.x - G.x, e.y - G.y);
+      if (s.chase) { const c = S.find((q) => q.id === s.chase); if (!c || dz(c) > G.r + 1.5) s.chase = null; }
+      let t = s.chase ? S.find((q) => q.id === s.chase) : null;
+      if (!t) { let bd = 1e9; for (const e of S) if (e.side !== s.side && fighting(e) && dz(e) < G.r + 0.4 && visibleTo(sim, s.side, e)) { const d = dist(s, e); if (d < bd) { bd = d; t = e; } } }
+      if (t && !s.ranged) { moveToward(s, t, speed * 1.05, sim.field); s.state = 'move'; continue; }
+      if (dist(s, G) > 0.7) { moveToward(s, G, speed, sim.field); s.state = 'move'; continue; }
+      if (s.state !== 'hold') s.state = 'hold';
       continue;
     }
     if (s.chase && foe) {
@@ -496,7 +867,7 @@ export function step(sim) {
       if (foe && fd < 2.0 && !s.ranged) s.chase = foe.id;
       continue;
     }
-    if (foe && fd < SIGHT && !s.holdFast) { if (s.ranged) s.state = 'hold'; else { moveToward(s, foe, speed, sim.field); s.state = 'move'; } continue; }
+    if (foe && fd < (sim.night ? 3.8 : SIGHT) && !s.holdFast && visibleTo(sim, s.side, foe)) { if (s.ranged) s.state = 'hold'; else { moveToward(s, foe, speed, sim.field); s.state = 'move'; } continue; }
     if (s.state === 'move' || s.state === 'fight' || s.state === 'shoot' || s.state === 'confused') s.state = 'hold';
   }
   for (let i = 0; i < S.length; i++) for (let j = i + 1; j < S.length; j++) {
@@ -522,7 +893,9 @@ export function step(sim) {
     if (e.state === 'rout') dmg *= 1.3;
     const fl = flankOf(s, e);
     if (fl === 2) { dmg *= 1.4; e.morale -= DT * 2.2; } else if (fl === 1) { dmg *= 1.18; e.morale -= DT * 1; }
-    if (s.pike && e.mounted) dmg *= 1.5;
+    if (s.pike && e.mounted) dmg *= buff(s, 'brace') ? 2.1 : 1.5;
+    if (buff(e, 'shields')) dmg *= 0.85;
+    if (buff(s, 'disordered')) dmg *= 0.8;
     if (isNem(sim, s, e)) dmg *= 1.15;
     const et = TERRAIN[terrainAt(sim.field, e.x, e.y)];
     if (et && et.def) dmg /= et.def;
@@ -530,6 +903,10 @@ export function step(sim) {
     if (liveCount(s) === 0 && !s.heroAlive) s.state = 'dead';
   }
   duels(sim, S);
+  stepHills(sim);
+  stepObjective(sim);
+  // routing squads keep spreading fear to friends close by
+  if (sim.tick % 20 === 0) for (const s of S) if (s.state === 'rout') for (const q of S) if (q !== s && q.side === s.side && fighting(q) && dist(q, s) < 3.5) q.morale -= steadied(sim, q) ? 0.2 : 0.6;
   for (const tr of sim.field.traps || []) {
     for (const s of S) if (fighting(s) && Math.hypot(s.x - tr.x, s.y - tr.y) < 0.9 && sim.tick % 20 === 0) { hitSquad(sim, s, 3, null, true); ev(sim, { k: 'trap', x: tr.x, y: tr.y }); }
   }
@@ -554,8 +931,9 @@ export function step(sim) {
   }
   for (const s of S) if (fighting(s) && s.morale < 12) {
     const by = s.engaged != null ? S.find((q) => q.id === s.engaged) : null;
-    s.state = 'rout'; s.path = []; s.chase = null; s.engaged = null; s.reform = null; s.ladder = null; ev(sim, { k: 'rout', id: s.id });
+    s.state = 'rout'; s.path = []; s.chase = null; s.engaged = null; s.reform = null; s.ladder = null; s.charge = null; s.dive = null; s.regroup = 0; ev(sim, { k: 'rout', id: s.id });
     if (by) nemesisWin(sim, by, s);
+    contagion(sim, s);
   }
   for (const side of ['att', 'def']) {
     const mine = S.filter((s) => s.side === side && alive(s));
@@ -579,19 +957,40 @@ function duels(sim, S) {
   if (d) {
     const a = S.find((q) => q.id === d.a), b = S.find((q) => q.id === d.b);
     d.t += DT;
-    if (!a || !b || !a.heroAlive || !b.heroAlive || a.state === 'rout' || b.state === 'rout' || dist(a, b) > (d.edge ? 7 : MELEE + 1.2)) {
+    if (!a || !b || !a.heroAlive || !b.heroAlive || a.state === 'rout' || b.state === 'rout' || dist(a, b) > 8) {
       sim.duel = null; sim.duelCd = sim.t + 10; ev(sim, { k: 'duelEnd', win: null });
       return;
     }
-    if (d.t < d.len) return;
-    const score = (q) => q.heroAtk * (0.7 + sim.rng() * 0.6) + q.heroHp / 30 + q.morale / 40 + (q.role === 'duelist' ? 3 : 0) + (d.edge === q.id ? 1.5 : 0);
-    const [win, lose] = score(a) >= score(b) ? [a, b] : [b, a];
+    if (d.rt < 0) { d.rt = Math.min(0, d.rt + DT); return; } // the heroes circle between rounds
+    d.rt += DT;
+    // the computer picks for its own heroes (and allies); a player who hesitates too long has the choice made for them
+    const auto = (q) => sim.ai[q.side] || q.ally;
+    if (!d.pa && ((auto(a) && d.rt > 0.8) || d.rt >= DUEL_PICK_TIME)) d.pa = aiDuelPick(sim, d, a, b, d.lb);
+    if (!d.pb && ((auto(b) && d.rt > 0.8) || d.rt >= DUEL_PICK_TIME)) d.pb = aiDuelPick(sim, d, b, a, d.la);
+    if (!d.pa || !d.pb) return;
+    let win;
+    if (d.pa === d.pb) win = duelScore(d, a) * (0.75 + sim.rng() * 0.5) >= duelScore(d, b) * (0.75 + sim.rng() * 0.5) ? a : b;
+    else {
+      win = BEATS[d.pa] === d.pb ? a : b;
+      const lose = win === a ? b : a;
+      // a far stronger fighter can still win an exchange they read wrong
+      if (sim.rng() < Math.max(0, Math.min(0.3, (duelScore(d, lose) - duelScore(d, win)) * 0.03))) win = lose;
+    }
+    const lose = win === a ? b : a, wp = win === a ? d.pa : d.pb;
+    const dmg = (4 + duelScore(d, win) * 0.9) * (wp === 'strike' ? 1.25 : wp === 'guard' ? 0.8 : 1);
+    lose.heroHp = Math.max(1, lose.heroHp - dmg);
+    d.wins[win === a ? 0 : 1]++;
+    ev(sim, { k: 'duelRound', a: a.id, b: b.id, pa: d.pa, pb: d.pb, win: win.id, round: d.round, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+    d.la = d.pa; d.lb = d.pb; d.pa = null; d.pb = null;
+    if (d.round < 3) { d.round++; d.rt = -1.4; return; }
+    const W = d.wins[0] > d.wins[1] ? a : b, L = W === a ? b : a;
     sim.duel = null; sim.duelCd = sim.t + 25;
-    win.morale = Math.min(100, win.morale + 25);
-    for (const q of S) if (alive(q) && q.id !== win.id && dist(q, win) < 7) q.morale = Math.max(0, Math.min(100, q.morale + (q.side === win.side ? 8 : -8)));
-    lose.morale = Math.max(0, lose.morale - 20);
-    ev(sim, { k: 'duelEnd', win: win.id, lose: lose.id, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
-    damageHero(sim, lose, lose.heroMax * 0.35);
+    // the whole field watched: a big swing in heart either way
+    W.morale = Math.min(100, W.morale + 35);
+    for (const q of S) if (alive(q) && q.id !== W.id && q.id !== L.id && dist(q, W) < 8) q.morale = Math.max(0, Math.min(100, q.morale + (q.side === W.side ? 12 : -12)));
+    L.morale = Math.max(0, L.morale - 30);
+    ev(sim, { k: 'duelEnd', win: W.id, lose: L.id, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, wins: d.wins.slice() });
+    damageHero(sim, L, L.heroMax * 0.25);
     return;
   }
   if (sim.t < sim.duelCd || sim.tick % 20 !== 0) return;
@@ -602,7 +1001,7 @@ function duels(sim, S) {
     const key = Math.min(s.id, e.id) + ':' + Math.max(s.id, e.id);
     if (sim.duelled.includes(key) || sim.rng() > 0.25) continue;
     sim.duelled.push(key);
-    sim.duel = { a: s.id, b: e.id, t: 0, len: 3.2 };
+    sim.duel = newDuel(s.id, e.id, null);
     ev(sim, { k: 'duelStart', a: s.id, b: e.id, x: (s.x + e.x) / 2, y: (s.y + e.y) / 2 });
     return;
   }
@@ -703,7 +1102,8 @@ function contact(sim, s, e) {
   if (s.mounted && s.moveT > 1.2 && s.state !== 'rout') {
     let atk = 0; for (const so of s.soldiers) if (so.alive) atk += so.atk;
     if (e.pike) {
-      hitSquad(sim, s, atk * 0.5, e, true); s.morale -= 15;
+      const braced = buff(e, 'brace');
+      hitSquad(sim, s, atk * (braced ? 0.8 : 0.5), e, true); s.morale -= braced ? 22 : 15;
       ev(sim, { k: 'charge', id: s.id, x: e.x, y: e.y, broken: true });
     } else {
       hitSquad(sim, e, atk * 0.9 * s.atkMul, s, true); e.morale -= 14;
@@ -727,7 +1127,15 @@ function shoot(sim, s, foe) {
   if (ts && ts.range > 1) dmg *= 1.2;
   if (s.side === 'def' && nearWallInside(sim.field, s.x, s.y)) dmg *= 1.3;
   if (tf && tf.cover) dmg *= tf.cover;
-  ev(sim, { k: 'shot', from: s.id, to: foe.id });
+  if (onHill(sim, s)) dmg *= 1.15;
+  if (buff(foe, 'shields')) dmg *= 0.35;
+  if (buff(s, 'fire')) {
+    dmg *= 1.35;
+    // burning arrows set the ground alight where the enemy stands (not on friends locked in melee, not in a storm)
+    if (sim.weather !== 'storm' && foe.state !== 'fight' && ((s._fn = (s._fn || 0) + 1) % 3 === 1)) { sim.fires.push({ x: foe.x, y: foe.y, t: 3.5, r: 1.1, pow: 1.0 * (sim.field.underground ? 0.35 : 1), side: s.side }); }
+  }
+  if (s.ranged) { s.ammo = Math.max(0, s.ammo - 1); if (s.ammo === 0) ev(sim, { k: 'ammoOut', id: s.id, side: s.side }); }
+  ev(sim, { k: 'shot', from: s.id, to: foe.id, fire: buff(s, 'fire') || undefined });
   if (sim.ai[foe.side] && !foe.ranged && !foe.chase && foe.state !== 'rout' && foe.state !== 'fight') foe.chase = s.id;
   hitSquad(sim, foe, dmg, s);
 }
@@ -737,9 +1145,10 @@ function hitSquad(sim, e, dmg, src, raw) {
   if (n === 0) { damageHero(sim, e, dmg); return; }
   let defAvg = 0;
   for (const so of e.soldiers) if (so.alive) defAvg += so.def;
-  defAvg = (defAvg / n) * e.defMul * FORMATIONS[e.formation].def * (e.reform ? 0.8 : 1) * (buff(e, 'exposed') ? 0.7 : 1);
+  defAvg = (defAvg / n) * e.defMul * FORMATIONS[e.formation].def * (e.reform ? 0.8 : 1) * (buff(e, 'exposed') ? 0.7 : 1) * (buff(e, 'disordered') ? 0.75 : 1);
   if (!raw) dmg = dmg / (1 + defAvg * 0.11);
   if (e.state === 'climb') dmg *= 1.6;
+  if (sim.hills.length && onHill(sim, e)) dmg *= 0.82;
   if (src && src.ranged && e.side === 'def' && nearWallInside(sim.field, e.x, e.y) && !inWalls(sim.field, src.x, src.y)) dmg *= 0.7; // battlements
   if (sim.field.posts.some((p) => p.fort && p.fort.side === e.side && Math.hypot(p.x - e.x, p.y - e.y) < CAP_R + 0.5)) dmg *= 0.6;
   // defenders fight harder on their own ground
@@ -792,6 +1201,9 @@ export function aiThink(sim, side, alliesOnly = false) {
     if (sim.t > 30) for (const q of sim.squads) if (q.side === side && q.state === 'reserve') callReserve(sim, q);
   }
   for (const s of S) aiSkill(sim, s, enemies);
+  const seen = enemies.filter((e) => visibleTo(sim, side, e));
+  for (const s of S) aiAbility(sim, s, seen);
+  aiObjective(sim, side, S, seen);
   // stall breaker: nothing has happened for a while, so force the issue
   if (sim.t - sim.lastAction > 18) {
     for (const s of S) {
@@ -812,11 +1224,44 @@ export function aiThink(sim, side, alliesOnly = false) {
     // also: hit enemies already locked with a friend (flank them), pikes go for horsemen, horsemen avoid pikes
     const score = (e) => liveCount(e) + e.morale / 25 + dist(e, s) * 0.8 - (e.state === 'rout' ? 3 : 0)
       - (e.state === 'fight' && e.engaged !== s.id ? 4 : 0) - (s.pike && e.mounted ? 5 : 0) + (s.mounted && e.pike ? 8 : 0);
-    const near = enemies.filter((e) => dist(e, s) < 4.5).sort((a, b) => score(a) - score(b))[0];
+    const near = seen.filter((e) => dist(e, s) < 4.5).sort((a, b) => score(a) - score(b))[0];
     if (near && !s.reform && s.formCd <= 0 && COUNTER[near.formation] !== s.formation && !s.ranged && (sim.tick / 10 + s.id) % 3 === 0) changeFormation(sim, s, COUNTER[near.formation]);
     if (buff(s, 'confused') || buff(s, 'feint')) continue;
-    if (s.ladder || s.state === 'siege') continue;
+    if (s.ladder || s.state === 'siege' || s.charge || s.dive || buff(s, 'brace')) continue;
+    // fall back to camp to recover, then march out again
+    if (s.regroup === 1) continue;
+    if (s.regroup === 2) {
+      if ((s.morale >= 85 && (s.revived >= Math.ceil(s.soldiers.length * 0.3) || !s.soldiers.some((x) => !x.alive))) || sim.t - (s._rgAt || 0) > 28) { s.regroup = 0; s.holdFast = false; }
+      else continue;
+    }
+    if (!s._rgDone && !s.ally && s.state !== 'fight' && S.length > 1 && sim.t < TIME_LIMIT - 70 && (s.morale < 28 || liveCount(s) <= s.soldiers.length * 0.35) && !S.some((q) => q.regroup)) {
+      const camp = campOf(sim, side);
+      if (camp && dist(s, camp) < 22 && dist(s, camp) > 3 && startRegroup(sim, s)) { s._rgDone = 1; continue; }
+    }
     if (s.state === 'fight' || s.state === 'shoot') continue;
+    if (s.guard) continue; // guards hold their ground (the sim engages whatever walks in)
+    // empty quivers: back to the nearest base to resupply
+    if (s.ranged && s.ammo <= 0) s._resup = 1;
+    if (s._resup) {
+      if (s.ammo >= s.ammoMax * 0.75) s._resup = 0;
+      else {
+        const p = nearestOwnedPost(sim, s);
+        if (p && p.id != null && dist(s, p) > 2 && s.goal !== p.id) routeTo(sim, s, p.id, true);
+        continue;
+      }
+    }
+    if (s._obj && sim.obj && !sim.obj.done) {
+      if (near && !s.ranged && dist(near, s) < 3) { if (s.chase !== near.id) command(sim, side, { type: 'chase', squad: s.id, target: near.id }); }
+      continue;
+    }
+    s._obj = 0;
+    // archers take the high ground when nothing better is near
+    if (s.ranged && !near && sim.hills.length) {
+      const hl = sim.hills.find((h) => h.owner !== side && dist(h, s) < 9 && !S.some((q) => q !== s && dist(q, h) < HILL_R + 0.5));
+      if (hl) { if (!s.rally || Math.hypot(s.rally.x - hl.x, s.rally.y - hl.y) > 0.5) { if (routeToSpot(sim, s, hl.x, hl.y)) { s.forced = false; } } continue; }
+      const mine = sim.hills.find((h) => h.owner === side && dist(h, s) < HILL_R + 0.4);
+      if (mine && side === 'def' && posts.some((p) => p.owner === 'def' && dist(p, mine) < 8)) continue; // defenders keep their archers up there
+    }
     if (side === 'att') {
       // siege: with the gate still standing, some foot squads go over the wall instead
       const R = sim.field.wallRect;
@@ -838,12 +1283,13 @@ export function aiThink(sim, side, alliesOnly = false) {
       const R = sim.field.wallRect;
       // behind walls the garrison holds the keep: only foes at (or inside) the walls are worth sallying for
       const nearKeep = (e) => !R || (e.x > R.x0 - 2.5 && e.x < R.x1 + 3.5 && e.y > R.y0 - 2.5 && e.y < R.y1 + 3.5);
-      const threats = enemies.filter((e) => e.state !== 'rout' && nearKeep(e) && posts.some((p) => p.owner === 'def' && dist(e, p) < 6));
+      const threats = seen.filter((e) => e.state !== 'rout' && nearKeep(e) && posts.some((p) => p.owner === 'def' && dist(e, p) < 6));
       threats.sort((a, b) => (b.ranged - a.ranged) || (dist(a, s) - dist(b, s)));
       let tgt = threats[0];
-      if (guard) tgt = enemies.filter((e) => dist(e, home) < 7).sort((a, b) => dist(a, s) - dist(b, s))[0];
+      if (guard && home && !s._g0) { s._g0 = 1; setGuard(sim, s, home.x + (s.id % 3) * 0.6 - 0.6, home.y + 0.6, R ? 3.5 : 5); continue; }
+      if (guard) tgt = seen.filter((e) => dist(e, home) < 7).sort((a, b) => dist(a, s) - dist(b, s))[0];
       else if (!tgt && !R) {
-        const lone = enemies.filter((e) => e.state !== 'rout').sort((a, b) => liveCount(a) - liveCount(b))[0];
+        const lone = seen.filter((e) => e.state !== 'rout').sort((a, b) => liveCount(a) - liveCount(b))[0];
         if (lone && liveCount(lone) < liveCount(s) * 1.1 && dist(lone, s) < 18) tgt = lone;
       }
       if (tgt) { if (!s.ranged && s.chase !== tgt.id) command(sim, side, { type: 'chase', squad: s.id, target: tgt.id }); continue; }
@@ -854,6 +1300,45 @@ export function aiThink(sim, side, alliesOnly = false) {
   }
 }
 
+// every troop type's drill, used when it pays off
+function aiAbility(sim, s, seen) {
+  if (s.abCd > 0 || (sim.tick / 10 + s.id) % 2 !== 0 || s.charge || s.dive || s.regroup || liveCount(s) === 0) return;
+  const d = (e) => dist(e, s), k = s.abil;
+  let go = false, c = {};
+  if (k === 'charge') {
+    if (s.state === 'fight' || s.reform) return;
+    const t = seen.filter((e) => e.state !== 'rout' && d(e) > 2.5 && d(e) < 8 && !(e.pike && (buff(e, 'brace') || e.formation === 'square'))).sort((a, b) => (b.ranged - a.ranged) || (d(a) - d(b)))[0];
+    if (t) { go = true; const dd = d(t); c = { x: s.x + (t.x - s.x) / dd * Math.min(CHARGE_LEN, dd + 2), y: s.y + (t.y - s.y) / dd * Math.min(CHARGE_LEN, dd + 2) }; }
+  } else if (k === 'brace') go = seen.some((e) => e.mounted && e.state !== 'rout' && d(e) < 4.5) && s.state !== 'move';
+  else if (k === 'fire') go = s.state === 'shoot' && s.ammo > 5;
+  else if (k === 'shields') go = s.state !== 'fight' && seen.some((e) => e.ranged && e.ammo > 0 && d(e) < RANGE + 0.5) && !seen.some((e) => !e.ranged && d(e) < 2.5);
+  else if (k === 'blast') go = seen.some((e) => d(e) < 7 && liveCount(e) >= 3);
+  else if (k === 'roar') go = seen.filter((e) => d(e) < 3.6).length >= 1 && (s.state === 'fight' || seen.some((e) => d(e) < 3.6 && e.morale < 50));
+  else if (k === 'dive') go = seen.some((e) => e.ranged && d(e) < 10) || (s.state !== 'fight' && seen.some((e) => d(e) < 6));
+  if (go) useAbility(sim, s, c);
+}
+// one squad goes after the side objective (escort the caravan, burn or guard the supplies, free the captive)
+function aiObjective(sim, side, S, seen) {
+  const O = sim.obj;
+  if (!O || O.done || (sim.tick / 10) % 3 !== 0 || sim.t < 6) return;
+  if (O.kind === 'supplies' && side === 'def') {
+    // the defenders post a guard on their stores once attackers come near
+    if (!seen.some((e) => Math.hypot(e.x - O.x, e.y - O.y) < 10) || S.some((q) => q._obj)) return;
+  }
+  let q = S.find((x) => x._obj);
+  if (!q) {
+    const cands = S.filter((x) => !x.ranged && !x.ally && !x.guard && !x.regroup && !x.ladder && x.state !== 'fight' && liveCount(x) >= 3 && Math.hypot(x.x - O.x, x.y - O.y) < 18);
+    if (cands.length < (side === 'att' ? 2 : 1) && S.length > 1) return; // never strip the main effort bare
+    q = cands.sort((a, b) => Math.hypot(a.x - O.x, a.y - O.y) - Math.hypot(b.x - O.x, b.y - O.y))[0];
+    if (!q) return;
+    q._obj = 1;
+  }
+  const dd = Math.hypot(q.x - O.x, q.y - O.y);
+  if (O.kind === 'supplies' && side === 'def') { if (!q.guard) setGuard(sim, q, O.x, O.y, 3); return; }
+  if (dd > (O.kind === 'caravan' ? 1.4 : 0.9) && (!q.rally || Math.hypot(q.rally.x - O.x, q.rally.y - O.y) > 1 || !q.path.length)) {
+    if (!routeToSpot(sim, q, O.x, O.y)) { q.path = [{ x: O.x, y: O.y }]; q.forced = true; }
+  }
+}
 function aiSkill(sim, s, enemies) {
   if (!s.role || s.skillCd > 0 || !s.heroAlive || (sim.tick / 10 + s.id) % 4 !== 0) return;
   const friends = sim.squads.filter((q) => q.side === s.side && fighting(q) && dist(q, s) < 6.5);
@@ -896,7 +1381,9 @@ export function battleResult(sim) {
     heroes[s.hero] = { alive: s.soldiers.filter((x) => x.alive).map((x) => x.idx), defeated: !s.heroAlive };
     if (s.turncoat) treachery.push(s.hero);
   }
-  return { winner: sim.winner, heroes, retreated: sim.retreat, treachery, nemesisResult: sim.nemesisResult.slice() };
+  // side objective: { kind: 'caravan'|'supplies'|'captive', done, by: 'att'|'def'|null } (null when the field had none)
+  const objective = sim.obj ? { kind: sim.obj.kind, done: !!sim.obj.done, by: sim.obj.by || null } : null;
+  return { winner: sim.winner, heroes, retreated: sim.retreat, treachery, nemesisResult: sim.nemesisResult.slice(), objective, night: !!sim.night };
 }
 
 // queued waypoints as world points (posts resolved), for drawing
@@ -915,7 +1402,13 @@ export function snapshot(sim) {
       s.heroAlive ? Math.round(s.heroHp) : -1, s.soldiers.map((x) => (x.alive ? Math.max(1, Math.round(x.hp)) : 0)), s.goal ?? -1,
       s.reform ? [s.reform.to, +(s.reform.t / s.reform.total).toFixed(2)] : 0, Object.keys(s.buffs).filter((k) => s.buffs[k] > 0).join(','), s.side,
       Math.ceil(s.skillCd), queuePoints(sim, s), s.rally ? [+s.rally.x.toFixed(1), +s.rally.y.toFixed(1)] : 0, s.holdFast ? 1 : 0, s.chase ?? -1,
-      s.path.map((p) => [+p.x.toFixed(1), +p.y.toFixed(1)])]),
+      s.path.map((p) => [+p.x.toFixed(1), +p.y.toFixed(1)]),
+      Math.ceil(s.abCd || 0), s.ammo || 0, s.guard ? [s.guard.x, s.guard.y, s.guard.r] : 0, s.regroup || 0,
+      s.charge ? [s.charge.x0, s.charge.y0, s.charge.x, s.charge.y] : 0, s.dive ? s.dive.id : -1, s.revived || 0]),
+    n: sim.night ? 1 : 0,
+    hl: sim.hills.map((h) => [h.owner, Math.round(h.prog * 100), h.by]),
+    du: sim.duel ? [sim.duel.a, sim.duel.b, sim.duel.round, +sim.duel.rt.toFixed(2), sim.duel.pa ? 1 : 0, sim.duel.pb ? 1 : 0, sim.duel.wins[0], sim.duel.wins[1], sim.duel.edge] : 0,
+    ob: sim.obj ? [sim.obj.kind, +sim.obj.x.toFixed(2), +sim.obj.y.toFixed(2), +sim.obj.prog.toFixed(2), sim.obj.done ? 1 : 0, sim.obj.by, sim.obj.pby] : 0,
     g: sim.gates.map((q) => Math.round(q.hp)), l: sim.ladders.map((q) => [q.id, q.x, q.y, q.side]),
     rv: [sim.reveal.att > 0 ? 1 : 0, sim.reveal.def > 0 ? 1 : 0, sim.trapsSeen.att > 0 ? 1 : 0, sim.trapsSeen.def > 0 ? 1 : 0],
     e: sim.events.slice(-50),
@@ -940,9 +1433,28 @@ export function applySnapshot(sim, snap) {
       s.skillCd = q[14]; s._qpts = q[15] || []; s.rally = q[16] ? { x: q[16][0], y: q[16][1] } : null; s.holdFast = !!q[17];
       s.chase = q[18] >= 0 ? q[18] : null; s.path = (q[19] || []).map(([x, y]) => ({ x, y }));
     }
+    if (q.length > 20) {
+      s.abCd = q[20]; s.ammo = q[21]; s.guard = q[22] ? { x: q[22][0], y: q[22][1], r: q[22][2] } : null; s.regroup = q[23];
+      s.charge = q[24] ? { x0: q[24][0], y0: q[24][1], x: q[24][2], y: q[24][3], t: 0, hit: [] } : null; s.dive = q[25] >= 0 ? { id: q[25], t: 0 } : null; s.revived = q[26];
+    }
   }
   if (snap.g) snap.g.forEach((hp, i) => { if (sim.gates[i]) sim.gates[i].hp = hp; });
   if (snap.l) sim.ladders = snap.l.map(([id, x, y, side]) => ({ id, x, y, side }));
+  if (snap.n != null) sim.night = !!snap.n;
+  if (snap.hl) snap.hl.forEach((q, i) => { const h = sim.hills[i]; if (h) { h.owner = q[0]; h.prog = q[1] / 100; h.by = q[2]; } });
+  if (snap.du !== undefined) {
+    const D = snap.du;
+    if (!D) sim.duel = null;
+    else {
+      if (!sim.duel || sim.duel.a !== D[0] || sim.duel.b !== D[1]) sim.duel = newDuel(D[0], D[1], D[8]);
+      Object.assign(sim.duel, { round: D[2], rt: D[3], pa: D[4] ? '?' : null, pb: D[5] ? '?' : null, wins: [D[6], D[7]] });
+    }
+  }
+  if (snap.ob !== undefined) {
+    const O = snap.ob;
+    if (!O) sim.obj = null;
+    else { sim.obj = sim.obj || { kind: O[0] }; Object.assign(sim.obj, { kind: O[0], x: O[1], y: O[2], prog: O[3], done: !!O[4], by: O[5], pby: O[6] }); }
+  }
   if (snap.rv) { sim.reveal.att = snap.rv[0]; sim.reveal.def = snap.rv[1]; sim.trapsSeen.att = snap.rv[2]; sim.trapsSeen.def = snap.rv[3]; }
   for (const e of snap.e) if (e.seq > sim.evSeq) { sim.events.push(e); sim.evSeq = e.seq; }
 }
