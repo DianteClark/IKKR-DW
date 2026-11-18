@@ -283,6 +283,9 @@ function buildUI(keep = false) {
   refreshUI();
 }
 const sign = (n) => (n >= 0 ? '+' + n : '' + n);
+// claimed mines pay 35g a month on top of the realm's income (see neutral.js)
+const minesOf = (st, kid) => (st.sites || []).filter((x) => x.kind === 'mine' && x.status === 'claimed' && x.owner === kid).length;
+const goldPerMonth = (st, k, eco) => eco.gold + minesOf(st, k.id) * 35;
 
 export function refreshUI() {
   if (!S.state || !ui.top || game.sceneName !== 'campaign') return;
@@ -297,7 +300,7 @@ export function refreshUI() {
     h('span', { class: 'chip row tap realm-chip', style: { gap: '5px', maxWidth: '26vw', minWidth: 0, flexShrink: 1 }, onClick: realmSheet },
       bannerIcon(k), h('span', { class: 'ellipsis' }, k.landless ? 'Warband of ' + (hero(st, k.ruler) || {}).name : k.name),
       h('span', { class: 'tag gold' }, k.landless ? 'Landless' : TIERS[tierIndex(k)].name)),
-    h('span', { class: 'chip gold tap', title: 'Gold', onClick: () => economySheet('gold') }, picon('gold', 16), `${k.gold} `, h('small', { class: eco.gold >= 0 ? 'good' : 'bad' }, sign(eco.gold))),
+    h('span', { class: 'chip gold tap', title: 'Gold', onClick: () => economySheet('gold') }, picon('gold', 16), `${k.gold} `, h('small', { class: goldPerMonth(st, k, eco) >= 0 ? 'good' : 'bad' }, sign(goldPerMonth(st, k, eco)))),
     h('span', { class: 'chip tap', title: 'Food', onClick: () => economySheet('food') }, picon('food', 16), `${Math.round(k.food)} `, h('small', { class: eco.food >= 0 ? 'good' : 'bad' }, sign(eco.food))),
     h('span', { class: 'chip tap ' + (k.morale < 30 ? 'bad' : ''), title: 'Order', onClick: () => economySheet('morale') }, picon('stability', 16), `${Math.round(k.morale)}`),
     h('span', { class: 'chip muted', title: cap1(dateOf(st.turn)) }, shortDate(st.turn)),
@@ -484,7 +487,8 @@ function orderActions(list) {
     const ta = st.territories[route[0]], tb = st.territories[route[1]];
     const ct = ta.id === lead.loc || ta.nb.includes(lead.loc) ? ta : tb, victim = ct.owner;
     const peace = victim >= 0 && !atWar(st, k.id, victim);
-    const gold = 60 + Math.round(lead.level * 8), on = is('raid');
+    const first = st.heroes.find((x) => ids.includes(x.id)) || lead; // the first of them in the month's order takes the loot
+    const gold = 60 + Math.round(first.level * 8), on = is('raid');
     const go = () => { all(on ? null : { type: 'raid' }); if (!on) { sfx('horn'); toast(`Your heroes will ambush the caravan near ${ct.name}`); } };
     out.push({ id: 'raid', label: `Raid caravan +${gold}g${peace ? ' (act of war)' : ''}`, cls: 'danger', on, desc: `Ambush the caravan running ${ta.name} – ${tb.name}.`,
       run: () => (on || !peace ? go() : confirm('Raid the caravan?', `It belongs to ${st.kingdoms[victim].name}. Robbing it is an act of war: they will declare war on you or sue for peace.`, 'Raid', 'Cancel', 'danger').then((ok) => ok && go())) });
@@ -779,7 +783,7 @@ function economySheet(focusOn = 'gold') {
   const line = (label, val, cls = '') => h('div', { class: 'eco-line' }, h('span', { class: 'grow' }, label), h('b', { class: cls }, val));
   const sgn = (n) => (n > 0 ? '+' : '') + (Math.round(n * 10) / 10);
   const pct = (f) => (f >= 1 ? '+' : '') + Math.round((f - 1) * 100) + '%';
-  const mines = (st.sites || []).filter((x) => x.kind === 'mine' && x.status === 'claimed' && x.owner === k.id).length;
+  const mines = minesOf(st, k.id);
   const lands = kingdomTerritories(st, k.id).sort((a, b) => territoryIncome(b) - territoryIncome(a));
   const tax = POLICIES.tax[k.policy.tax], rat = POLICIES.rations[k.policy.rations];
   const driftM = (55 - k.morale) * 0.08;
@@ -790,6 +794,7 @@ function economySheet(focusOn = 'gold') {
       line(`${lands.length} land${lands.length === 1 ? '' : 's'}`, `+${e.landGold}`),
       e.taxGold !== 1 ? line(`${tax.name} taxes`, pct(e.taxGold), e.taxGold > 1 ? 'good' : 'bad') : null,
       mines ? line(`${mines} claimed mine${mines > 1 ? 's' : ''}`, `+${mines * 35}`, 'good') : null,
+      e.trade ? line('Trade caravans', `+${e.trade}`, 'good') : null,
       e.tributeIn ? line('Tribute from vassals', `+${e.tributeIn}`, 'good') : null,
       e.tributeOut ? line('Tribute to your overlord', `−${e.tributeOut}`, 'bad') : null,
       lands.length > 1 ? h('div', { class: 'muted', style: { fontSize: '12px' } }, 'Richest: ' + lands.slice(0, 3).map((t) => `${t.name} ${territoryIncome(t)}g`).join(' · ')) : null,
@@ -838,7 +843,7 @@ function realmSheet() {
         h('div', { class: 'row wrap', style: { gap: '6px' } }, kingdomBadge(k, { race: true }), chip(k.landless ? 'Landless warband' : TIERS[tierIndex(k)].name, 'gold')),
         h('div', { class: 'muted', style: { fontSize: '13px' } }, k.landless ? 'You have no land. Wander, hire wanderers and raise an uprising to seize a territory. The war is lost only when your last hero falls.' : TIERS[tierIndex(k)].desc),
         statRow('Lands', `${eco.lands}`), statRow('Heroes / troops', `${kingdomHeroes(st, k.id, true).length} / ${eco.soldiers}`),
-        statRow('Gold per turn', `${sign(eco.gold)}${eco.tributeOut ? ` (−${eco.tributeOut} tribute)` : ''}${eco.tributeIn ? ` (+${eco.tributeIn} tribute)` : ''}`),
+        statRow('Gold per turn', `${sign(goldPerMonth(st, k, eco))}${eco.tributeOut ? ` (−${eco.tributeOut} tribute)` : ''}${eco.tributeIn ? ` (+${eco.tributeIn} tribute)` : ''}`),
         eco.trade ? statRow('Trade caravans', `+${eco.trade}g from friendly borders`) : null,
         statRow('Food per turn', `${sign(eco.food)}  (grown ${eco.foodMade}, eaten ${eco.foodEaten})`),
         statRow('Date', `${cap1(dateOf(st.turn))} · harvest ×${SEASON_FOOD[seasonOf(st.turn)]}`),
