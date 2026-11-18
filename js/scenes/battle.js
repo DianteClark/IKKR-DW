@@ -1014,7 +1014,7 @@ function tap(sx, sy, fromDrag = false) {
   // on (or near) a road: march to that exact spot and hold it — a bridge, a crossroads, an ambush
   const rp = nearestRoadPoint(sim.field, wx, wy);
   if (rp && rp.d < Math.max(2.2, R)) { orderPoint(sel, rp); return; }
-  const near = postAt(wx, wy, 8);
+  const near = postAt(wx, wy, 4.5);
   if (near) { orderMove(sel, near); return; }
   setSel([]); toast('Selection cleared · tap a base, a road or an enemy to give orders');
 }
