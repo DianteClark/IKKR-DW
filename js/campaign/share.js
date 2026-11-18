@@ -3,14 +3,14 @@ import { renderRegion, drawTowns, drawSites, drawGuards, drawAnimated, TS } from
 import { kingdomHeroes, kingdomTerritories, totalTroops } from '../game/world.js';
 import { TIERS, tierIndex } from '../game/rules.js';
 import { FACTIONS } from '../data/art.js';
-import { seasonOf, yearOf, dateOf } from '../game/family.js';
+import { yearOf, dateOf } from '../game/family.js';
 import { bannerCanvas, BANNER_W, BANNER_H } from '../engine/banner.js';
-import { h, btn, modal, toast } from '../engine/ui.js';
+import { h, modal, toast } from '../engine/ui.js';
 import { sfx } from '../engine/audio.js';
 
 const OUT_W = 1280, OUT_H = 720, MAP_SCALE = 2;
 
-export function renderRealmCard(state, T, kid) {
+function renderRealmCard(state, T, kid) {
   const k = state.kingdoms[kid];
   const lands = kingdomTerritories(state, kid);
   const heroes = kingdomHeroes(state, kid, true);

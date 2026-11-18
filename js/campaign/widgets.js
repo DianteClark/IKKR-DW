@@ -1,10 +1,9 @@
-import { picon } from '../engine/icons.js';
 import { bannerEl } from '../engine/banner.js';
 // Reusable game widgets: portraits, unit icons, hero/unit cards, item icons, kingdom badges.
 import { h, sprite, bar } from '../engine/ui.js';
 import { FACTIONS, portraitRef, ITEMS } from '../data/art.js';
 import { UNIT_SHEETS } from '../data/units.js';
-import { unitName, squadCap, heroTotals, isRanged, RANKS, FORMATIONS } from '../game/rules.js';
+import { unitName, squadCap, heroTotals, isRanged } from '../game/rules.js';
 
 const uf = (hero) => hero.ufid || hero.fid;
 import { rarityColor } from '../game/items.js';
@@ -23,7 +22,7 @@ export function itemIcon(it, scale = 2) {
   return sprite(ITEMS, it.icon[0] * 16, it.icon[1] * 16, 16, 16, scale, { style: { border: `2px solid ${rarityColor(it.rarity)}`, borderRadius: '3px', backgroundColor: '#1b1726', boxShadow: `0 0 6px ${rarityColor(it.rarity)}55` } });
 }
 
-export function troopSummary(hero, kingdom) {
+function troopSummary(hero, kingdom) {
   const s1 = hero.troops.filter((t) => t.s === 1).length, s3 = hero.troops.filter((t) => t.s === 3).length, s2 = hero.troops.length - s1 - s3;
   return { s1, s2, s3, cap: squadCap(hero, kingdom) };
 }
@@ -95,4 +94,3 @@ export function factionBadge(fid, scale = 1) {
   return sprite(r[0], r[1], r[2], r[3], r[4], scale * (64 / r[3]) * 0.6);
 }
 
-export { RANKS, FORMATIONS };

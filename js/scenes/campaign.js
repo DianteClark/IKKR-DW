@@ -15,37 +15,36 @@ import { SPELLS } from '../data/spells.js';
 import {
   terrainOf, hero, heroesAt, kingdomHeroes, kingdomTerritories, captivesOf, vagabondsIn, validTargets, validMoves, validSpyTargets,
   restPrice, applyOrders, collectBattles, prepareBattle, autoResolve, applyBattle, isHumanKingdom, powerAt, troopOptions, battleOdds,
-  hasIntel, friendly, overlordOf, treaty, proposedMajority, totalTroops, fixPortraits, skirmishTargets,
+  hasIntel, friendly, treaty, proposedMajority, totalTroops, fixPortraits, skirmishTargets,
 } from '../game/world.js';
 import { endTurn } from '../game/turn.js';
 import { scoutsLeft, scoutableLands } from '../game/intel.js';
 import { STEWARD_FOCUS, stewardOf } from '../game/steward.js';
-import { armyAt, armiesOf, sharedOrder, orderStatus, commanderOf } from '../game/army.js';
+import { armyAt, armiesOf, sharedOrder, orderStatus } from '../game/army.js';
 import { besiegeTargets } from '../game/siege.js';
-import { weatherAt, WEATHER } from '../game/weather.js';
-import { neutralActions, sitesIn, SITES, plunderYield, canCourt } from '../game/neutral.js';
-import { dateOf, shortDate, seasonOf, yearOf, SEASON_FOOD, childrenOf, wedOptions, MARRY_LEVEL, childNames } from '../game/family.js';
+import { neutralActions, sitesIn, SITES, canCourt } from '../game/neutral.js';
+import { dateOf, shortDate, seasonOf, SEASON_FOOD, childrenOf, wedOptions, MARRY_LEVEL, childNames } from '../game/family.js';
 import { runAI } from '../game/ai.js';
 import { applyAction } from '../game/actions.js';
 import {
   squadCap, developCost, territoryIncome, territoryFood, heroTotals, unitName, FORMATIONS, FORMATION_IDS, HIRE_COST, isRanged, LEVEL_XP,
-  soldierStats, soldierTitle, unitLevel, TIERS, tierIndex, BUILDINGS, POLICIES, EDICTS, STRATAGEMS, PROMOTE_ELITE_COST, commandPool, recruitCost, CLASS_INFO, ROLES, ROLE_LEVEL, canLead, TEMPERS,
+  soldierStats, soldierTitle, TIERS, tierIndex, BUILDINGS, POLICIES, EDICTS, STRATAGEMS, PROMOTE_ELITE_COST, commandPool, recruitCost, CLASS_INFO, ROLES, ROLE_LEVEL, canLead, TEMPERS,
 } from '../game/rules.js';
 import { SLOTS, SLOT_NAMES, itemStatText, rarityColor } from '../game/items.js';
 import { economyPreview, edictCost, canEdict, promotionStatus, loadoutOptions, loadoutSlots } from '../game/kingdom.js';
-import { alliesOf, vassalsOf, opinion, realmPower, dominant, willingness, atWar, warsOf } from '../game/diplomacy.js';
+import { alliesOf, opinion, realmPower, dominant, willingness, atWar, warsOf } from '../game/diplomacy.js';
 import { EVENT_INFO } from '../game/events.js';
 import { captureScene, decisionScene, nemesisLine } from '../game/dialogue.js';
 import { questText, nemesisPairs } from '../game/stories.js';
 import { pendingChoice } from '../game/choices.js';
 import { checkAchievements, recordCampaign } from '../game/legacy.js';
-import { renderTerrain, drawTerrain, drawOverlay, drawSites, drawTowns, drawHeroes, drawOrders, drawAnimated, drawSeason, captureFx, renderMinimap, updateMinimap, hitTest, drawLandOutline, drawGuards, setSeason, setVisibility, drawFog, drawCaravans, drawWeather, isSeen, TS } from '../campaign/mapview.js';
+import { renderTerrain, drawTerrain, drawSites, drawTowns, drawHeroes, drawOrders, drawAnimated, drawSeason, captureFx, renderMinimap, updateMinimap, hitTest, drawLandOutline, drawGuards, setSeason, setVisibility, drawFog, drawCaravans, drawWeather, TS } from '../campaign/mapview.js';
 import { visibleLands, fogOn } from '../game/fog.js';
 import { tradeRoutes, raidableHere } from '../game/trade.js';
 import { bannerEl } from '../engine/banner.js';
 import { GOALS, goalState, newlyDone } from '../campaign/goals.js';
 import { shareRealm } from '../campaign/share.js';
-import { portrait, unitIcon, itemIcon, heroCard, orderLabel, kingdomBadge, unitCard } from '../campaign/widgets.js';
+import { portrait, unitIcon, itemIcon, heroCard, kingdomBadge, unitCard } from '../campaign/widgets.js';
 import { saveCampaign, getRecord, prettyCode, stampCampaign, flush } from '../game/save.js';
 import { sfx, music } from '../engine/audio.js';
 import { net } from '../net/net.js';
@@ -141,7 +140,7 @@ registerScene('campaign', {
     const view = { x: cam.x - vw / 2, y: cam.y - vh / 2, w: vw, h: vh };
     drawTerrain(ctx, S.T, view);
     drawAnimated(ctx, S.T, game.time, view);
-    // banners and border guards show who holds what; the old frontier lines are an option in Settings
+    // banners and border guards show who holds what
     const pulse = 0.5 + 0.5 * Math.sin(game.time * 5);
     if (S.target) {
       drawLandOutline(ctx, S.T, S.target.valid, S.target.kind === 'attack' ? '#ff4a3a' : S.target.kind === 'spy' ? '#c48bff' : '#ffffff', 2);
@@ -154,8 +153,8 @@ registerScene('campaign', {
     drawTowns(ctx, st, game.time, view);
     drawFog(ctx, S.T, view);
     drawWeather(ctx, st, S.T, game.time, view);
-    drawHeroes(ctx, st, game.time, S.travel, S.T, myK().id);
-    drawOrders(ctx, st, net.role === 'single' ? null : st.players[S.me].kingdom, game.time);
+    drawHeroes(ctx, st, game.time, S.travel, S.T, myK().id, view);
+    drawOrders(ctx, st, net.role === 'single' ? null : st.players[S.me].kingdom, game.time, view);
     // event markers over towns
     for (const t of st.territories) {
       if (!t.fx || !t.fx.length) continue;
@@ -206,7 +205,7 @@ registerScene('campaign', {
     if (hit && hit.kind === 'hero') { const x = hero(S.state, hit.id); if (x && x.kingdom === myK().id) { S.sel = tid; refreshUI(); sfx('open'); return; } }
     S.sel = tid; if (tid != null) sfx('open'); refreshUI();
   },
-  onResize() { buildUI(); },
+  onResize() { buildUI(true); },
 });
 
 function ring(t, color, r) {
@@ -214,13 +213,6 @@ function ring(t, color, r) {
   ctx.beginPath(); ctx.ellipse(t.cx * TS + 8, t.cy * TS + 6, r, r * 0.7, 0, 0, Math.PI * 2); ctx.stroke();
   ctx.strokeStyle = color; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.ellipse(t.cx * TS + 8, t.cy * TS + 6, r, r * 0.7, 0, 0, Math.PI * 2); ctx.stroke();
-}
-function territoryAt(wx, wy) {
-  const cx = Math.floor(wx / TS), cy = Math.floor(wy / TS);
-  if (cx < 0 || cy < 0 || cx >= S.T.W || cy >= S.T.H) return null;
-  for (const t of S.state.territories) if (Math.abs(wx - (t.cx * TS + 8)) < 26 && wy > t.cy * TS - 44 && wy < t.cy * TS + 22) return t.id;
-  const id = S.T.terr[cy * S.T.W + cx];
-  return id >= 0 ? id : null;
 }
 // heroes that changed land walk along the road to their new home over ~1.6s
 function trackTravel(st) {
@@ -272,8 +264,10 @@ function focus(tid) { const t = S.state.territories[tid]; cam.x = t.cx * TS + 8;
 function keepScroll(sc, body) { const top = sc.scrollTop; sc.replaceChildren(body); sc.scrollTop = top; }
 function add(el, ...c) { el.append(...c.flat().filter((x) => x != null && x !== false)); }
 let ui = {};
-function buildUI() {
-  clearUI();
+// keep: a size change (rotation, URL bar, the keyboard opening to name a child) rebuilds only the bars and keeps open windows
+function buildUI(keep = false) {
+  if (keep) for (const el of [ui.top, ui.side, ui.bottom, ui.goals, ui.mini]) el && el.remove();
+  else { clearUI(); S._choiceOpen = S._birthOpen = S._captiveOpen = false; }
   ui.top = mount(h('div', { class: 'topbar' }));
   ui.side = mount(h('div', { class: 'side', style: { display: 'none' } }));
   ui.bottom = mount(h('div', { class: 'bottombar' }));
@@ -300,14 +294,14 @@ export function refreshUI() {
   const incoming = st.proposals.filter((p) => p.to === k.id).length;
   ui.top.innerHTML = '';
   add(ui.top,
-    h('span', { class: 'chip row tap', style: { gap: '5px', maxWidth: '26vw', minWidth: 0, flexShrink: 1 }, onClick: realmSheet },
+    h('span', { class: 'chip row tap realm-chip', style: { gap: '5px', maxWidth: '26vw', minWidth: 0, flexShrink: 1 }, onClick: realmSheet },
       bannerIcon(k), h('span', { class: 'ellipsis' }, k.landless ? 'Warband of ' + (hero(st, k.ruler) || {}).name : k.name),
       h('span', { class: 'tag gold' }, k.landless ? 'Landless' : TIERS[tierIndex(k)].name)),
     h('span', { class: 'chip gold tap', title: 'Gold', onClick: () => economySheet('gold') }, picon('gold', 16), `${k.gold} `, h('small', { class: eco.gold >= 0 ? 'good' : 'bad' }, sign(eco.gold))),
     h('span', { class: 'chip tap', title: 'Food', onClick: () => economySheet('food') }, picon('food', 16), `${Math.round(k.food)} `, h('small', { class: eco.food >= 0 ? 'good' : 'bad' }, sign(eco.food))),
     h('span', { class: 'chip tap ' + (k.morale < 30 ? 'bad' : ''), title: 'Order', onClick: () => economySheet('morale') }, picon('stability', 16), `${Math.round(k.morale)}`),
     h('span', { class: 'chip muted', title: cap1(dateOf(st.turn)) }, shortDate(st.turn)),
-    pendingChoice(st, k.id) && !waiting ? h('span', { class: 'chip gold tap pulse-chip', title: pendingChoice(st, k.id).title, onClick: showChoice }, picon('scroll', 16), 'Decide') : null,
+    pendingChoice(st, k.id) && !S.busy ? h('span', { class: 'chip gold tap pulse-chip', title: pendingChoice(st, k.id).title, onClick: showChoice }, picon('scroll', 16), 'Decide') : null,
     h('span', { class: 'grow' }),
     btn(picon('menu', 18), menu, 'small'),
     (() => { const pend = waiting ? '' : pendingLabel(pendingItems()); return btn(waiting ? waiting : h('span', { class: 'row', style: { gap: '4px' } }, 'End Turn', pend ? h('small', { class: 'pending-tag' }, pend) : null), endTurnPressed, 'primary small end-turn'); })(),
@@ -499,8 +493,8 @@ function orderActions(list) {
   const free = t.owner < 0, own = t.owner === k.id;
   const firstExplore = out.find((a) => a.kind === 'explore');
   const want = k.landless ? ['take', 'move', 'rest']
+    : free ? ['protect', 'take', firstExplore && firstExplore.id, 'move'] // standing in a free land, its own choices come first
     : sieges.length ? ['attack', 'besiege', 'move', 'rest']
-    : free ? ['protect', 'take', firstExplore && firstExplore.id, 'move']
     : own ? ['rest', 'move', 'attack', 'raid']
     : ['move', 'attack', 'rest', 'raid'];
   const primary = want.filter(Boolean).map((id) => out.find((a) => a.id === id)).filter(Boolean).slice(0, 4);
@@ -601,7 +595,7 @@ export function heroModal(id) {
       content = h('div', { class: 'col' },
         h('div', { class: 'row wrap' }, h('b', { class: 'grow' }, `${unitName(uf, x.unit, 1)} → ${unitName(uf, x.unit, 2)} → Elite`), chip(`${x.troops.length}/${cap} troops`, x.troops.length < cap ? 'gold' : ''), isRanged(uf, x.unit) ? chip('Ranged', 'blue') : null, uf === x.fid ? chip('Race match +10%', 'good') : null),
         h('div', { class: 'muted', style: { fontSize: '13px' } }, `Survivors rank up and evolve. Veterans who keep surviving become named Elites as strong as a hero. Squad size grows with level (command ${cap}). Fallen soldiers are only replaced when the hero Rests.`),
-        h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(150px,1fr))' } }, list.map(({ s, i }) => {
+        h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(170px,1fr))' } }, list.map(({ s, i }) => {
           const ss = soldierStats(uf, x.unit, s);
           return h('div', { class: 'card', style: { padding: '5px', gap: '6px', borderColor: s.s === 3 ? '#ffd86b' : undefined } },
             unitIcon(uf, x.unit, s.s, 2),
@@ -996,6 +990,7 @@ export function showCaptives() {
   const st = S.state, k = myK();
   const list = captivesOf(st, k.id);
   if (!list.length) { st.pendingCaptives = []; return; }
+  if (S._captiveOpen) return;
   const x = list[0];
   const ruler = hero(st, k.ruler);
   const was = x.kingdom >= 0 ? st.kingdoms[x.kingdom] : null;
@@ -1012,8 +1007,9 @@ export function showCaptives() {
     heroCard(st, x, { stats: true, order: false, badges: [x.trait] }),
     h('div', { class: 'muted', style: { fontSize: '13px' } }, `Formerly of ${was ? was.name : 'no realm'} · loyalty to them ${x.loyalty}. Recruiting may fail. Executing angers their people and your heroes of the same race. Released heroes wander — they may serve another lord or raise an uprising.`));
   st.pendingCaptives = [];
+  S._captiveOpen = true;
   mm = modal(`Prisoner: ${x.name}${list.length > 1 ? ` (+${list.length - 1} more)` : ''}`, body,
-    [['Later'], ['Execute', () => decide('execute'), 'danger'], ['Release', () => decide('release')], ['Recruit', () => decide('recruit'), 'good']], { width: '640px' });
+    [['Later'], ['Execute', () => decide('execute'), 'danger'], ['Release', () => decide('release')], ['Recruit', () => decide('recruit'), 'good']], { width: '640px', onClose: () => { S._captiveOpen = false; } });
 }
 
 // ---------- multiplayer glue ----------
@@ -1061,7 +1057,7 @@ function setupNet() {
 }
 
 // quick chat between the two players
-export const QUICK = ['Ready!', 'Give me a minute', 'Truce?', 'Allies?', 'Nice one!', 'You will pay for that', 'Good game', 'Well met!'];
+const QUICK = ['Ready!', 'Give me a minute', 'Truce?', 'Allies?', 'Nice one!', 'You will pay for that', 'Good game', 'Well met!'];
 export function showChat(text, mine) {
   const el = h('div', { class: 'chat-bubble' + (mine ? ' mine' : '') }, (mine ? 'You: ' : 'Ally: ').replace('Ally', 'Player ' + (S.me === 0 ? 2 : 1)), text);
   document.getElementById('ui').appendChild(el);
@@ -1123,10 +1119,10 @@ function walkPending(i = 0) {
   const items = pendingItems();
   if (!items.length) return endTurnNow();
   const it = items[Math.min(i, items.length - 1)], st = S.state;
-  let m;
+  let m, moved = false; // once this page is left (Next, a card's own button, ✕), late callbacks must not move on again
   const at = Math.min(i, items.length - 1), last = at === items.length - 1;
   // done: the item was dealt with, so the list is shorter and the same index is the next one
-  const next = (done) => { m.close(); const j = done ? at : at + 1; setTimeout(() => (j < pendingItems().length ? walkPending(j) : endTurnNow()), 150); };
+  const next = (done) => { if (moved) return; m.close(); const j = done ? at : at + 1; setTimeout(() => (j < pendingItems().length ? walkPending(j) : endTurnNow()), 150); };
   const go = (fn) => () => { m.close(); fn(); };
   const look = (tid) => { focus(tid); cam.x += (screen.w * 0.22) / cam.zoom; cam.clamp(); S.sel = tid; refreshUI(); drawMinimapUI(); };
   let body;
@@ -1137,11 +1133,11 @@ function walkPending(i = 0) {
         h('div', { class: 'col grow', style: { gap: '1px', minWidth: 0 } }, h('b', { class: 'ellipsis' }, a.length > 1 ? `Army of ${a[0].name}` : a[0].name), h('span', { class: 'muted', style: { fontSize: '13px' } }, `${idle.length === a.length ? 'Has no orders' : `${idle.length} of ${a.length} without orders`} in ${t.name}.`))),
       h('div', { class: 'row wrap', style: { gap: '6px' } }, btn('Give orders', go(() => look(t.id)), 'small primary'), btn('Rest & train', () => { act({ type: 'orderMany', heroes: idle.map((x) => x.id), order: { type: 'rest' } }); next(true); }, 'small good')));
   } else if (it.kind === 'offer') body = offerCard(it.p, () => setTimeout(() => next(true), 450));
-  else if (it.kind === 'child') body = h('div', { class: 'card walk-card col' }, h('b', {}, 'A child awaits a name'), h('span', { class: 'muted', style: { fontSize: '13px' } }, `Born to ${(it.b.parents || []).join(' and ')}.`), btn('Name the child', go(nameBirths), 'small primary'));
+  else if (it.kind === 'child') body = h('div', { class: 'card walk-card col' }, h('b', {}, 'A child awaits a name'), h('span', { class: 'muted', style: { fontSize: '13px' } }, `Born to ${(it.b.parents || []).join(' and ')}.`), btn('Name the child', go(() => nameBirths(() => walkPending(at))), 'small primary'));
   else if (it.kind === 'calling') body = h('div', { class: 'card walk-card col' }, h('b', {}, `${it.x.name} can choose a calling`), h('span', { class: 'muted', style: { fontSize: '13px' } }, 'Commander, Duelist, Strategist or Scout.'), btn('Choose', go(() => heroModal(it.x.id)), 'small primary'));
-  else body = h('div', { class: 'card walk-card col' }, h('b', {}, it.c.title), h('span', { class: 'muted', style: { fontSize: '13px' } }, it.c.text), btn('Decide', go(showChoice), 'small primary'));
+  else body = h('div', { class: 'card walk-card col' }, h('b', {}, it.c.title), h('span', { class: 'muted', style: { fontSize: '13px' } }, it.c.text), btn('Decide', go(() => showChoice(() => walkPending(at))), 'small primary'));
   m = modal(`Before the month ends · ${at + 1} of ${items.length}`, body,
-    [['Skip all & end month', () => { setTimeout(endTurnNow, 150); }, 'danger'], [last ? 'End month' : 'Next', () => { next(false); return false; }, 'primary']], { width: '560px', dismiss: true });
+    [['Skip all & end month', () => { setTimeout(endTurnNow, 150); }, 'danger'], [last ? 'End month' : 'Next', () => { next(false); return false; }, 'primary']], { width: '560px', dismiss: true, onClose: () => { moved = true; } });
 }
 function endTurnPressed() {
   if (S.busy) return;
@@ -1197,8 +1193,9 @@ function battleChooser(list) {
         h('span', { class: 'muted ellipsis', style: { fontSize: '12px' } }, `vs ${foe} · ${Math.round(my * 100)}% to win`)),
       segmented([{ value: 'auto', label: 'Auto' }, { value: 'fight', label: 'Fight' }], choice[key], (v) => { choice[key] = v; sfx('click'); }));
   }).filter(Boolean);
-  const body = h('div', { class: 'col' }, h('div', { class: 'muted', style: { fontSize: '13px' } }, 'Choose which battles to command yourself. The rest are settled by your generals.'), rows(),
-    h('div', { class: 'row' }, btn('All auto', () => { for (const k2 in choice) choice[k2] = 'auto'; mkeepScroll(m.box.querySelector('.body'), body); }, 'tiny'), btn('Fight all', () => { for (const k2 in choice) choice[k2] = 'fight'; go2(); }, 'tiny')));
+  const box = h('div', { class: 'col' }, rows());
+  const body = h('div', { class: 'col' }, h('div', { class: 'muted', style: { fontSize: '13px' } }, 'Choose which battles to command yourself. The rest are settled by your generals.'), box,
+    h('div', { class: 'row' }, btn('All auto', () => { for (const k2 in choice) choice[k2] = 'auto'; sfx('click'); box.replaceChildren(...rows()); }, 'tiny'), btn('Fight all', () => { for (const k2 in choice) choice[k2] = 'fight'; go2(); }, 'tiny')));
   const go2 = () => { S.choices = choice; mm.close(); nextBattle(); };
   mm = modal(`${list.length} battles this month`, body, [['Begin', () => { S.choices = choice; nextBattle(); }, 'primary']], { width: '620px' });
 }
@@ -1221,7 +1218,8 @@ function nextBattle() {
 }
 
 // battle preview: odds, matchups, stratagems and formations
-function preBattle(b, choose) {
+// pvp: both sides are players, so the battle is fought (no Auto-resolve button that would be ignored)
+function preBattle(b, choose, pvp = false) {
   const st = S.state, k = myK();
   const t = st.territories[b.tid];
   const A = st.kingdoms[b.att], D = b.def >= 0 ? st.kingdoms[b.def] : null;
@@ -1250,7 +1248,7 @@ function preBattle(b, choose) {
     mine.map((x) => h('div', { class: 'row wrap', style: { gap: '6px' } }, portrait(x, 1.5), h('span', { style: { minWidth: '90px' } }, x.name.split(' ')[0]),
       segmented(FORMATION_IDS.map((f) => ({ value: f, label: FORMATIONS[f].name })), x.formation, (f) => act({ type: 'formation', hero: x.id, formation: f })))));
   modal(mineSide === 'att' ? `Battle of ${t.name}` : `${t.name} is under attack!`, body,
-    [['Auto-resolve', () => choose('auto')], ['Fight!', () => { sfx('horn'); choose('fight'); }, 'primary']], { width: '720px' });
+    [...(pvp ? [] : [['Auto-resolve', () => choose('auto')]]), ['Fight!', () => { sfx('horn'); choose('fight'); }, 'primary']], { width: '720px' });
 }
 
 function askFight(b, humanAtt, humanDef) {
@@ -1260,7 +1258,7 @@ function askFight(b, humanAtt, humanDef) {
   const mineSide = b.att === k.id ? 'att' : b.def === k.id ? 'def' : null;
   const auto = () => { S.reports.push(applyBattle(st, b, autoResolve(st, b))); if (net.role === 'host') net.broadcastState(); nextBattle(); };
   const fight = () => startBattle(b);
-  if (both) { preBattle(b, () => fight()); return; }
+  if (both) { preBattle(b, () => fight(), true); return; }
   if (!mineSide) { net.ask({ t: 'askFight', tid: b.tid, b }).then((ans) => (ans === 'auto' ? auto() : fight())); toast('The other player is deciding…'); return; }
   preBattle(b, (c) => (c === 'auto' ? auto() : fight()));
 }
@@ -1323,8 +1321,9 @@ export function showTurnSummary(prevTurn, reports, summary = { events: [], notes
   let mm;
   const after = () => {
     banner(cap1(dateOf(st.turn)), bad ? 'bad' : 'blue', k.landless ? 'Your warband wanders' : k.name);
-    if (captivesOf(st, myKid).length && (reports || []).some((r) => r.captured.length)) showCaptives();
-    nameBirths();
+    // one window at a time: prisoners, then births, then a decision, each waiting for the one before to close
+    if (captivesOf(st, myKid).length && (reports || []).some((r) => r.captured.length)) whenClear('captives', showCaptives);
+    whenClear('births', nameBirths);
     setTimeout(showChoice, 400);
     achievementToasts();
   };
@@ -1395,13 +1394,15 @@ function achievementToasts() {
   const fresh = checkAchievements(st, k.id, { trade: economyPreview(st, k).trade });
   fresh.forEach((a, i) => setTimeout(() => { sfx('levelup'); toast(`Achievement: ${a.name}${a.unlock ? ' — new banner emblem!' : ''}`, 'gold'); }, 900 + i * 1600));
 }
-// a decision for your realm (events with choices)
-export function showChoice() {
+// a decision for your realm (events with choices); then() runs once it is decided (not on "Decide later")
+export function showChoice(then) {
   const st = S.state, k = myK();
   const c = pendingChoice(st, k.id);
   if (!c) return;
+  if (S._choiceOpen) return;
+  if (typeof then !== 'function') then = null;
   // another window is open (month summary, a battle report…): ask again once it closes
-  if (document.querySelector('.modal')) { clearTimeout(S._choiceRetry); S._choiceRetry = setTimeout(() => { if (S.state === st) showChoice(); }, 700); return; }
+  if (modalOpen()) return whenClear('choice', () => showChoice(then));
   sfx('alert');
   const body = h('div', { class: 'col' },
     h('div', {}, c.text),
@@ -1409,15 +1410,33 @@ export function showChoice() {
       mm.close();
       const r = act({ type: 'choose', opt: i });
       sfx('click'); if (typeof r === 'string') toast(r, 'gold'); refreshUI();
+      if (then) setTimeout(then, 250);
     } }, h('b', {}, o.label), o.hint ? h('span', { class: 'muted', style: { fontSize: '12px' } }, o.hint) : null))));
-  const mm = modal(c.title, body, [['Decide later']], { width: '600px' });
+  S._choiceOpen = true;
+  const mm = modal(c.title, body, [['Decide later']], { width: '600px', onClose: () => { S._choiceOpen = false; } });
+}
+// is a pop-up (not a side sheet) open right now?
+function modalOpen() { return !!document.querySelector('#ui .modal-back:not(.closing)'); }
+// run fn once no pop-up is open (one pending call per key); dropped if the campaign scene is left or another campaign loads
+const waits = {};
+function whenClear(key, fn) {
+  const st = S.state;
+  clearTimeout(waits[key]);
+  const tick = () => {
+    if (game.sceneName !== 'campaign' || S.state !== st && S.state.cid !== st.cid) return;
+    if (modalOpen()) { waits[key] = setTimeout(tick, 500); return; }
+    fn();
+  };
+  tick();
 }
 
-// a child was born in your realm: boy or girl, then a name
-export function nameBirths() {
+// a child was born in your realm: boy or girl, then a name; then() runs once every child is named
+export function nameBirths(then) {
   const st = S.state, myKid = myK().id;
+  if (typeof then !== 'function') then = null;
   const pb = (st.pendingBirths || []).find((b) => b.kid === myKid);
-  if (!pb) return;
+  if (!pb) { if (then) then(); return; }
+  if (S._birthOpen) return;
   let gender = Math.random() < 0.5 ? 'm' : 'f', name = '', sug = [], mm;
   const input = h('input', { class: 'text grow', maxlength: '18', placeholder: 'Or type a name', autocomplete: 'off', onInput: (e) => { name = e.target.value; } });
   const box = h('div', { class: 'col' });
@@ -1433,11 +1452,12 @@ export function nameBirths() {
       h('div', { class: 'row' }, input));
   };
   render();
+  S._birthOpen = true;
   mm = modal('A child is born!', box, [['Name them', () => {
     const nm = (input.value || name).trim();
-    if (act({ type: 'nameChild', bid: pb.bid, gender, name: nm })) { sfx('levelup'); toast(`Welcome, ${nm}!`, 'good'); setTimeout(nameBirths, 300); }
-    else { toast('Pick a name', 'gold'); setTimeout(nameBirths, 200); }
-  }, 'primary']], { width: '560px' });
+    if (act({ type: 'nameChild', bid: pb.bid, gender, name: nm })) { sfx('levelup'); toast(`Welcome, ${nm}!`, 'good'); setTimeout(() => nameBirths(then), 300); }
+    else { toast('Pick a name', 'gold'); setTimeout(() => nameBirths(then), 200); }
+  }, 'primary']], { width: '560px', onClose: () => { S._birthOpen = false; } });
 }
 
 function gameOver() {

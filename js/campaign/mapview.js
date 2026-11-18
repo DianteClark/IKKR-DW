@@ -6,21 +6,20 @@
 //   drawTerrain(ctx, T, view)          every frame instead of ctx.drawImage(terrainCanvas, 0, 0). view = { x, y, w, h } in
 //                                      world px (camera rect). Works for every size; chunks render on demand (LRU cached)
 //                                      and a low-res overview is used when zoomed far out.
-//   drawOverlay(ctx, T, state, view)   every frame: smooth vector borders (realm lines, glow, dotted splits, neutral).
-//                                      renderOverlay(T, state) still returns a baked canvas for small maps (legacy path).
+//   drawLandOutline(ctx, T, tids, color)  smooth outline around chosen lands (selection, valid targets).
+//   drawGuards / drawCaravans / drawWeather / drawFog  border guards, trade carts, weather and fog of war.
 //   drawAnimated(ctx, T, time, view)   water glints, landmarks, docks, ships, birds.
 //   drawSites(ctx, state, T, time, view)  neutral sites from state.sites = [{ id, spot, kind, status }] (spot -> T.siteSpots).
 //   drawTowns(ctx, state, time, view)  settlements: huts -> houses -> walled towns -> faction towns, flags, smoke, capture fx.
-//   drawHeroes(ctx, state, time, travel)  portrait pins; travel optional Map/obj heroId -> { from, to, t } walks along roads.
-//   drawOrders(ctx, state, kid, time)  order arcs.
+//   drawHeroes(ctx, state, time, travel, T, myKid, view)  portrait pins; travel optional Map/obj heroId -> { from, to, t } walks along roads.
+//   drawOrders(ctx, state, kid, time, view)  order arcs.
 //   drawSeason(ctx, T, season, time, view)  'Spring'|'Summer'|'Autumn'|'Winter' tint + particles (draw last, world space).
 //   captureFx(state, tid)              call when a land changes hands: a ~1s light sweep is drawn by drawTowns.
 //   renderMinimap(T, state) -> canvas (1px per cell); updateMinimap(canvas, T, state) when owners change.
 //   hitTest(T, state, wx, wy) -> { kind: 'hero'|'town'|'site'|'land', id } | null   (wx, wy world px)
-//   siteAt(T, state, wx, wy) -> site id | null
 import { img, loadImage } from '../engine/assets.js';
-import { BIOMES, BIOME_IDS, TREES, FACTIONS, FACTION_IDS, drawHero, drawUnit, drawSpriteRef, portraitRef, STRUCT, OCEAN } from '../data/art.js';
-import { paintLandWater, paintRiver, drawBlobs, drawLandmark, preloadLandmarks, ROAD_SHEET, FENCE_SHEET, maskAt, at4, hash2, LANDMARKS } from '../maps/paint.js';
+import { BIOMES, BIOME_IDS, TREES, FACTIONS, drawHero, drawUnit, drawSpriteRef, portraitRef, STRUCT } from '../data/art.js';
+import { paintLandWater, drawBlobs, drawLandmark, preloadLandmarks, ROAD_SHEET, FENCE_SHEET, maskAt, at4 } from '../maps/paint.js';
 import { makeNoise } from '../engine/rng.js';
 import { drawBanner } from '../engine/banner.js';
 import { prefs } from '../engine/prefs.js';
@@ -112,7 +111,7 @@ function prep(T) {
 // every land but the hot ones (desert, ashlands) and the always-frozen ones goes through the year
 const SEASONAL = new Set(['grass', 'marsh', 'deepmarsh', 'dirt', 'cave', 'dungeon']);
 const ICE_I = () => BIOME_IDS.indexOf('ice');
-export function seasonalBiome(T, season) {
+function seasonalBiome(T, season) {
   if (T._sb && T._sb.season === season) return T._sb.arr;
   let arr = T.biome;
   if (season === 'Winter') {
@@ -513,7 +512,7 @@ function traceBorders(T) {
         const label = rot[i][2];
         if (label >= 0) {
           const pts = rot.slice(i, j + 1).map((p) => [p[0], p[1]]);
-          if (!closed) { const nxt = rot[(j + 1) % rot.length]; pts.push([nxt[0], nxt[1]]); if (i > 0 || true) { const prv = rot[(i - 1 + rot.length) % rot.length]; pts.unshift([prv[0], prv[1]]); } }
+          if (!closed) { const nxt = rot[(j + 1) % rot.length]; pts.push([nxt[0], nxt[1]]); const prv = rot[(i - 1 + rot.length) % rot.length]; pts.unshift([prv[0], prv[1]]); }
           else pts.push([rot[0][0], rot[0][1]]);
           runs.push(makeRun(t, label, pts));
         }
@@ -535,46 +534,11 @@ function makeRun(t, nb, pts) {
     }
     return p;
   };
-  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
-  for (const [x, y] of pts) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
-  return { t, nb, line: off(0), edge: off(1.4), g1: off(3.6), g2: off(7.5), box: [x0 - 10, y0 - 10, x1 + 10, y1 + 10] };
+  return { t, nb, line: off(0), edge: off(1.4) };
 }
 function hexA(hex, a) {
   const n = parseInt(hex.slice(1), 16);
   return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`;
-}
-export function drawOverlay(ctx, T, state, view) {
-  const runs = traceBorders(T);
-  const own = (t) => (t >= 0 && state.territories[t] ? state.territories[t].owner : -1);
-  const vis = (r) => !view || !(r.box[2] < view.x || r.box[3] < view.y || r.box[0] > view.x + view.w || r.box[1] > view.y + view.h);
-  const far = view && view.w > 2400;
-  ctx.save();
-  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-  // 1) soft inner glow along realm frontiers
-  if (!far) for (const r of runs) {
-    if (!vis(r)) continue;
-    const o = own(r.t), p = own(r.nb); if (o < 0 || o === p) continue;
-    const col = state.kingdoms[o].color;
-    ctx.strokeStyle = hexA(col, 0.13); ctx.lineWidth = 5; ctx.stroke(r.g2);
-    ctx.strokeStyle = hexA(col, 0.26); ctx.lineWidth = 3; ctx.stroke(r.g1);
-  }
-  // 2) dotted splits between lands of one realm, and neutral lines
-  ctx.setLineDash([2, 4]);
-  for (const r of runs) {
-    if (!vis(r) || r.t > r.nb) continue;
-    const o = own(r.t), p = own(r.nb);
-    if (o === p) { ctx.strokeStyle = o >= 0 ? 'rgba(255,255,255,.42)' : 'rgba(255,248,230,.32)'; ctx.lineWidth = 1; ctx.stroke(r.line); }
-    else if (o < 0 && p < 0) { ctx.strokeStyle = 'rgba(255,248,230,.32)'; ctx.lineWidth = 1; ctx.stroke(r.line); }
-  }
-  ctx.setLineDash([]);
-  // 3) realm frontier: dark core with each realm's colour on its own side
-  for (const r of runs) {
-    if (!vis(r)) continue;
-    const o = own(r.t), p = own(r.nb); if (o === p) continue;
-    if (r.t < r.nb) { ctx.strokeStyle = 'rgba(10,8,16,.6)'; ctx.lineWidth = far ? 3 : 2; ctx.stroke(r.line); }
-    if (o >= 0) { ctx.strokeStyle = state.kingdoms[o].color; ctx.lineWidth = far ? 3 : 2; ctx.stroke(far ? r.line : r.edge); }
-  }
-  ctx.restore();
 }
 // outline chosen lands (selection, valid targets) with a smooth line
 export function drawLandOutline(ctx, T, tids, color, width = 2) {
@@ -625,15 +589,6 @@ export function drawGuards(ctx, T, state, time, view) {
   }
 }
 
-// legacy: a baked overlay canvas (small maps only; big maps return a 1x1 canvas, use drawOverlay)
-export function renderOverlay(T, state) {
-  const c = document.createElement('canvas');
-  if (T.W * T.H > CHUNKED_ABOVE) { c.width = 1; c.height = 1; return c; }
-  c.width = T.W * TS; c.height = T.H * TS;
-  drawOverlay(c.getContext('2d'), T, state, null);
-  return c;
-}
-
 // ------------------------------------------------------------------ animated details
 export function drawAnimated(ctx, T, time, view) {
   const P = prep(T);
@@ -668,8 +623,7 @@ export function drawAnimated(ctx, T, time, view) {
   const ship = img(SHIP);
   if (ship) for (const r of T.seaRoutes || []) {
     const pts = r.pts; if (pts.length < 2) continue;
-    let len = 0; const seg = [];
-    for (let i = 0; i < pts.length - 1; i++) { const l = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]); seg.push(l); len += l; }
+    const { seg, len } = segLens(pts);
     const tt = (time * 1.1 + (r.a * 7 % 11)) % (len * 2);
     let d = tt < len ? tt : len * 2 - tt; const fwd = tt < len;
     let i = 0; while (i < seg.length - 1 && d > seg[i]) { d -= seg[i]; i++; }
@@ -702,13 +656,13 @@ export function drawAnimated(ctx, T, time, view) {
 const SMALL = { campfire: 1, fountain: 1, monolith: 1, monolithb: 1, eye: 1, dragonvein: 1, rallyflag: 1 };
 
 // ------------------------------------------------------------------ settlements
-export function townRef(state, t) {
+function townRef(state, t) {
   const fid = t.owner >= 0 && state.kingdoms[t.owner] ? state.kingdoms[t.owner].fid : 'castle';
   const stage = t.ruined > 0 ? 4 : t.level;
   return FACTIONS[fid].town(stage);
 }
 // what a land's settlement looks like: 'hamlet' | 'village' | 'walled' | 'town' | 'ruin'
-export function settlementKind(state, t) {
+function settlementKind(state, t) {
   const k = t.owner >= 0 ? state.kingdoms[t.owner] : null;
   const tier = k ? k.tier || 'village' : 'neutral';
   const base = (tier === 'kingdom' || tier === 'empire') ? ((k.capital === t.id || t.level >= 2) ? 'town' : 'walled') : (t.level >= 1 ? 'village' : 'hamlet');
@@ -718,8 +672,12 @@ export function settlementKind(state, t) {
 const HAMLET_SLOTS = [[-12, -1], [11, -5], [-1, -17]];
 const VILLAGE_SLOTS = [[-24, 0], [0, 2], [22, -3], [-14, -16], [10, -19], [30, -17]];
 const WALLED_SLOTS = [[-18, -14], [2, -18], [20, -13], [-8, -28], [12, -31]];
+const pieceCache = new Map();
 function settlementPieces(state, t) {
   const kind = settlementKind(state, t);
+  const ck = t.id + ':' + kind + ':' + t.biome;
+  const hit = pieceCache.get(t.id);
+  if (hit && hit.ck === ck) return hit;
   const seedH = hashI(t.id, 7);
   const pieces = []; // [sx, sy, dx, dy] 16x16 sprites from STRUCT relative to anchor (bottom-centre)
   if (kind === 'hamlet') {
@@ -731,7 +689,10 @@ function settlementPieces(state, t) {
     for (let i = 0; i < n; i++) { const s = pool[(seedH >>> (i * 2)) % pool.length]; pieces.push([s[0], s[1], slots[i][0], slots[i][1]]); }
   }
   pieces.sort((a, b) => a[3] - b[3]);
-  return { kind, pieces };
+  const top = pieces.reduce((m, p) => (p[3] < m[3] ? p : m), pieces[0] || [0, 0, 0, 0]);
+  const out = { ck, kind, pieces, top };
+  pieceCache.set(t.id, out);
+  return out;
 }
 // ---- fog of war: VIS is per-territory visibility for the local player (null = everything visible) ----
 let VIS = null;
@@ -757,7 +718,6 @@ export function setVisibility(T, vis) {
   for (let i = 0; i < T.W * T.H; i++) { const t = nt[i]; if (t >= 0 && vis[t]) continue; d[i * 4] = 14; d[i * 4 + 1] = 12; d[i * 4 + 2] = 26; d[i * 4 + 3] = 168; }
   x.putImageData(id, 0, 0);
 }
-export const isSeen = seen;
 // soft fog over everything you can't see (drawn after terrain and settlements, before your own pins)
 export function drawFog(ctx, T, view) {
   if (!VIS || !T._fogC) return;
@@ -776,7 +736,7 @@ export function drawCaravans(ctx, state, T, routes, time, view) {
     const [a, b, m] = routes[i];
     if (hashI(a, b) % 3) continue; // a third of routes have a caravan on the road at any time
     if (!seen(a) && !seen(b)) continue;
-    const pts = !T.roadPath ? null : m == null ? T.roadPath(a, b) : [...(T.roadPath(a, m) || []), ...(T.roadPath(m, b) || [])]; if (!pts || pts.length < 2) continue;
+    const pts = T.roadPath ? roadPts(T, a, b, m) : null; if (!pts || pts.length < 2) continue;
     const per = 14 + (hashI(b, a) % 8), ph = ((time + (hashI(a, b) % 97)) % per) / per;
     const f = ph < 0.5 ? ph * 2 : 2 - ph * 2;
     const [x, y, dx] = pathPoint(pts, f);
@@ -852,7 +812,7 @@ export function drawTowns(ctx, state, time, view) {
     const ax = t.cx * TS + 8, ay = t.cy * TS + 14;
     if (v && (ax < v.x - 80 || ay < v.y - 40 || ax > v.x + v.w + 80 || ay > v.y + v.h + 90)) continue;
     const col = t.owner >= 0 && state.kingdoms[t.owner] ? state.kingdoms[t.owner].color : null;
-    const { kind, pieces } = settlementPieces(state, t);
+    const { kind, pieces, top } = settlementPieces(state, t);
     if (kind === 'town' || kind === 'ruin') {
       const r = townRef(state, t);
       const w = r[3], hh = r[4];
@@ -885,7 +845,6 @@ export function drawTowns(ctx, state, time, view) {
         drawLandmark(ctx, 'campfire', ax - 6, ay - 18, time, t.id);
         if (!far) { smoke(ctx, ax - 2, ay - 20, time, t.id * 3); smoke(ctx, ax + 8, ay - 14, time, t.id * 5); }
       }
-      const top = pieces.reduce((m, p) => (p[3] < m[3] ? p : m), pieces[0] || [0, 0, 0, 0]);
       if (pieces.length && !far) smoke(ctx, ax + top[2] - 2, ay + top[3] - 15, time, t.id * 7);
       const kb2 = t.owner >= 0 && state.kingdoms[t.owner] && seen(t.id) ? state.kingdoms[t.owner].banner : null;
       if (kb2) drawBanner(ctx, kb2, Math.round(ax - (kind === 'hamlet' ? 30 : 42)), Math.round(ay - 4), time, t.id); else if (col && seen(t.id)) flag(ctx, Math.round(ax + 16), Math.round(ay - (kind === 'hamlet' ? 30 : 40)), col, time, t.id);
@@ -954,7 +913,7 @@ export function drawSites(ctx, state, T, time, view) {
     if (s.status === 'claimed') { ctx.fillStyle = '#ffd25a'; ctx.fillRect(x + 28, y + 2, 1, 10); ctx.fillRect(x + 29, y + 2, 5, 4); }
   }
 }
-export function siteAt(T, state, wx, wy) {
+function siteAt(T, state, wx, wy) {
   if (!state || !state.sites || !T.siteSpots) return null;
   let best = null, bd = 18;
   for (const s of state.sites) {
@@ -969,13 +928,44 @@ export function siteAt(T, state, wx, wy) {
 function pinAt(t, n, time) {
   return [t.cx * TS + 8 + 28 + (n - 1) * 4.5, t.cy * TS - 24 + (time == null ? 0 : Math.round(Math.sin(time * 2 + t.id) * 1.2))];
 }
-function pathPoint(pts, f) {
+// road paths between two lands never change: build each once (with its segment lengths) instead of every frame
+function roadPts(T, a, b, m) {
+  const cache = T._roadPts || (T._roadPts = new Map());
+  const key = a + ':' + b + ':' + (m ?? '');
+  let pts = cache.get(key);
+  if (!pts) { pts = m == null ? T.roadPath(a, b) : [...(T.roadPath(a, m) || []), ...(T.roadPath(m, b) || [])]; cache.set(key, pts); }
+  return pts;
+}
+function segLens(pts) {
+  if (pts._seg) return pts._seg;
   let len = 0; const seg = [];
   for (let i = 0; i < pts.length - 1; i++) { const l = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]); seg.push(l); len += l; }
+  Object.defineProperty(pts, '_seg', { value: { seg, len } });
+  return pts._seg;
+}
+function pathPoint(pts, f) {
+  const { seg, len } = segLens(pts);
   let d = Math.max(0, Math.min(1, f)) * len, i = 0;
   while (i < seg.length - 1 && d > seg[i]) { d -= seg[i]; i++; }
   const a = pts[i], b = pts[i + 1] || pts[i], k = seg[i] ? d / seg[i] : 0;
   return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, b[0] - a[0]];
+}
+// round portrait on a light disc, cut once per face (clipping every pin every frame is slow on phones)
+const faces = new Map();
+function pinFace(h) {
+  const key = h.fid + ':' + h.portrait;
+  let c = faces.get(key);
+  if (c) return c;
+  const ref = portraitRef(h.fid, h.portrait);
+  if (!img(ref[0])) return null; // not loaded yet: try again next frame
+  c = document.createElement('canvas'); c.width = 16; c.height = 16;
+  const x = c.getContext('2d'); x.imageSmoothingEnabled = false;
+  x.fillStyle = '#f4ecd8'; x.beginPath(); x.arc(8, 8, 8, 0, Math.PI * 2); x.fill();
+  x.save(); x.beginPath(); x.arc(8, 8, 8, 0, Math.PI * 2); x.clip();
+  drawSpriteRef(x, ref, 0, 0, 16, 16);
+  x.restore();
+  faces.set(key, c);
+  return c;
 }
 function pin(ctx, state, lead, px, py, count) {
   const col = state.kingdoms[lead.kingdom] ? state.kingdoms[lead.kingdom].color : '#cccccc';
@@ -985,10 +975,9 @@ function pin(ctx, state, lead, px, py, count) {
   ctx.fillStyle = col;
   ctx.beginPath(); ctx.arc(px, py, 10, 0, Math.PI * 2); ctx.fill();
   ctx.beginPath(); ctx.moveTo(px - 4, py + 7); ctx.lineTo(px + 4, py + 7); ctx.lineTo(px, py + 13); ctx.fill();
-  ctx.fillStyle = '#f4ecd8'; ctx.beginPath(); ctx.arc(px, py, 8, 0, Math.PI * 2); ctx.fill();
-  ctx.save(); ctx.beginPath(); ctx.arc(px, py, 8, 0, Math.PI * 2); ctx.clip();
-  drawSpriteRef(ctx, portraitRef(lead.fid, lead.portrait), px - 8, py - 8, 16, 16);
-  ctx.restore();
+  const face = pinFace(lead);
+  if (face) ctx.drawImage(face, Math.round(px) - 8, Math.round(py) - 8);
+  else { ctx.fillStyle = '#f4ecd8'; ctx.beginPath(); ctx.arc(px, py, 8, 0, Math.PI * 2); ctx.fill(); }
   if (count > 1) {
     const bx = Math.round(px + 9), by = Math.round(py - 8);
     ctx.fillStyle = '#0b0a10'; ctx.beginPath(); ctx.arc(bx, by, 5.5, 0, Math.PI * 2); ctx.fill();
@@ -997,14 +986,16 @@ function pin(ctx, state, lead, px, py, count) {
     ctx.fillText(String(count), bx, by + 0.5); ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
   }
 }
-export function drawHeroes(ctx, state, time, travel, T, myKid = null) {
+export function drawHeroes(ctx, state, time, travel, T, myKid = null, view = null) {
   const tr = travel ? (travel instanceof Map ? travel : new Map(Object.entries(travel).map(([k, v]) => [+k, v]))) : null;
   const by = new Map();
   const walking = [];
+  const off = (t) => view && (t.cx * TS < view.x - 90 || t.cy * TS < view.y - 60 || t.cx * TS > view.x + view.w + 90 || t.cy * TS > view.y + view.h + 60);
   for (const h of state.heroes) {
     if (h.status !== 'active') continue;
     if (h.kingdom !== myKid && !seen(h.loc)) continue; // armies in the fog stay hidden
     if (tr && tr.has(h.id)) { walking.push(h); continue; }
+    if (off(state.territories[h.loc])) continue;
     if (!by.has(h.loc)) by.set(h.loc, []);
     by.get(h.loc).push(h);
   }
@@ -1034,8 +1025,8 @@ export function drawHeroes(ctx, state, time, travel, T, myKid = null) {
   for (const h of walking) {
     const m = tr.get(h.id);
     const a = state.territories[m.from], b = state.territories[m.to];
-    if (!a || !b) continue;
-    const pts = T && T.roadPath ? T.roadPath(m.from, m.to) : [[a.cx * TS + 8, a.cy * TS + 8], [b.cx * TS + 8, b.cy * TS + 8]];
+    if (!a || !b || (off(a) && off(b))) continue;
+    const pts = T && T.roadPath ? roadPts(T, m.from, m.to) : [[a.cx * TS + 8, a.cy * TS + 8], [b.cx * TS + 8, b.cy * TS + 8]];
     const [x, y, dx] = pathPoint(pts, m.t);
     ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.beginPath(); ctx.ellipse(x, y + 4, 6, 2, 0, 0, Math.PI * 2); ctx.fill();
     // dust behind the boots
@@ -1045,19 +1036,21 @@ export function drawHeroes(ctx, state, time, travel, T, myKid = null) {
   }
 }
 
-export function drawOrders(ctx, state, kid, time) {
+export function drawOrders(ctx, state, kid, time, view = null) {
+  const off = (t) => view && (t.cx * TS < view.x - 60 || t.cy * TS < view.y - 60 || t.cx * TS > view.x + view.w + 60 || t.cy * TS > view.y + view.h + 60);
   const drawn = new Set(); // one arrow per army, not per hero
   const badges = new Map(); // standing orders: siege and guard markers over the land
   for (const h of state.heroes) {
     if (h.status !== 'active' || !h.order) continue;
     if (kid != null && h.kingdom !== kid) continue;
+    if (!seen(h.loc)) continue; // orders of armies hidden in the fog stay hidden too
     const o = h.order;
     if (o.type === 'protect') { const t = state.territories[h.loc]; badges.set('p' + h.loc, { t, icon: 'shield', n: t.protect && t.protect.kid === h.kingdom ? t.protect.turns : 0 }); continue; }
     if (o.target == null || o.type === 'skirmish' || o.target === h.loc) continue;
     const key = h.loc + ':' + o.type + ':' + o.target;
     if (drawn.has(key)) continue; drawn.add(key);
     const a = state.territories[h.loc], b = state.territories[o.target];
-    if (!a || !b) continue;
+    if (!a || !b || (off(a) && off(b))) continue;
     if (o.type === 'besiege') badges.set('s' + b.id, { t: b, icon: 'siege', n: b.siege && b.siege.kid === h.kingdom ? b.siege.turns : 0 });
     const x1 = a.cx * TS + 8, y1 = a.cy * TS + 4, x2 = b.cx * TS + 8, y2 = b.cy * TS + 4;
     const atk = o.type === 'attack', sg = o.type === 'besiege';
@@ -1083,8 +1076,6 @@ export function drawOrders(ctx, state, kid, time) {
     ctx.textBaseline = 'alphabetic';
   }
 }
-// roads are baked into the terrain; kept for API compatibility
-export function drawRoads() {}
 
 // ------------------------------------------------------------------ seasons
 export function drawSeason(ctx, T, season, time, view) {
