@@ -640,6 +640,16 @@ export function applyBattle(state, b, result) {
     log(state, `${defK ? defK.name : 'The defenders'} held ${t.name} against ${attK.name}.`, -1, 'defense');
   }
   onBattle(state, b, report);
+  // side objectives won in battle pay off for the side that achieved them
+  const ob = result.objective;
+  if (ob && ob.done && ob.by) {
+    const K = state.kingdoms[ob.by === 'att' ? b.att : b.def], foe = state.kingdoms[ob.by === 'att' ? b.def : b.att];
+    if (K) {
+      if (ob.kind === 'caravan') { K.gold += 140; K.food += 30; report.objective = 'Escorted the caravan: +140g, +30 food'; }
+      else if (ob.kind === 'supplies') { if (foe) foe.food = Math.max(-20, foe.food - 60); K.gold += 60; report.objective = 'Burned the enemy supplies: they lose 60 food'; }
+      else if (ob.kind === 'captive') { const h = kingdomHeroes(state, K.id)[0]; if (h && h.troops.length < squadCap(h, K)) h.troops.push(newSoldier(rng)); K.gold += 80; report.objective = 'Freed the captive: +80g and a grateful recruit'; }
+    }
+  }
   for (const h of state.heroes) delete h._defeated;
   checkKingdoms(state);
   return report;

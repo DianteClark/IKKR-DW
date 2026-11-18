@@ -28,7 +28,8 @@ export function decayMarks(state) {
 export function worldEvents(state, rng) {
   const list = [];
   const T = state.territories;
-  const n = (rng() < 0.65 ? 1 : 0) + (rng() < T.length / 120 ? 1 : 0);
+  // turns are months now: world events are rarer per turn so a year holds about as many as before
+  const n = (rng() < 0.25 ? 1 : 0) + (rng() < T.length / 360 ? 1 : 0);
   for (let i = 0; i < n; i++) {
     const t = rng.pick(T);
     const k = t.owner >= 0 ? state.kingdoms[t.owner] : null;
@@ -70,8 +71,8 @@ export function worldEvents(state, rng) {
   // unrest: realms with low Order may lose land to revolt, or be overthrown outright
   for (const k of state.kingdoms) {
     if (!k.alive || k.landless || k.kind !== 'realm') continue;
-    if (k.morale < 12 && rng() < 0.15) { overthrow(state, k, rng, list); continue; }
-    if (k.morale < 24 && rng() < (24 - k.morale) / 110) {
+    if (k.morale < 12 && rng() < 0.05) { overthrow(state, k, rng, list); continue; }
+    if (k.morale < 24 && rng() < (24 - k.morale) / 330) {
       const lands = kingdomTerritories(state, k.id).filter((t) => t.id !== k.capital && !heroesAt(state, t.id, k.id).length);
       if (lands.length) revolt(state, rng, rng.pick(lands), list);
     }
@@ -163,7 +164,7 @@ export function vagabondTick(state, rng, list) {
     if (h.ambition > 60 && owner) {
       owner.morale = clamp(owner.morale - 1);
       const guarded = heroesAt(state, here.id, here.owner).length;
-      if (!guarded && state.turn > 3 && owner.morale < 35 && rng() < 0.03 + (35 - owner.morale) / 400) {
+      if (!guarded && state.turn > 3 && owner.morale < 35 && rng() < 0.01 + (35 - owner.morale) / 1200) {
         const win = rng() < squadPower(h, state.items) / (squadPower(h, state.items) + garrisonPower(here));
         if (win) revolt(state, rng, here, list);
         else { h.troops = h.troops.slice(0, Math.floor(h.troops.length / 2)); log(state, `An uprising led by ${h.name} at ${here.name} was crushed.`, owner.id, 'revolt'); }
@@ -173,7 +174,7 @@ export function vagabondTick(state, rng, list) {
     // serve a lord with a good name
     if (owner && owner.player < 0 && owner.kind !== 'monster') {
       const appeal = owner.morale / 100 - h.ambition / 250;
-      if (rng() < 0.05 + Math.max(0, appeal) * 0.15) { joinKingdom(state, h, owner.id, 55); log(state, `The vagabond ${h.name} pledged to ${owner.name}.`, owner.id); continue; }
+      if (rng() < 0.02 + Math.max(0, appeal) * 0.05) { joinKingdom(state, h, owner.id, 55); log(state, `The vagabond ${h.name} pledged to ${owner.name}.`, owner.id); continue; }
     }
     // wanderers recover and gather a few followers
     h.hp = Math.min(100, h.hp + 15);

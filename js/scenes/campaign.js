@@ -1335,7 +1335,7 @@ export function showTurnSummary(prevTurn, reports, summary = { events: [], notes
     const won = (iAtt && r.attWon) || (iDef && !r.attWon);
     const bits = [won && !r.skirmish && iAtt ? `${t.name} is yours` : !won && iDef && !r.skirmish ? `${t.name} was lost` : '',
       r.evolved ? `${r.evolved} evolved` : '', r.elites ? `${r.elites} became Elite` : '', r.leveled && r.leveled.length ? `${r.leveled.length} level-up${r.leveled.length > 1 ? 's' : ''}` : '',
-      r.loot != null && won && st.items[r.loot] ? `found ${st.items[r.loot].name}` : '', r.captured && r.captured.length ? `${r.captured.length} captured` : '',
+      r.loot != null && won && st.items[r.loot] ? `found ${st.items[r.loot].name}` : '', r.captured && r.captured.length ? `${r.captured.length} captured` : '', r.objective || '',
       r.defected && r.defected.length ? `${r.defected.length} traitor${r.defected.length > 1 ? 's' : ''}!` : ''].filter(Boolean).join(' · ');
     cards.push(card(won ? 'flag' : 'broken', `${won ? 'Victory' : 'Defeat'} at ${t.name}`, bits, won ? 'good' : 'bad', { tid: r.tid }));
   }
