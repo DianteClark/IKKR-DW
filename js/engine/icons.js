@@ -32,7 +32,12 @@ const ICONS = {
   points: ['....u.....', '...uuu....', '..uucuu...', '.uucccuu..', 'uucccccuu.', '.uucccuu..', '..uucuu...', '...uuu....', '....u.....', '..........'],
   male: ['....kkkkk.', '.....kuuk.', '....ku.uk.', '..kkku.k..', '.kuuuk....', 'kuk.kuk...', 'kuk.kuk...', '.kuuuk....', '..kkk.....', '..........'],
   female: ['..kkk.....', '.kpppk....', 'kpk.kpk...', 'kpk.kpk...', '.kpppk....', '..kpk.....', '.kkpkk....', '..kpk.....', '..kkk.....', '..........'],
-  wave: ['..k.k.....', '.kwkwk.k..', '.kwkwkkwk.', 'kkwwwwwwk.', 'kwwwwwwwk.', 'kwwwwwwk..', '.kwwwwwk..', '..kwwwk...', '...kkk....', '..........'],
+  shield: ['kkkkkkkkk.', 'kuuuuyuuk.', 'kuuuuyuuk.', 'kyyyyyyyk.', 'kuuuuyuuk.', 'kuuuuyuuk.', '.kuuuyuk..', '..kuuyk...', '...kkk....', '..........'],
+  siege: ['k.k.k.k...', 'kkkkkkk...', '.kgggk....', '.kgkgk....', '.kgggk..k.', '.kgkgk.ksk', '.kgggkksk.', 'kkkkkkkk..', 'knkkknk...', '.k...k....'],
+  march: ['..........', '.....kk...', '.....kwk..', 'kkkkkkwwk.', 'kwwwwwwwwk', 'kkkkkkwwk.', '.....kwk..', '.....kk...', '..........', '..........'],
+  scroll: ['.kkkkkkk..', 'kwkwwwwwk.', '.kwkkkwwk.', '.kwwwwwwk.', '.kwkkkkwk.', '.kwwwwwwk.', '.kwkkkwwk.', '.kwwwwwkwk', '..kkkkkkk.', '..........'],
+  close: ['..........', '.kk....kk.', '.kwk..kwk.', '..kwkkwk..', '...kwwk...', '...kwwk...', '..kwkkwk..', '.kwk..kwk.', '.kk....kk.', '..........'],
+  wave: ['..k.k.....','.kwkwk.k..', '.kwkwkkwk.', 'kkwwwwwwk.', 'kwwwwwwwk.', 'kwwwwwwk..', '.kwwwwwk..', '..kwwwk...', '...kkk....', '..........'],
 };
 export const ICON_NAMES = Object.keys(ICONS);
 const cache = new Map();

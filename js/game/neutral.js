@@ -16,7 +16,7 @@ export const SITES = {
   grove: { name: 'Sacred Grove', verb: 'Rest', desc: 'Heals a squad completely and lifts their spirits.', power: [0, 0] },
 };
 export const SITE_IDS = Object.keys(SITES);
-const PROTECT_TURNS = 3;
+export const PROTECT_TURNS = 3;
 
 export const isNeutral = (t) => t.owner < 0;
 
@@ -100,11 +100,15 @@ export function validNeutralOrder(state, h, o) {
 // ---------- resolution (end of turn, after moves) ----------
 export function applyNeutralOrders(state, rng, results) {
   const note = (kid, text) => { results.push({ kid, text }); log(state, text, kid, 'wild'); };
+  const done = new Set(); // an army plunders or guards a land once, not once per hero
   for (const h of state.heroes) {
     if (h.status !== 'active' || !h.order) continue;
     const o = h.order, t = state.territories[h.loc], k = state.kingdoms[h.kingdom];
     if (!['plunder', 'protect', 'explore', 'court'].includes(o.type)) continue;
     if (!validNeutralOrder(state, h, o)) { h.order = null; continue; }
+    const gkey = o.type + ':' + k.id + ':' + t.id;
+    if ((o.type === 'plunder' || o.type === 'protect') && done.has(gkey)) { if (o.type === 'protect') { gainHeroXp(h, 1, rng); continue; } h.order = null; continue; }
+    done.add(gkey);
     if (o.type === 'plunder') {
       const y = plunderYield(t);
       k.gold += y.gold; k.food += y.food;

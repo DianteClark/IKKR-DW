@@ -24,6 +24,8 @@ import { paintLandWater, paintRiver, drawBlobs, drawLandmark, preloadLandmarks, 
 import { makeNoise } from '../engine/rng.js';
 import { drawBanner } from '../engine/banner.js';
 import { prefs } from '../engine/prefs.js';
+import { commanderOf } from '../game/army.js';
+import { drawIcon } from '../engine/icons.js';
 
 export const TS = 16;
 const FIELD_SHEET = 'assets/has2020/Landscape Objects/FieldSpriteSheet.png';
@@ -1011,6 +1013,8 @@ export function drawHeroes(ctx, state, time, travel, T, myKid = null) {
     // one pin per realm standing here (yours first, on the right; visitors on the left)
     const groups = new Map();
     for (const h of all) { const k = h.lentTo >= 0 ? h.lentTo + 0.5 : h.kingdom; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(h); }
+    // the army's commander (ruler, else highest level) carries the pin
+    for (const [key, list] of groups) if (key === Math.floor(key)) { const c = commanderOf(state, list); groups.set(key, [c, ...list.filter((x) => x !== c)]); }
     const order = [...groups.keys()].sort((a, b) => (a === myKid ? -1 : b === myKid ? 1 : 0));
     order.forEach((key, g) => {
       const list = groups.get(key);
@@ -1042,23 +1046,41 @@ export function drawHeroes(ctx, state, time, travel, T, myKid = null) {
 }
 
 export function drawOrders(ctx, state, kid, time) {
+  const drawn = new Set(); // one arrow per army, not per hero
+  const badges = new Map(); // standing orders: siege and guard markers over the land
   for (const h of state.heroes) {
-    if (h.status !== 'active' || !h.order || h.order.target == null) continue;
+    if (h.status !== 'active' || !h.order) continue;
     if (kid != null && h.kingdom !== kid) continue;
-    const a = state.territories[h.loc], b = state.territories[h.order.target];
+    const o = h.order;
+    if (o.type === 'protect') { const t = state.territories[h.loc]; badges.set('p' + h.loc, { t, icon: 'shield', n: t.protect && t.protect.kid === h.kingdom ? t.protect.turns : 0 }); continue; }
+    if (o.target == null || o.type === 'skirmish' || o.target === h.loc) continue;
+    const key = h.loc + ':' + o.type + ':' + o.target;
+    if (drawn.has(key)) continue; drawn.add(key);
+    const a = state.territories[h.loc], b = state.territories[o.target];
     if (!a || !b) continue;
+    if (o.type === 'besiege') badges.set('s' + b.id, { t: b, icon: 'siege', n: b.siege && b.siege.kid === h.kingdom ? b.siege.turns : 0 });
     const x1 = a.cx * TS + 8, y1 = a.cy * TS + 4, x2 = b.cx * TS + 8, y2 = b.cy * TS + 4;
-    const atk = h.order.type === 'attack';
+    const atk = o.type === 'attack', sg = o.type === 'besiege';
     const mx = (x1 + x2) / 2, my = (y1 + y2) / 2 - Math.hypot(x2 - x1, y2 - y1) * 0.18;
     ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(10,8,16,.6)';
     ctx.beginPath(); ctx.moveTo(x1, y1); ctx.quadraticCurveTo(mx, my, x2, y2); ctx.stroke();
-    ctx.strokeStyle = atk ? '#ff4a3a' : '#ffffff'; ctx.lineWidth = 2;
-    ctx.setLineDash([5, 3]); ctx.lineDashOffset = -time * 14;
+    ctx.strokeStyle = atk ? '#ff4a3a' : sg ? '#ff9a3a' : '#ffffff'; ctx.lineWidth = 2;
+    ctx.setLineDash(sg ? [2, 3] : [5, 3]); ctx.lineDashOffset = sg ? 0 : -time * 14;
     ctx.beginPath(); ctx.moveTo(x1, y1); ctx.quadraticCurveTo(mx, my, x2, y2); ctx.stroke();
     ctx.setLineDash([]);
     const ang = Math.atan2(y2 - my, x2 - mx);
     ctx.fillStyle = ctx.strokeStyle;
     ctx.beginPath(); ctx.moveTo(x2, y2); ctx.lineTo(x2 - Math.cos(ang - 0.5) * 9, y2 - Math.sin(ang - 0.5) * 9); ctx.lineTo(x2 - Math.cos(ang + 0.5) * 9, y2 - Math.sin(ang + 0.5) * 9); ctx.fill();
+  }
+  // a small plate over the town: icon and months done of three
+  for (const { t, icon, n } of badges.values()) {
+    const x = Math.round(t.cx * TS + 8 - 30), y = Math.round(t.cy * TS - 40);
+    ctx.fillStyle = 'rgba(10,8,16,.85)'; ctx.fillRect(x - 1, y - 1, 26, 12);
+    ctx.fillStyle = icon === 'siege' ? '#ff9a3a' : '#57b84a'; ctx.fillRect(x - 1, y + 10, 26, 1);
+    drawIcon(ctx, icon, x, y, 10);
+    ctx.font = 'bold 8px monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillStyle = '#f4ecd8'; ctx.fillText(`${n}/3`, x + 12, y + 1);
+    ctx.textBaseline = 'alphabetic';
   }
 }
 // roads are baked into the terrain; kept for API compatibility

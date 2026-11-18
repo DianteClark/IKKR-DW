@@ -19,10 +19,10 @@ import {
 } from '../game/world.js';
 import { endTurn } from '../game/turn.js';
 import { scoutsLeft, scoutableLands } from '../game/intel.js';
-import { raidableHere } from '../game/trade.js';
+import { armyAt, sharedOrder, orderStatus, commanderOf } from '../game/army.js';
 import { besiegeTargets } from '../game/siege.js';
 import { weatherAt, WEATHER } from '../game/weather.js';
-import { neutralActions, sitesIn, SITES, plunderYield } from '../game/neutral.js';
+import { neutralActions, sitesIn, SITES, plunderYield, canCourt } from '../game/neutral.js';
 import { dateOf, shortDate, seasonOf, yearOf, SEASON_FOOD, childrenOf, wedOptions, MARRY_LEVEL, childNames } from '../game/family.js';
 import { runAI } from '../game/ai.js';
 import { applyAction } from '../game/actions.js';
@@ -191,7 +191,7 @@ registerScene('campaign', {
     const tid = !hit ? null : hit.kind === 'hero' ? hit.tid ?? hero(S.state, hit.id).loc : hit.kind === 'site' ? ((S.state.sites || []).find((s) => s.id === hit.id) || {}).tid ?? null : hit.id;
     if (S.target) {
       if (tid != null && S.target.valid.includes(tid)) {
-        for (const id of S.target.heroes) act({ type: 'order', hero: id, order: { type: S.target.kind, target: tid } });
+        act({ type: 'orderMany', heroes: S.target.heroes, order: { type: S.target.kind, target: tid } });
         const nm = S.state.territories[tid].name;
         sfx(S.target.kind === 'attack' ? 'horn' : 'march');
         toast(S.target.kind === 'attack' ? `Attack ordered on ${nm}` : S.target.kind === 'besiege' ? `Siege laid to ${nm}` : S.target.kind === 'spy' ? `Spies sent to ${nm}` : `Marching to ${nm}`);
@@ -389,15 +389,13 @@ function territoryPanel(tid) {
     }
   }
   if (myHere.length) {
-    add(body, h('h3', {}, k.landless ? 'Your warband' : 'Your heroes'));
+    const army = armyAt(st, k.id, tid);
+    add(body, h('h3', {}, k.landless ? 'Your warband' : army.length > 1 ? 'Your army' : 'Your hero'));
     if (k.landless) add(body, h('div', { class: 'muted', style: { fontSize: '13px' } }, owner ? `Raise an uprising to seize ${t.name} from ${owner.name}, or march on.` : 'March on to find land to take.'));
-    for (const x of myHere) add(body, heroBlock(x));
-    if (myHere.length > 1) {
-      const canAtk = validTargets(st, myHere[0]).length;
-      add(body, h('div', { class: 'row wrap' },
-        canAtk ? btn(k.landless ? 'All rise up' : 'All attack', () => (k.landless ? myHere.forEach((x) => act({ type: 'order', hero: x.id, order: { type: 'attack', target: tid } })) : startTarget(myHere.map((x) => x.id), 'attack')), 'danger small') : null,
-        btn('All rest & train', () => myHere.forEach((x) => act({ type: 'order', hero: x.id, order: { type: 'rest' } })), 'small'),
-));
+    if (army.length > 1 && !(S.split || new Set()).has(tid)) add(body, armyBlock(army));
+    else {
+      if (army.length > 1) add(body, h('div', { class: 'row', style: { gap: '6px', margin: '0 0 6px' } }, h('span', { class: 'muted grow', style: { fontSize: '12px' } }, 'Split: each hero takes their own orders.'), btn('Regroup', () => { S.split.delete(tid); refreshUI(); }, 'small')));
+      for (const x of army) add(body, heroBlock(x));
     }
   }
   const others = st.heroes.filter((x) => x.status === 'active' && x.loc === tid && x.kingdom !== k.id && !(t.owner >= 0 && x.kingdom === t.owner && !mine));
@@ -415,13 +413,16 @@ function territoryPanel(tid) {
     if (near.length) {
       const odds = battleOdds(st, { att: k.id, def: owner ? owner.id : -1, tid, attackers: near.map((x) => x.id), defenders: def.map((x) => x.id), siege: t.level >= 2 && !k.landless }, intel);
       add(body, oddsBar(odds, { left: 'All your heroes nearby', right: owner ? owner.name.split(' of ').pop() : 'Militia' }, intel));
-      add(body, h('h3', {}, k.landless ? 'Rise up here' : 'Send heroes'));
-      for (const x of near) {
-        const set = x.order && x.order.type === 'attack' && x.order.target === tid;
-        add(body, heroCard(st, x, { sel: set, extra: btn(set ? 'Cancel' : 'Attack', () => { act({ type: 'order', hero: x.id, order: set ? null : { type: 'attack', target: tid } }); if (!set) sfx('horn'); }, set ? 'small' : 'danger small') }));
+      add(body, h('h3', {}, k.landless ? 'Rise up here' : 'Send your armies'));
+      const groups = [...new Set(near.map((x) => x.loc))].map((loc) => armyAt(st, k.id, loc).filter((x) => near.includes(x)));
+      for (const g of groups) {
+        const set = g.every((x) => x.order && x.order.type === 'attack' && x.order.target === tid);
+        const name = g.length > 1 ? `Army of ${g[0].name} (${g.length})` : g[0].name;
+        add(body, h('div', { class: 'card army-mini' + (set ? ' sel' : '') },
+          h('div', { class: 'row faces' }, g.slice(0, 4).map((x) => portrait(x, 1.5))),
+          h('div', { class: 'col grow', style: { gap: '1px', minWidth: 0 } }, h('b', { class: 'ellipsis' }, name), h('span', { class: 'muted', style: { fontSize: '12px' } }, `${g.reduce((n, x) => n + x.troops.length, 0)} troops · in ${st.territories[g[0].loc].name}`)),
+          btn(set ? 'Cancel' : 'Attack', () => { act({ type: 'orderMany', heroes: g.map((x) => x.id), order: set ? null : { type: 'attack', target: tid } }); if (!set) sfx('horn'); }, set ? 'small' : 'danger small')));
       }
-      const notSet = near.filter((x) => !(x.order && x.order.type === 'attack' && x.order.target === tid));
-      if (notSet.length > 1) add(body, btn('Send all', () => { notSet.forEach((x) => act({ type: 'order', hero: x.id, order: { type: 'attack', target: tid } })); sfx('horn'); }, 'danger small'));
     }
     if (owner && owner.id !== k.id && !k.landless) add(body, btn('Diplomacy…', () => diplomacySheet(owner.id), 'small'));
     sysLandExtras(body, tid);
@@ -440,42 +441,110 @@ function sysLandExtras(body, tid) {
   else if (t.owner !== k.id && !k.buildings.spies && !hasIntel(st, k.id, tid)) add(body, h('div', { class: 'muted', style: { fontSize: '12px' } }, 'Build a Spy Network to scout lands.'));
 }
 
-function heroBlock(x) {
-  const st = S.state, k = myK();
-  const card = heroCard(st, x, { onClick: () => heroModal(x.id), badges: [x.trait] });
-  const targets = validTargets(st, x), moves = validMoves(st, x), spies = validSpyTargets(st, x);
-  const price = restPrice(st, x);
-  const o = (order) => act({ type: 'order', hero: x.id, order });
-  const is = (t) => x.order && x.order.type === t;
-  const picking = (t) => S.target && S.target.kind === t && S.target.heroes.includes(x.id);
-  const need = x.troops.length < squadCap(x, k) || x.hp < 100;
-  const actions = h('div', { class: 'row wrap', style: { gap: '4px', margin: '2px 0 8px' } },
-    targets.length ? btn(is('attack') ? `Attack → ${st.territories[x.order.target].name}` : k.landless ? 'Rise up' : 'Attack', () => (k.landless ? o({ type: 'attack', target: targets[0] }) : startTarget([x.id], 'attack')), 'danger small' + (is('attack') || picking('attack') ? ' sel' : '')) : null,
-    moves.length ? btn(is('move') ? `Move → ${st.territories[x.order.target].name}` : 'Move', () => startTarget([x.id], 'move'), 'small' + (is('move') || picking('move') ? ' sel' : '')) : null,
-    besiegeTargets(st, x).length ? btn(is('besiege') ? `Besiege → ${st.territories[x.order.target].name}` : 'Besiege', () => startTarget([x.id], 'besiege'), 'small' + (is('besiege') || picking('besiege') ? ' sel' : '')) : null,
-    btn(need ? `Rest & train${price ? ' ' + price + 'g' : ''}` : 'Rest & train', () => o({ type: 'rest' }), 'small good' + (is('rest') ? ' sel' : '')),
-    x.order ? btn('Clear', () => o(null), 'small') : null);
-  const raid = raidableHere(st, x);
-  const raidBtn = raid ? btn(is('raid') ? 'Raid caravan ✓' : 'Raid caravan', () => (is('raid') ? o(null) : confirm('Raid the caravan?', `Ambush the traders on the road between ${st.territories[raid[0]].name} and ${st.territories[raid[1]].name}. It is an act of war against ${[...new Set([st.territories[raid[0]].owner, st.territories[raid[1]].owner])].map((o) => (st.kingdoms[o] || {}).name).filter(Boolean).join(' and ')}.`, 'Raid', 'Cancel', 'danger').then((ok) => ok && o({ type: 'raid' }))), 'small danger' + (is('raid') ? ' sel' : '')) : null;
-  const foes = skirmishTargets(st, x);
-  const fightRow = foes.length ? h('div', { class: 'row wrap', style: { gap: '4px', margin: '-4px 0 8px' } }, foes.map((fk) => {
-    const F = st.kingdoms[fk], on = x.order && x.order.type === 'skirmish' && x.order.target === fk, war = atWar(st, k.id, fk);
-    const go = () => { o(on ? null : { type: 'skirmish', target: fk }); if (!on) { sfx('horn'); toast(`${x.name} will attack ${F.name}'s heroes here`); } };
-    return btn(h('span', { class: 'row', style: { gap: '4px' } }, picon('swords', 14), `${F.name.split(' of ').pop()}'s heroes${war ? '' : ' (act of war)'}`), () => (on || war ? go() : confirm('Attack them here?', `${F.name}'s heroes are not your enemies yet. Attacking them is an act of war: they will declare war on you or sue for peace.`, 'Attack', 'Cancel', 'danger').then((ok) => ok && go())), 'small danger' + (on ? ' sel' : ''));
-  })) : null;
-  const wild = neutralActions(st, x);
-  const wildRow = wild.length ? h('div', { class: 'row wrap', style: { gap: '4px', margin: '-4px 0 8px' } }, wild.map((a) => {
+// ---------- orders: one hero, or a whole army acting as one ----------
+// every order the group can take where it stands; the situation picks up to four to show as buttons
+function orderActions(list) {
+  const st = S.state, k = myK(), lead = list[0], t = st.territories[lead.loc];
+  const ids = list.map((x) => x.id);
+  const so = sharedOrder(list), cur = so && so !== 'mixed' ? so : null;
+  const is = (type, test) => !!cur && cur.type === type && (!test || test(cur));
+  const picking = (kind) => !!S.target && S.target.kind === kind && ids.every((id) => S.target.heroes.includes(id));
+  const all = (order) => act({ type: 'orderMany', heroes: ids, order });
+  const inter = (fn) => list.map(fn).reduce((a, b) => a.filter((x) => b.includes(x)));
+  const tn = (id) => st.territories[id].name;
+  const targets = inter((x) => validTargets(st, x)), moves = inter((x) => validMoves(st, x)), sieges = inter((x) => besiegeTargets(st, x));
+  const out = [];
+  const price = list.reduce((n, x) => n + restPrice(st, x), 0);
+  const need = list.some((x) => x.troops.length < squadCap(x, k) || x.hp < 100);
+  out.push({ id: 'rest', label: need && price ? `Rest & train ${price}g` : 'Rest & train', cls: 'good', on: is('rest'), desc: 'Heal, refill the squad and train.', run: () => all(is('rest') ? null : { type: 'rest' }) });
+  if (moves.length) out.push({ id: 'move', label: is('move') ? `Move → ${tn(cur.target)}` : 'Move', on: is('move') || picking('move'), desc: 'March to a safe land nearby.', run: () => startTarget(ids, 'move') });
+  if (targets.includes(t.id)) {
+    const on = is('attack', (o) => o.target === t.id);
+    out.push({ id: 'take', label: k.landless ? 'Rise up' : `Take ${t.name}`, cls: 'danger', on, desc: k.landless ? `Raise an uprising and seize ${t.name}.` : `Fight the militia and claim ${t.name} by force.`, run: () => { all(on ? null : { type: 'attack', target: t.id }); if (!on) sfx('horn'); } });
+  }
+  const away = targets.filter((x) => x !== t.id);
+  if (!k.landless && away.length) out.push({ id: 'attack', label: is('attack', (o) => o.target !== t.id) ? `Attack → ${tn(cur.target)}` : 'Attack', cls: 'danger', on: is('attack', (o) => o.target !== t.id) || picking('attack'), desc: 'Storm a neighbouring land.', run: () => startTarget(ids, 'attack') });
+  if (sieges.length) out.push({ id: 'besiege', label: is('besiege') ? `Besiege → ${tn(cur.target)}` : 'Besiege', on: is('besiege') || picking('besiege'), desc: 'Starve a walled town for three months instead of storming it.', run: () => startTarget(ids, 'besiege') });
+  for (const a of neutralActions(st, lead)) {
     const order = { type: a.type, site: a.site, target: a.target };
-    const on = x.order && x.order.type === a.type && (a.site == null || x.order.site === a.site) && (a.target == null || x.order.target === a.target);
+    const on = is(a.type, (o) => (a.site == null || o.site === a.site) && (a.target == null || o.target === a.target));
     const label = a.label + (a.risk != null && a.risk < 1 ? ` · ${Math.round(a.risk * 100)}%` : '');
-    return btn(label, () => { o(on ? null : order); if (!on) { sfx('click'); toast(a.desc); } }, 'small ' + (a.type === 'plunder' ? 'danger' : a.type === 'protect' ? 'good' : '') + (on ? ' sel' : ''));
-  })) : null;
-  return h('div', {}, card, actions, raidBtn ? h('div', { class: 'row wrap', style: { gap: '4px', margin: '-4px 0 8px' } }, raidBtn) : null, fightRow, wildRow);
+    const go = () => {
+      if (a.type === 'court') { const who = list.find((x) => canCourt(st, x, hero(st, a.target))) || lead; act({ type: 'order', hero: who.id, order: on ? null : order }); }
+      else all(on ? null : order);
+      if (!on) { sfx('click'); toast(a.desc); }
+    };
+    out.push({ id: a.type === 'explore' ? 'explore:' + a.site : a.type === 'court' ? 'court:' + a.target : a.type, kind: a.type, label, on, desc: a.desc, cls: a.type === 'plunder' ? 'danger' : a.type === 'protect' ? 'good' : '', run: go });
+  }
+  for (const fk of skirmishTargets(st, lead)) {
+    const F = st.kingdoms[fk], on = is('skirmish', (o) => o.target === fk), war = atWar(st, k.id, fk);
+    const go = () => { all(on ? null : { type: 'skirmish', target: fk }); if (!on) { sfx('horn'); toast(`Your heroes will attack ${F.name}'s heroes here`); } };
+    out.push({ id: 'skirmish:' + fk, label: `Fight ${F.name.split(' of ').pop()}'s heroes${war ? '' : ' (act of war)'}`, cls: 'danger', on, desc: 'Battle the foreign heroes standing in this land.',
+      run: () => (on || war ? go() : confirm('Attack them here?', `${F.name}'s heroes are not your enemies yet. Attacking them is an act of war: they will declare war on you or sue for peace.`, 'Attack', 'Cancel', 'danger').then((ok) => ok && go())) });
+  }
+  // which four matter most depends on where they stand
+  const free = t.owner < 0, own = t.owner === k.id;
+  const firstExplore = out.find((a) => a.kind === 'explore');
+  const want = k.landless ? ['take', 'move', 'rest']
+    : sieges.length ? ['attack', 'besiege', 'move', 'rest']
+    : free ? ['protect', 'take', firstExplore && firstExplore.id, 'move']
+    : own ? ['rest', 'move', 'attack']
+    : ['move', 'attack', 'rest'];
+  const primary = want.filter(Boolean).map((id) => out.find((a) => a.id === id)).filter(Boolean).slice(0, 4);
+  const rest = out.filter((a) => !primary.includes(a));
+  return { primary, rest, all, cur: so };
+}
+// the current order as a banner with a cancel cross; sieges and guard duty last for months, so this is how to stop them
+function orderBanner(list, cur, all) {
+  const st = S.state;
+  if (!cur) return null;
+  const info = cur === 'mixed' ? { text: 'Mixed orders', cls: 'gold' } : orderStatus(st, list[0]);
+  if (!info) return null;
+  const cancel = () => {
+    all(null); sfx('click');
+    if (info.standing) toast(cur.type === 'besiege' ? `The siege of ${st.territories[cur.target].name} is lifted` : 'Guard duty ended', 'gold');
+  };
+  return h('div', { class: 'order-banner ' + (info.cls || '') + (info.standing ? ' standing' : '') },
+    info.icon ? picon(info.icon, 16) : null,
+    h('span', { class: 'grow ellipsis' }, info.text),
+    btn(picon('close', 14), cancel, 'small icon-btn', ));
+}
+function orderButtons(list) {
+  const { primary, rest, all, cur } = orderActions(list);
+  const more = rest.length ? btn('Act here…', () => {
+    let m;
+    const body = h('div', { class: 'col', style: { gap: '6px' } }, rest.map((a) => h('div', { class: 'card act-row' },
+      h('div', { class: 'col grow', style: { gap: '1px', minWidth: 0 } }, h('b', {}, a.label), a.desc ? h('span', { class: 'muted', style: { fontSize: '12px' } }, a.desc) : null),
+      btn(a.on ? 'Cancel' : 'Order', () => { m.close(); a.run(); }, 'small ' + (a.on ? '' : a.cls || 'primary')))));
+    m = sheet(list.length > 1 ? `Army of ${list[0].name}` : list[0].name, body, [], { side: 'right' });
+  }, 'small') : null;
+  return h('div', { class: 'col', style: { gap: '4px', margin: '2px 0 8px', alignItems: 'stretch' } },
+    orderBanner(list, cur, all),
+    h('div', { class: 'row wrap', style: { gap: '4px' } }, primary.map((a) => btn(a.label, a.run, 'small ' + (a.cls || '') + (a.on ? ' sel' : ''))), more));
+}
+function heroBlock(x) {
+  const st = S.state;
+  const card = heroCard(st, x, { onClick: () => heroModal(x.id), badges: [x.trait], order: false });
+  return h('div', {}, card, orderButtons([x]));
+}
+// heroes of one realm in one land form an army: one card, one set of orders
+function armyBlock(list) {
+  const st = S.state, lead = list[0], t = st.territories[lead.loc];
+  const troops = list.reduce((n, x) => n + x.troops.length, 0);
+  const card = h('div', { class: 'card army-card col' },
+    h('div', { class: 'row', style: { gap: '6px' } }, picon('flag', 16), h('b', { class: 'grow ellipsis' }, `Army of ${lead.name}`), chip(`${troops} troops`, 'gold')),
+    h('div', { class: 'row wrap faces', style: { gap: '4px' } }, list.map((x) => h('span', { class: 'face tap' + (x === lead ? ' lead' : ''), title: x.name, onClick: () => heroModal(x.id) }, portrait(x, 2), h('span', { class: 'lvl' }, x.level)))),
+    h('div', { class: 'muted', style: { fontSize: '12px' } }, `${list.length} heroes · led by ${lead.name}. Tap a face for details.`));
+  const split = btn('Split', () => { S.split = S.split || new Set(); S.split.add(t.id); refreshUI(); }, 'small');
+  const box = orderButtons(list);
+  box.lastChild.append(split);
+  return h('div', {}, card, box);
 }
 
 function startTarget(ids, kind) {
-  const st = S.state, x = hero(st, ids[0]);
-  const valid = kind === 'attack' ? validTargets(st, x) : kind === 'besiege' ? besiegeTargets(st, x) : kind === 'spy' ? validSpyTargets(st, x) : validMoves(st, x);
+  const st = S.state, list = ids.map((id) => hero(st, id));
+  const pick = (x) => (kind === 'attack' ? validTargets(st, x).filter((tid) => tid !== x.loc) : kind === 'besiege' ? besiegeTargets(st, x) : kind === 'spy' ? validSpyTargets(st, x) : validMoves(st, x));
+  const valid = list.map(pick).reduce((a, b) => a.filter((x) => b.includes(x)));
   if (!valid.length) return toast('Nowhere to go from here');
   S.target = { heroes: ids, kind, valid };
   refreshUI();

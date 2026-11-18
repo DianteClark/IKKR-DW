@@ -309,7 +309,9 @@ export function validTargets(state, h) {
   const k = state.kingdoms[h.kingdom];
   const t = state.territories[h.loc];
   if (k.landless) return t.owner !== h.kingdom && !friendly(state, h.kingdom, t.owner) ? [t.id] : []; // a warband rises up where it stands
-  return reach(state, h, t.id).filter((n) => { const o = state.territories[n].owner; return o !== h.kingdom && !friendly(state, h.kingdom, o); });
+  const out = reach(state, h, t.id).filter((n) => { const o = state.territories[n].owner; return o !== h.kingdom && !friendly(state, h.kingdom, o); });
+  if (t.owner < 0) out.unshift(t.id); // a free hamlet can be taken from within
+  return out;
 }
 export function validMoves(state, h) {
   const k = state.kingdoms[h.kingdom];
