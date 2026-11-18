@@ -461,3 +461,8 @@ body.overlay-open .side, body.overlay-open .goals, body.overlay-open .minimap, b
 .disabled-block { opacity: .45; pointer-events: none; }
 .walk-card { align-items: stretch; gap: 6px; }
 .pending-tag { font-size: 11px; opacity: .9; margin-left: 4px; }
+/* narrow phones: when the land panel is open the bottom bar scrolls sideways instead of crushing its buttons */
+.bottombar.narrow { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.bottombar.narrow::-webkit-scrollbar { display: none; }
+.bottombar.narrow > .btn { flex: none; }
+.end-turn .pending-tag { color: #3a2408; }

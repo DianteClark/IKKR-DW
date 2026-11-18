@@ -12,16 +12,17 @@ export const PAGES = [
     'You only lose when your last hero falls. A landless band of heroes can still rise again.',
   ] },
   { title: 'The map', lines: [
-    'Drag to look around, pinch to zoom. The minimap (bottom right) jumps anywhere. The house button takes you home; "Idle" finds heroes without orders.',
+    'Drag to look around, pinch to zoom. The minimap (bottom right) jumps anywhere. The house button takes you home; "Idle" finds armies without orders.',
     'Banners show who owns a land. No banner = free hamlet. Border guards stand along each realm\'s edge.',
     'Tap a land to open its panel: owner, sites, heroes there and what you can do.',
     'Fog of war hides what your lands, heroes and allies can\'t see.',
   ] },
   { title: 'Heroes and orders', lines: [
-    'Each hero leads a squad. Give every hero one order per month, then press End Turn.',
-    'Attack a neighbouring land · Move through your own or free lands · Rest & train to heal, refill the squad and gain experience.',
-    'In free lands: Protect a hamlet (it joins you), Plunder it, Explore a site, or Court a wanderer.',
-    'Besiege walled towns to starve them out; raiding caravans or ambushing heroes is an act of war.',
+    'Each hero leads a squad. Heroes of your realm in the same land form an army automatically: one card, one set of orders. Split it to order heroes one by one.',
+    'Each month the army gets up to four orders that fit where it stands. At home: Rest & train, Move, Attack. In a free hamlet: Protect, Take, Explore. Next to enemy walls: Attack or Besiege.',
+    'Everything else possible there (plunder, courting a wanderer, fighting foreign heroes) is under "Act here…".',
+    'Protecting a hamlet and besieging a town last for months. The banner on the army shows progress, like "Besieging Ostvale · month 2 of 3". Tap its cross to stop.',
+    'End Turn shows what still needs you (idle armies, offers, children to name, callings). Walk through them, or skip all and end the month.',
   ] },
   { title: 'Hero stats', lines: [
     'ATK — attack: how hard the hero and squad hit.',
@@ -45,9 +46,12 @@ export const PAGES = [
   ] },
   { title: 'Your realm', lines: [
     'Gold pays for soldiers and buildings; food feeds your armies; Order keeps the peace and steadies your armies. Tap any of them in the top bar to see why it changes.',
-    'Gather 5 heroes and your village becomes a kingdom. Build in Realm → Build.',
+    'Order falls with high taxes, famine, defeats and plunder; below 24 lands may revolt, below 12 you can be overthrown.',
+    'The Steward runs taxes, rations, edicts, buildings and town growth each month (Grow, Defend or Prosper) and reports in one line. Turn him off in Realm to do it yourself.',
+    'Gather 5 heroes and your village becomes a kingdom.',
     'Heroes marry, have children and pass on their strengths. Name your children when they are born.',
-    'Diplomacy: propose alliances, make peace, lend heroes. Rulers have temperaments — some never forget.',
+    'Offers and demands from other realms arrive as Accept / Refuse cards in the month summary. Diplomacy lists every realm with one main action. Rulers have temperaments: some never forget.',
+    'Trade caravans, weather and bandits run on their own; you will see what they did in the month summary.',
   ] },
   { title: 'Playing together', lines: [
     'Multiplayer: one player hosts (choosing map and rules) and shares the room code; the other joins.',

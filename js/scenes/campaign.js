@@ -19,7 +19,8 @@ import {
 } from '../game/world.js';
 import { endTurn } from '../game/turn.js';
 import { scoutsLeft, scoutableLands } from '../game/intel.js';
-import { armyAt, sharedOrder, orderStatus, commanderOf } from '../game/army.js';
+import { STEWARD_FOCUS, stewardOf } from '../game/steward.js';
+import { armyAt, armiesOf, sharedOrder, orderStatus, commanderOf } from '../game/army.js';
 import { besiegeTargets } from '../game/siege.js';
 import { weatherAt, WEATHER } from '../game/weather.js';
 import { neutralActions, sitesIn, SITES, plunderYield, canCourt } from '../game/neutral.js';
@@ -256,13 +257,13 @@ function bannerIcon(k) { const el = k.banner ? bannerEl(k.banner, 0.8) : h('span
 // jump to the next hero without orders and open their land
 function nextIdle() {
   const st = S.state, k = myK();
-  const idle = kingdomHeroes(st, k.id).filter((x) => !x.order);
+  const idle = armiesOf(st, k.id).filter((a) => a.some((x) => !x.order)).map((a) => a[0]);
   if (!idle.length) return;
   S.idleI = ((S.idleI ?? -1) + 1) % idle.length;
   const x = idle[S.idleI];
   focus(x.loc); cam.x += (screen.w * 0.22) / cam.zoom; cam.clamp();
   S.sel = x.loc; sfx('open'); refreshUI(); drawMinimapUI();
-  toast(`${x.name} awaits orders`);
+  toast(`${armyAt(st, k.id, x.loc).length > 1 ? 'Army of ' + x.name : x.name} awaits orders`);
 }
 function focus(tid) { const t = S.state.territories[tid]; cam.x = t.cx * TS + 8; cam.y = t.cy * TS + 8; cam.clamp(); }
 
@@ -293,7 +294,7 @@ export function refreshUI() {
   if (!S.state || !ui.top || game.sceneName !== 'campaign') return;
   const st = S.state, k = myK();
   const terrs = kingdomTerritories(st, k.id), heroes = kingdomHeroes(st, k.id);
-  const idle = heroes.filter((x) => !x.order).length;
+  const idle = armiesOf(st, k.id).filter((a) => a.some((x) => !x.order)).length;
   const eco = economyPreview(st, k);
   const waiting = net.role !== 'single' && net.waitingFor ? net.waitingFor : null;
   const incoming = st.proposals.filter((p) => p.to === k.id).length;
@@ -308,7 +309,7 @@ export function refreshUI() {
     h('span', { class: 'chip muted', title: cap1(dateOf(st.turn)) }, shortDate(st.turn)),
     h('span', { class: 'grow' }),
     btn(picon('menu', 18), menu, 'small'),
-    btn(waiting ? waiting : idle ? `End Turn (${idle})` : 'End Turn', endTurnPressed, 'primary small'),
+    (() => { const pend = waiting ? '' : pendingLabel(pendingItems()); return btn(waiting ? waiting : h('span', { class: 'row', style: { gap: '4px' } }, 'End Turn', pend ? h('small', { class: 'pending-tag' }, pend) : null), endTurnPressed, 'primary small end-turn'); })(),
   );
   renderGoals();
   ui.bottom.innerHTML = '';
@@ -361,7 +362,6 @@ function territoryPanel(tid) {
     !owner ? h('div', { class: 'muted', style: { fontSize: '13px' } }, 'Free folk who answer to no crown. Take it by force, plunder it, or send a hero to protect it until it chooses to join you.') : null,
     h('div', { class: 'muted' }, `${BIOMES[t.biome].name} · ${stars}${t.ruined ? ' · ruined' : ''} · +${territoryIncome(t)}g · food ${territoryFood(t)}`),
     (t.fx || []).length ? h('div', { class: 'row wrap' }, t.fx.map((f) => chip(`${(EVENT_INFO[f.kind] || {}).name || f.kind} (${f.turns})`, 'bad'))) : null,
-    weatherAt(st, t) ? h('span', { class: 'chip blue' }, picon(WEATHER[weatherAt(st, t)].icon, 14), ` ${WEATHER[weatherAt(st, t)].name}: ${WEATHER[weatherAt(st, t)].desc}`) : null,
     t.siege ? chip(`Under siege by ${st.kingdoms[t.siege.kid].name.split(' of ').pop()} (${t.siege.turns}/3)`, 'bad') : null,
   );
   const sites = sitesIn(st, tid);
@@ -379,7 +379,8 @@ function territoryPanel(tid) {
   }
   const myHere = kingdomHeroes(st, k.id).filter((x) => x.loc === tid);
   if (mine) {
-    if (t.level < 3) add(body, btn(`Develop town (${developCost(t)}g)`, () => { if (!act({ type: 'develop', tid })) toast('Not enough gold'); else sfx('coin'); }, 'small'));
+    if (t.level < 3 && stewardOf(k).on) add(body, h('div', { class: 'muted', style: { fontSize: '12px' } }, 'The Steward develops your towns.'));
+    else if (t.level < 3) add(body, btn(`Develop town (${developCost(t)}g)`, () => { if (!act({ type: 'develop', tid })) toast('Not enough gold'); else sfx('coin'); }, 'small'));
   }
   if (mine || (k.landless && myHere.length)) {
     const vags = vagabondsIn(st, tid);
@@ -809,6 +810,15 @@ function economySheet(focusOn = 'gold') {
   const mm = sheet('Your economy this month', body, [], { side: 'right' });
 }
 
+// the Steward: on, he sets taxes, rations, edicts, buildings and town growth each month
+function stewardBox(k, render) {
+  const s = stewardOf(k);
+  return h('div', { class: 'card col', style: { alignItems: 'stretch', gap: '6px' } },
+    h('div', { class: 'steward-line' }, picon('scroll', 18), h('b', { class: 'grow' }, 'Steward'),
+      segmented([{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }], s.on ? 'on' : 'off', (v) => { act({ type: 'steward', on: v === 'on', focus: s.focus }); render(); })),
+    s.on ? segmented(Object.entries(STEWARD_FOCUS).map(([v, f]) => ({ value: v, label: f.name })), s.focus, (v) => { act({ type: 'steward', on: true, focus: v }); render(); }) : null,
+    h('div', { class: 'muted', style: { fontSize: '12px' } }, s.on ? STEWARD_FOCUS[s.focus].desc + ' Turn him off to run taxes, edicts and building yourself.' : 'You run taxes, rations, edicts, building and towns yourself.'));
+}
 // ---------- realm management ----------
 function realmSheet() {
   const st = S.state, k = myK();
@@ -826,6 +836,7 @@ function realmSheet() {
         eco.trade ? statRow('Trade caravans', `+${eco.trade}g from friendly borders`) : null,
         statRow('Food per turn', `${sign(eco.food)}  (grown ${eco.foodMade}, eaten ${eco.foodEaten})`),
         statRow('Date', `${cap1(dateOf(st.turn))} · harvest ×${SEASON_FOOD[seasonOf(st.turn)]}`),
+        k.landless ? null : stewardBox(k, () => render()),
         h('div', { class: 'row' }, h('span', { style: { width: '90px' } }, 'Order'), h('div', { class: 'grow' }, bar(k.morale / 100, 'mor')), h('b', {}, Math.round(k.morale))),
         k.morale < 30 ? h('div', { class: 'bad', style: { fontSize: '13px' } }, 'Low Order breeds revolts. Very low Order can overthrow you!') : null,
         k.food < 0 || eco.food < 0 ? h('div', { class: 'bad', style: { fontSize: '13px' } }, 'Food is running out. Famine makes soldiers desert.') : null,
@@ -842,17 +853,19 @@ function realmSheet() {
           btn(`${c.gold ? c.gold + 'g ' : ''}${c.food ? c.food + ' food' : ''}${!c.gold && !c.food ? 'Free' : ''}`, () => { if (act({ type: 'edict', edict: id })) { sfx('horn'); toast(`${e.name} proclaimed`, 'good'); render(); } }, 'small' + (ok ? ' primary' : '')));
       });
       content = h('div', { class: 'col' },
+        k.landless ? null : stewardBox(k, () => render()),
+        h('div', { class: 'col' + (stewardOf(k).on ? ' disabled-block' : '') },
         h('b', {}, 'Taxes'), segmented(Object.entries(POLICIES.tax).map(([v, p]) => ({ value: v, label: p.name })), k.policy.tax, (v) => { act({ type: 'policy', kind: 'tax', value: v }); render(); }),
         h('div', { class: 'muted', style: { fontSize: '13px' } }, 'High taxes fill the treasury but lower Order.'),
         h('b', {}, 'Rations'), segmented(Object.entries(POLICIES.rations).map(([v, p]) => ({ value: v, label: p.name })), k.policy.rations, (v) => { act({ type: 'policy', kind: 'rations', value: v }); render(); }),
         h('div', { class: 'muted', style: { fontSize: '13px' } }, 'Feasts lift Order but eat your stores.'),
-        h('b', {}, k.edictTurn === st.turn ? 'Edict (used this turn)' : 'One edict per turn'), edicts);
+        h('b', {}, k.edictTurn === st.turn ? 'Edict (used this turn)' : 'One edict per turn'), edicts));
     } else if (tab === 'build') {
-      content = h('div', { class: 'col' }, Object.entries(BUILDINGS).map(([id, b]) => {
+      content = h('div', { class: 'col' }, stewardOf(k).on ? h('div', { class: 'muted', style: { fontSize: '13px' } }, 'The Steward chooses what to build. Turn him off on the Realm tab to build yourself.') : null, h('div', { class: 'col' + (stewardOf(k).on ? ' disabled-block' : '') }, Object.entries(BUILDINGS).map(([id, b]) => {
         const have = k.buildings[id], can = tierIndex(k) >= b.tier;
         return h('div', { class: 'card', style: { gap: '8px' } }, h('div', { class: 'col grow', style: { gap: '1px' } }, h('b', {}, b.name), h('span', { class: 'muted', style: { fontSize: '13px' } }, b.desc + (can ? '' : ` Requires ${TIERS[b.tier].name}.`))),
           have ? chip('Built', 'good') : btn(`${b.cost}g`, () => { if (act({ type: 'build', building: id })) { sfx('coin'); render(); } else toast(can ? 'Not enough gold' : 'Grow your realm first'); }, 'small' + (can && k.gold >= b.cost ? ' primary' : '')));
-      }));
+      })));
     } else {
       const opts = loadoutOptions(st, k.id), n = loadoutSlots(st, k.id);
       const cur = [...(k.loadout || [])];
@@ -875,6 +888,21 @@ function realmSheet() {
 }
 
 // ---------- diplomacy ----------
+// what an incoming offer or demand says
+function offerText(p) {
+  return p.type === 'vassal' ? 'demands you swear fealty (a fifth of your income as tribute)' : p.type === 'peace' ? (p.gold > 0 ? `sues for peace and offers ${p.gold}g` : p.gold < 0 ? `will make peace for ${-p.gold}g` : 'offers peace') : `offers an ${p.type}`;
+}
+// an offer as a decision: Accept or Refuse, then the card shows what you chose
+function offerCard(p, done) {
+  const st = S.state, from = st.kingdoms[p.from];
+  const row = h('div', { class: 'row', style: { gap: '6px' } });
+  const decide = (accept) => { act({ type: 'respond', id: p.id, accept }); sfx(accept ? 'coin' : 'click'); row.replaceChildren(chip(accept ? 'Accepted' : 'Refused', accept ? 'good' : 'bad')); refreshUI(); if (done) done(accept); };
+  row.append(btn('Accept', () => decide(true), 'small good'), btn('Refuse', () => decide(false), 'small danger'));
+  return h('div', { class: 'card sumcard ' + (p.type === 'vassal' ? 'bad' : 'gold') },
+    h('span', { class: 'sum-ic' }, picon(p.type === 'vassal' ? 'crown' : 'letter', 22)),
+    h('div', { class: 'col grow', style: { gap: '2px', minWidth: 0 } }, h('b', {}, `${from.name}`), h('span', { class: 'muted', style: { fontSize: '13px' } }, cap1(offerText(p)) + '.')),
+    row);
+}
 function diplomacySheet(focusKid) {
   const st = S.state, k = myK();
   let m;
@@ -886,33 +914,33 @@ function diplomacySheet(focusKid) {
     const realms = st.kingdoms.filter((o) => o.alive && o.id !== k.id).sort((a, b) => (b.id === focusKid) - (a.id === focusKid) || realmPower(st, b.id) - realmPower(st, a.id));
     const body = h('div', { class: 'col' },
       incoming.length ? h('b', {}, 'Offers to you') : null,
-      incoming.map((p) => {
-        const from = st.kingdoms[p.from];
-        const what = p.type === 'vassal' ? 'demands you swear fealty (pay a fifth of your income in tribute)' : p.type === 'peace' ? (p.gold > 0 ? `sues for peace and offers ${p.gold}g` : p.gold < 0 ? `will make peace for ${-p.gold}g` : 'offers peace') : `offers an ${p.type}`;
-        return h('div', { class: 'card col', style: { alignItems: 'stretch' } }, h('div', { class: 'row wrap' }, kingdomBadge(from, { race: true }), h('span', {}, what)),
-          h('div', { class: 'row' }, btn('Accept', () => { act({ type: 'respond', id: p.id, accept: true }); sfx('coin'); render(); refreshUI(); }, 'small good'), btn('Refuse', () => { act({ type: 'respond', id: p.id, accept: false }); render(); refreshUI(); }, 'small danger')));
-      }),
+      incoming.map((p) => offerCard(p, () => setTimeout(render, 500))),
       h('div', { class: 'muted', style: { fontSize: '13px' } }, `Alliance victory: rule the whole map with your allies — but only if you proposed most of your own alliances. You proposed ${proposedByMe} of ${mine.length}${mine.length && !proposedByMe * 2 > mine.length ? '' : ''}${mine.length ? (proposedMajority(st, k.id) ? ' ✓' : ' ✗') : ''}.${dom >= 0 ? ` ${st.kingdoms[dom].name} dominates the map; others will band together against it.` : ''}`),
       realms.map((o) => {
         const t = treaty(st, k.id, o.id);
         const op = opinion(st, o.id, k.id);
         const pw = realmPower(st, o.id) / Math.max(1, realmPower(st, k.id));
-        const acts = [];
         const war = atWar(st, k.id, o.id);
-        if (war && o.kind !== 'monster') acts.push(btn('Offer peace', () => { const r = act({ type: 'peace', to: o.id, gold: 0 }); toast(r === 'accepted' ? `${o.name} accepts peace.` : r === 'pending' ? 'Offer sent' : `${o.name} refuses. Try again with gold or after a victory.`, r === 'accepted' ? 'good' : 'bad'); render(); refreshUI(); }, 'small good'),
-          btn(`Peace for ${Math.max(100, Math.round(k.gold * 0.25))}g`, () => { const g = Math.max(100, Math.round(k.gold * 0.25)); if (k.gold < g) return toast('Not enough gold'); const r = act({ type: 'peace', to: o.id, gold: g }); toast(r === 'accepted' ? `${o.name} takes the gold and makes peace.` : r === 'pending' ? 'Offer sent' : `${o.name} refuses.`, r === 'accepted' ? 'good' : 'bad'); render(); refreshUI(); }, 'small'));
+        const say = (r, ok, pend, no) => { toast(r === 'accepted' ? ok : r === 'pending' ? pend : no, r === 'accepted' ? 'good' : r === 'pending' ? '' : 'bad'); render(); refreshUI(); };
+        const acts = []; // first one is the primary action, the rest go under More
+        if (war && o.kind !== 'monster') {
+          acts.push({ label: 'Offer peace', cls: 'good', run: () => say(act({ type: 'peace', to: o.id, gold: 0 }), `${o.name} accepts peace.`, 'Offer sent', `${o.name} refuses. Try again with gold or after a victory.`) });
+          const g = Math.max(100, Math.round(k.gold * 0.25));
+          acts.push({ label: `Peace for ${g}g`, run: () => { if (k.gold < g) return toast('Not enough gold'); say(act({ type: 'peace', to: o.id, gold: g }), `${o.name} takes the gold and makes peace.`, 'Offer sent', `${o.name} refuses.`); } });
+        }
         if (!k.landless && o.kind !== 'monster' && !war) {
           if (!t) {
-            acts.push(btn('Propose alliance', () => { const r = act({ type: 'propose', to: o.id, kind: 'alliance' }); toast(r === 'accepted' ? `${o.name} accepts!` : r === 'pending' ? 'Offer sent' : `${o.name} refuses.`, r === 'accepted' ? 'good' : r === 'pending' ? '' : 'bad'); sfx(r === 'accepted' ? 'victory' : 'click'); render(); refreshUI(); }, 'small'));
-            if (tierIndex(k) >= 2 && pw < 0.6) acts.push(btn('Demand fealty', () => { const r = act({ type: 'propose', to: o.id, kind: 'vassal' }); toast(r === 'accepted' ? `${o.name} bends the knee!` : r === 'pending' ? 'Demand sent' : `${o.name} defies you!`, r === 'accepted' ? 'good' : 'bad'); render(); refreshUI(); }, 'small danger'));
-          } else acts.push(btn(t.type === 'vassal' ? (t.a === k.id ? 'Release vassal' : 'Renounce oath') : 'Break alliance', () => confirm('Break this pact?', 'Every realm will remember your betrayal. Stability drops.', 'Break it', 'Keep', 'danger').then((ok) => { if (ok) { act({ type: 'break', other: o.id }); render(); refreshUI(); } }), 'small danger'));
+            acts.push({ label: 'Propose alliance', cls: 'primary', run: () => { const r = act({ type: 'propose', to: o.id, kind: 'alliance' }); sfx(r === 'accepted' ? 'victory' : 'click'); say(r, `${o.name} accepts!`, 'Offer sent', `${o.name} refuses.`); } });
+            if (tierIndex(k) >= 2 && pw < 0.6) acts.push({ label: 'Demand fealty', cls: 'danger', run: () => say(act({ type: 'propose', to: o.id, kind: 'vassal' }), `${o.name} bends the knee!`, 'Demand sent', `${o.name} defies you!`) });
+          } else acts.push({ label: t.type === 'vassal' ? (t.a === k.id ? 'Release vassal' : 'Renounce oath') : 'Break alliance', cls: 'danger', run: () => confirm('Break this pact?', 'Every realm will remember your betrayal. Order drops.', 'Break it', 'Keep', 'danger').then((ok) => { if (ok) { act({ type: 'break', other: o.id }); render(); refreshUI(); } }) });
         }
         const wl = t ? null : willingness(st, o.id, k.id, 'alliance');
-        return h('div', { class: 'card col', style: { alignItems: 'stretch', borderColor: o.id === focusKid ? '#ffd86b' : undefined } },
-          h('div', { class: 'row wrap', style: { gap: '6px' } }, kingdomBadge(o, { race: true }), war ? chip('At war', 'bad') : relationChip(k.id, o.id), o.kind !== 'realm' ? chip(o.kind === 'bandit' ? 'Bandits' : o.kind === 'monster' ? 'Monsters' : 'Rebels', 'bad') : null, o.player >= 0 ? chip('Player', 'blue') : null),
-          o.temper ? h('div', { style: { fontSize: '12px' } }, h('span', { class: 'gold' }, TEMPERS[o.temper].name), h('span', { class: 'muted' }, ' · ' + TEMPERS[o.temper].desc)) : null,
-          h('div', { class: 'muted', style: { fontSize: '13px' } }, `${kingdomTerritories(st, o.id).length} lands · strength ${pw > 1.5 ? 'far stronger' : pw > 1.1 ? 'stronger' : pw > 0.8 ? 'even' : pw > 0.5 ? 'weaker' : 'far weaker'} · opinion ${Math.round(op)}${wl != null ? ` · ${wl > 0.5 ? 'open to an alliance' : wl > 0.3 ? 'unsure' : 'unwilling'}` : ''}`),
-          acts.length ? h('div', { class: 'row wrap' }, acts) : null);
+        const info = `${kingdomTerritories(st, o.id).length} lands · ${pw > 1.5 ? 'far stronger' : pw > 1.1 ? 'stronger' : pw > 0.8 ? 'even' : pw > 0.5 ? 'weaker' : 'far weaker'} · opinion ${Math.round(op)}${wl != null && !war ? ` · ${wl > 0.5 ? 'open to alliance' : wl > 0.3 ? 'unsure' : 'unwilling'}` : ''}`;
+        const more = acts.length > 1 ? btn('More', () => { const mm2 = modal(o.name, h('div', { class: 'col', style: { gap: '6px' } }, acts.slice(1).map((a) => btn(a.label, () => { mm2.close(); a.run(); }, a.cls || ''))), [['Close']]); }, 'small') : null;
+        return h('div', { class: 'card col', style: { alignItems: 'stretch', gap: '3px', borderColor: o.id === focusKid ? '#ffd86b' : undefined } },
+          h('div', { class: 'row wrap', style: { gap: '6px' } }, kingdomBadge(o, { race: true }), war ? chip('At war', 'bad') : relationChip(k.id, o.id),
+            o.kind !== 'realm' ? chip(o.kind === 'bandit' ? 'Bandits' : o.kind === 'monster' ? 'Monsters' : 'Rebels', 'bad') : o.player >= 0 ? chip('Player', 'blue') : o.temper ? chip(TEMPERS[o.temper].name, 'gold') : null),
+          h('div', { class: 'row', style: { gap: '6px' } }, h('span', { class: 'muted grow', style: { fontSize: '12px', minWidth: 0 } }, info), acts[0] ? btn(acts[0].label, acts[0].run, 'small ' + (acts[0].cls || '')) : null, more));
       }));
     if (m) keepScroll(m.box.querySelector('.body'), body); else m = sheet('Diplomacy', body, [], { side: 'right' });
   };
@@ -938,10 +966,10 @@ function intro() {
   const k = myK();
   modal(`Welcome, ${hero(S.state, k.ruler)?.name || 'ruler'}`, h('div', { class: 'col' },
     h('div', {}, `You rule the village of ${S.state.territories[k.capital].name}. Free hamlets lie between you and your rivals.`),
-    h('div', {}, '• Tap a land, then give each hero an order: attack, move, rest & train, or act in the wilds.'),
+    h('div', {}, '• Your heroes march together as one army. Tap your land and pick one of its orders; more are under "Act here…".'),
+    h('div', {}, '• Your Steward runs taxes, edicts and building for you. Change his focus or turn him off in Realm.'),
     h('div', {}, '• Follow the Goals chip at the top-left: it teaches the game as you play.'),
-    h('div', {}, '• Gather 5 heroes and your village becomes a kingdom. Grow it into an empire.'),
-    h('div', {}, '• Tap gold, food or Order to see why they change each month.'),
+    h('div', {}, '• End Turn shows what still needs you. Tap gold, food or Order to see why they change.'),
     h('div', {}, '• Attacking another realm is an act of war. You lose only when your last hero falls.'),
   ), [['To war!', () => { sfx('horn'); banner('Early spring, year 1', 'blue', k.name); }, 'primary']]);
 }
@@ -1063,9 +1091,54 @@ function connectionLost() {
 }
 
 // ---------- turn flow ----------
+// ---------- what needs you before the month ends ----------
+function pendingItems() {
+  const st = S.state, k = myK(), items = [];
+  for (const a of armiesOf(st, k.id)) if (a.some((x) => !x.order)) items.push({ kind: 'idle', army: a });
+  for (const p of st.proposals.filter((x) => x.to === k.id)) items.push({ kind: 'offer', p });
+  for (const b of (st.pendingBirths || []).filter((x) => x.kid === k.id)) items.push({ kind: 'child', b });
+  for (const x of kingdomHeroes(st, k.id).filter((x) => !x.role && x.level >= ROLE_LEVEL)) items.push({ kind: 'calling', x });
+  if (pendingChoice(st, k.id)) items.push({ kind: 'choice', c: pendingChoice(st, k.id) });
+  return items;
+}
+function pendingLabel(items) {
+  const n = (kind) => items.filter((i) => i.kind === kind).length;
+  return [[n('idle'), 'idle'], [n('offer'), n('offer') > 1 ? 'offers' : 'offer'], [n('choice'), 'decision'], [n('child'), n('child') > 1 ? 'children' : 'child'], [n('calling'), 'calling']]
+    .filter(([c]) => c).slice(0, 2).map(([c, w]) => `${c} ${w}`).join(' · ');
+}
+// End Turn walks through what is pending, one at a time; skip all to end the month anyway
+function walkPending(i = 0) {
+  const items = pendingItems();
+  if (!items.length) return endTurnNow();
+  const it = items[Math.min(i, items.length - 1)], st = S.state;
+  let m;
+  const at = Math.min(i, items.length - 1), last = at === items.length - 1;
+  // done: the item was dealt with, so the list is shorter and the same index is the next one
+  const next = (done) => { m.close(); const j = done ? at : at + 1; setTimeout(() => (j < pendingItems().length ? walkPending(j) : endTurnNow()), 150); };
+  const go = (fn) => () => { m.close(); fn(); };
+  const look = (tid) => { focus(tid); cam.x += (screen.w * 0.22) / cam.zoom; cam.clamp(); S.sel = tid; refreshUI(); drawMinimapUI(); };
+  let body;
+  if (it.kind === 'idle') {
+    const a = it.army, t = st.territories[a[0].loc], idle = a.filter((x) => !x.order);
+    body = h('div', { class: 'card walk-card col' },
+      h('div', { class: 'row', style: { gap: '6px' } }, h('div', { class: 'row faces', style: { gap: '2px' } }, a.slice(0, 4).map((x) => portrait(x, 1.5))),
+        h('div', { class: 'col grow', style: { gap: '1px', minWidth: 0 } }, h('b', { class: 'ellipsis' }, a.length > 1 ? `Army of ${a[0].name}` : a[0].name), h('span', { class: 'muted', style: { fontSize: '13px' } }, `${idle.length === a.length ? 'Has no orders' : `${idle.length} of ${a.length} without orders`} in ${t.name}.`))),
+      h('div', { class: 'row wrap', style: { gap: '6px' } }, btn('Give orders', go(() => look(t.id)), 'small primary'), btn('Rest & train', () => { act({ type: 'orderMany', heroes: idle.map((x) => x.id), order: { type: 'rest' } }); next(true); }, 'small good')));
+  } else if (it.kind === 'offer') body = offerCard(it.p, () => setTimeout(() => next(true), 450));
+  else if (it.kind === 'child') body = h('div', { class: 'card walk-card col' }, h('b', {}, 'A child awaits a name'), h('span', { class: 'muted', style: { fontSize: '13px' } }, `Born to ${(it.b.parents || []).join(' and ')}.`), btn('Name the child', go(nameBirths), 'small primary'));
+  else if (it.kind === 'calling') body = h('div', { class: 'card walk-card col' }, h('b', {}, `${it.x.name} can choose a calling`), h('span', { class: 'muted', style: { fontSize: '13px' } }, 'Commander, Duelist, Strategist or Scout.'), btn('Choose', go(() => heroModal(it.x.id)), 'small primary'));
+  else body = h('div', { class: 'card walk-card col' }, h('b', {}, it.c.title), h('span', { class: 'muted', style: { fontSize: '13px' } }, it.c.text), btn('Decide', go(showChoice), 'small primary'));
+  m = modal(`Before the month ends · ${at + 1} of ${items.length}`, body,
+    [['Skip all & end month', () => { setTimeout(endTurnNow, 150); }, 'danger'], [last ? 'End month' : 'Next', () => { next(false); return false; }, 'primary']], { width: '560px', dismiss: true });
+}
 function endTurnPressed() {
   if (S.busy) return;
   sfx('click');
+  if (!(net.role !== 'single' && net.waitingFor) && pendingItems().length) return walkPending(0);
+  endTurnNow();
+}
+function endTurnNow() {
+  if (S.busy) return;
   if (net.role === 'client') { net.send({ t: 'ready' }); net.waitingFor = 'Waiting for host…'; refreshUI(); return; }
   if (net.role === 'host') { net.hostReady = true; const alone = !net.conn || !net.conn.open; net.waitingFor = net.peerReady || alone ? null : 'Waiting for player 2…'; refreshUI(); if (net.peerReady || alone) resolveTurn(); return; }
   resolveTurn();
@@ -1226,7 +1299,7 @@ export function showTurnSummary(prevTurn, reports, summary = { events: [], notes
   const NOTE = {
     war: ['swords', 'War', 'bad'], betrayal: ['broken', 'Betrayal', 'bad'], defect: ['broken', 'Desertion', 'bad'], raid: ['warning', 'Raid', 'bad'], famine: ['warning', 'Famine', 'bad'],
     plot: ['letter', 'Secret offer', 'gold'], birth: ['star', 'A child is born', 'gold'], heir: ['crown', 'Coming of age', 'gold'], family: ['heart', 'Family', 'good'],
-    proposal: ['letter', 'Diplomacy', ''], diplomacy: ['letter', 'Diplomacy', ''], demand: ['crown', 'Demand', 'bad'], return: ['home', 'Return', ''],
+    proposal: ['letter', 'Diplomacy', ''], steward: ['scroll', 'Steward', 'gold'], diplomacy: ['letter', 'Diplomacy', ''], demand: ['crown', 'Demand', 'bad'], return: ['home', 'Return', ''],
   };
   const findPlace = (text) => {
     // the first land or hero of yours named in the text tells us where to look
@@ -1239,7 +1312,6 @@ export function showTurnSummary(prevTurn, reports, summary = { events: [], notes
   const after = () => {
     banner(cap1(dateOf(st.turn)), bad ? 'bad' : 'blue', k.landless ? 'Your warband wanders' : k.name);
     if (captivesOf(st, myKid).length && (reports || []).some((r) => r.captured.length)) showCaptives();
-    else if (st.proposals.some((p) => p.to === myKid)) diplomacySheet();
     nameBirths();
     setTimeout(showChoice, 400);
     achievementToasts();
@@ -1269,7 +1341,16 @@ export function showTurnSummary(prevTurn, reports, summary = { events: [], notes
   }
   const mineNotes = [...(orderNotes || []), ...(summary.notes || [])].filter((n) => n.kid === myKid || n.kid === -1);
   const minor = [];
+  // offers and demands: decide right here
+  for (const p of st.proposals.filter((x) => x.to === myKid)) cards.push(offerCard(p));
+  // side systems (weather, trade) only show as result lines
+  const trade = economyPreview(st, k).trade;
+  if (trade) minor.push(h('div', { class: 'row', style: { gap: '6px' } }, picon('gold', 14), h('span', { class: 'grow' }, `Trade caravans brought +${trade}g from friendly borders.`)));
+  let stewardLine = null;
   for (const n of mineNotes) {
+    if (n.kind === 'steward') { stewardLine = h('div', { class: 'steward-line muted', style: { fontSize: '13px' } }, picon('scroll', 16), h('span', { class: 'grow' }, n.text), btn('Realm', () => { mm.close(); after(); realmSheet(); }, 'tiny ghost')); continue; }
+    if ((n.kind === 'proposal' || n.kind === 'demand') && st.proposals.some((x) => x.to === myKid)) continue; // the decision card says it
+    if (n.kind === 'weather') { minor.push(h('div', { class: 'row', style: { gap: '6px' } }, picon('cloud', 14), h('span', { class: 'grow' }, n.text))); continue; }
     const N = NOTE[n.kind];
     if (N) cards.push(card(N[0], N[1], n.text, N[2], findPlace(n.text)));
     else minor.push(h('div', { class: 'row', style: { gap: '6px' } }, h('span', { class: 'grow' }, '• ' + n.text), (() => { const w = findPlace(n.text); return w ? btn('Show', showMe(w), 'tiny ghost') : null; })()));
@@ -1291,6 +1372,7 @@ export function showTurnSummary(prevTurn, reports, summary = { events: [], notes
   const restBtn = rest.length ? btn(`Across the land (${rest.length}) ▾`, () => { open = !open; restBox.style.display = open ? '' : 'none'; restBtn.textContent = `Across the land (${rest.length}) ${open ? '▴' : '▾'}`; }, 'small ghost') : null;
   const all = [...cards, ...myEvents];
   mm = modal(`${cap1(dateOf(prevTurn))} ends`, h('div', { class: 'col' },
+    stewardLine,
     all.length ? all : h('div', { class: 'muted' }, 'A quiet month in your realm.'),
     restBtn, restBox,
   ), [['Continue', () => after(), 'primary']], { width: '680px' });
