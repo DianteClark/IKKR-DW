@@ -3,11 +3,11 @@
 // Deterministic from a seed so both peers build the same field.
 import { makeRng, makeNoise } from '../engine/rng.js';
 import { img, loadImage } from '../engine/assets.js';
-import { BIOMES, BIOME_IDS, TILE, TREES, DUNGEON_TILES, FACTIONS, STRUCT, drawSpriteRef } from '../data/art.js';
+import { BIOMES, BIOME_IDS, TREES, DUNGEON_TILES, FACTIONS, STRUCT, drawSpriteRef } from '../data/art.js';
 import { paintLandWater, drawBlobs, drawLandmark, preloadLandmarks, ROAD_SHEET, FENCE_SHEET, maskAt, at4 } from '../maps/paint.js';
 
 export const TS = 16;
-export const FIELD_SIZES = { skirmish: [40, 22], standard: [52, 28], grand: [68, 36] };
+const FIELD_SIZES = { skirmish: [40, 22], standard: [52, 28], grand: [68, 36] };
 export const BW = 52, BH = 28;
 const WALLS = 'assets/weekly/WallsSpriteSheet.png';
 const GATES = 'assets/weekly/Walls/GatesSpriteSheet.png';

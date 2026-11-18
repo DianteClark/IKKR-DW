@@ -309,7 +309,7 @@ input.text:focus { outline: none; box-shadow: 0 0 0 2px var(--gold); }
 .battle-top { gap: 5px; }
 .battle-top .chip { white-space: nowrap; }
 .battle-left .btn.tiny, .battle-top .btn.tiny { padding: 0 6px; font-size: 13px; }
-.battle-left .bsq { padding: 3px; flex-direction: column; align-items: stretch; gap: 2px; pointer-events: auto; min-height: 0; }
+.battle-left .bsq { padding: 3px; flex-direction: column; align-items: stretch; gap: 2px; pointer-events: auto; min-height: 0; flex-shrink: 0; } /* many squads: the list scrolls, cards never squash */
 .battle-left .bsq-n { font-size: 14px; }
 .battle-left .bsq-star { font-size: 13px; margin-left: auto; }
 .battle-left .bsq.rout { box-shadow: inset 0 0 0 2px #ff6a5a; }
@@ -348,7 +348,8 @@ input.text:focus { outline: none; box-shadow: 0 0 0 2px var(--gold); }
 .bsq.reserve { border-style: dashed; }
 .bsq.reserve .bsq-tag { color: var(--gold); font-weight: 700; }
 .bsq.ally { opacity: .85; filter: hue-rotate(-15deg); }
-.bpanel-name { display: inline-flex; flex-direction: column; line-height: 1.05; }
+.bpanel-name { display: inline-flex; flex-direction: column; line-height: 1.05; min-width: 0; }
+.bpanel-name > .ellipsis, .battle-top .chip > .ellipsis { display: block; max-width: 100%; }
 .bpanel-ter { font-size: 10px; color: #9fd0ff; font-weight: 600; }
 .btn.tiny.dim { opacity: .55; }
 .bottombar .gold-btn { color: var(--gold); flex-shrink: 0; }
