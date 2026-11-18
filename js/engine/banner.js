@@ -31,7 +31,6 @@ Object.assign(ICON, EARNED);
 let earnedNow = () => [];
 export function setEarnedSource(fn) { earnedNow = fn; }
 export function isUnlocked(emblem) { return !(emblem in EARNED) || earnedNow().includes(emblem); }
-export const EARNED_EMBLEMS = Object.keys(EARNED);
 const LEGACY = { tower: 'helm', tree: 'clover', moon: 'horseshoe', wolf: 'eagle', dragon: 'beast', rose: 'heart' };
 export const EMBLEMS = ['none', ...Object.keys(ICON)];
 export const EMBLEM_NAMES = Object.fromEntries(EMBLEMS.map((e) => [e, e === 'none' ? 'None' : e[0].toUpperCase() + e.slice(1)]));
@@ -53,7 +52,7 @@ export function normalize(b) {
   const e = LEGACY[b.emblem] || b.emblem;
   return { bg: b.bg, fg: b.fg || '#f4ecd8', ec: b.ec || '#f5d860', pattern: PATTERNS.includes(b.pattern) ? b.pattern : (b.pattern === 'border' ? 'bordure' : 'plain'), emblem: EMBLEMS.includes(e) ? e : 'none', shape: SHAPES.includes(b.shape) ? b.shape : 'swallow', trim: TRIMS[b.trim] !== undefined ? b.trim : 'gold', style: b.style === 'full' ? 'full' : 'tint' };
 }
-export function bannerKey(b) { return b ? `${b.bg}|${b.fg}|${b.ec}|${b.pattern}|${b.emblem}|${b.shape}|${b.trim}|${b.style}` : 'none'; }
+function bannerKey(b) { return b ? `${b.bg}|${b.fg}|${b.ec}|${b.pattern}|${b.emblem}|${b.shape}|${b.trim}|${b.style}` : 'none'; }
 
 // ---- colour helpers ----
 const rgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
@@ -120,7 +119,7 @@ function emblemPixels(b) {
 }
 
 const cache = new Map();
-export const FRAMES = 4;
+const FRAMES = 4;
 export function bannerCanvas(b0, frame = 0) {
   const b = normalize(b0);
   const key = bannerKey(b) + '#' + frame;

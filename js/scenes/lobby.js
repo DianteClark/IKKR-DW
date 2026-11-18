@@ -1,6 +1,7 @@
 import { registerScene, go } from '../main.js';
 import { h, btn, mount, clearUI, modal, toast } from '../engine/ui.js';
 import { net } from '../net/net.js';
+import { sfx } from '../engine/audio.js';
 import { createWorld, confirmPicks } from '../game/world.js';
 import { factionPicker, heroPicker, newGameOptions } from './setup.js';
 import { campaignSession } from './campaign.js';
@@ -18,6 +19,8 @@ function fail(e) {
   net.close();
   screen(h('h2', {}, 'Connection problem'), h('div', { class: 'bad' }, String(e && e.message || e)), btn('Back', () => go('lobby'), 'primary'));
 }
+// every waiting screen has a way out
+const leave = (to = 'lobby') => btn('Leave', () => { sfx('close'); net.close(); go(to); }, 'small');
 
 registerScene('lobby', {
   enter() {
@@ -27,7 +30,8 @@ registerScene('lobby', {
       h('h2', {}, 'Two-player campaign'),
       h('div', { class: 'muted' }, 'Each player starts as a village in their own random land with 3 heroes. Turns are played together; battles between you are fought live. To pick up a saved two-player campaign, one of you opens it from Continue and hosts; the other joins with the room code.'),
       btn('Host a game', hostFlow, 'primary'),
-      h('div', { class: 'row' }, h('input', { class: 'text grow', id: 'code', maxlength: '5', placeholder: 'CODE', autocomplete: 'off', autocapitalize: 'characters' }), btn('Join', () => joinFlow(document.getElementById('code').value.trim()), 'good')),
+      h('div', { class: 'row' }, h('input', { class: 'text grow', id: 'code', maxlength: '7', placeholder: 'CODE', autocomplete: 'off', autocapitalize: 'characters', onKeydown: (e) => { if (e.key === 'Enter') e.target.nextSibling.click(); } }),
+        btn('Join', () => joinFlow(document.getElementById('code').value.replace(/[^a-z0-9]/gi, '')), 'good')),
       btn('Back', () => go('title'), 'small'));
   },
 });
@@ -48,20 +52,23 @@ function hostFlow() {
   }, () => go('lobby'), { ...(L.opts || {}), title: 'Two-player war: map & difficulty', size: (L.opts && L.opts.size) || 'small' }));
 }
 async function openRoom() {
-  screen(h('h2', {}, 'Creating room…'));
-  let code;
-  try { code = await net.host(); } catch (e) { return fail(e); }
+  screen(h('h2', {}, 'Creating room…'), leave());
+  const r = await net.attempt(() => net.host());
+  if (r.stale) return;
+  if (!r.ok) return fail(r.e);
+  const code = r.v;
   net.onClose = () => lost();
   screen(h('h2', {}, 'Room code'), h('div', { class: 'title', style: { letterSpacing: '8px' } }, code),
     h('div', { class: 'chip gold' }, settingsLine(L.opts)),
     h('div', { class: 'muted' }, 'Tell the other player to tap Multiplayer → enter this code → Join.'),
     h('div', {}, 'Waiting for player 2…'), btn('Cancel', () => { net.close(); go('lobby'); }, 'small'));
+  net.on('fid', (m) => { L.peerFid = m.fid; L.peerBanner = m.banner || null; maybeCreate(); });
+  net.on('picks', (m) => { L.peerPicked = m.ids; L.peerHash = m.hash || null; maybeBegin(); });
+  const joined = net.greet(() => net.send({ t: 'settings', text: settingsLine(L.opts) }));
   net.on('peerJoined', () => {
     toast('Player 2 joined!', 'good');
-    net.on('fid', (m) => { L.peerFid = m.fid; L.peerBanner = m.banner || null; maybeCreate(); });
-    net.on('picks', (m) => { L.peerPicked = m.ids; L.peerHash = m.hash || null; maybeBegin(); });
-    setTimeout(() => net.send({ t: 'settings', text: settingsLine(L.opts) }), 200);
-    screen(h('h2', {}, 'Player 2 joined!'), h('div', { class: 'chip gold' }, settingsLine(L.opts)), h('div', {}, 'Waiting for them to choose their people…'));
+    joined();
+    screen(h('h2', {}, 'Player 2 joined!'), h('div', { class: 'chip gold' }, settingsLine(L.opts)), h('div', {}, 'Waiting for them to choose their people…'), leave());
   });
 }
 
@@ -73,7 +80,7 @@ function maybeCreate() {
   L.state.seats[0].hash = hashKey(L.key);
   net.send({ t: 'world', s: L.state });
   clearUI();
-  mount(heroPicker(L.state, 0, (ids) => { L.hostPicked = ids; screen(h('h2', {}, 'Waiting for player 2 to choose heroes…')); maybeBegin(); }));
+  mount(heroPicker(L.state, 0, (ids) => { L.hostPicked = ids; screen(h('h2', {}, 'Waiting for player 2 to choose heroes…'), leave()); maybeBegin(); }));
 }
 
 function maybeBegin() {
@@ -88,16 +95,32 @@ function maybeBegin() {
 
 // ---------- client ----------
 async function joinFlow(code) {
-  if (!code || code.length < 4) return toast('Enter the 5-letter room code');
-  screen(h('h2', {}, 'Joining ' + code.toUpperCase() + '…'));
-  L.resuming = false;
+  if (!code || code.length !== 5) return toast('Enter the 5-letter room code');
+  screen(h('h2', {}, 'Joining ' + code.toUpperCase() + '…'), leave());
+  L.resuming = false; L.picking = false; L.hostSettings = null;
+  // a new war: the host tells us its settings first; a saved one: it asks for our seat key
+  const pickPeople = () => {
+    if (L.resuming || L.picking) return;
+    L.picking = true;
+    clearUI();
+    const el = mount(factionPicker('Choose your people (you are player 2)', (fid) => { net.send({ t: 'fid', fid, banner: loadMyBanner() }); screen(h('h2', {}, 'Waiting for player 1…'), L.hostSettings ? h('div', { class: 'chip gold' }, L.hostSettings) : null, leave()); }, () => { net.close(); go('lobby'); }));
+    const head = el.querySelector('.panel > .row');
+    if (head) head.after(h('div', { class: 'chip gold', id: 'host-settings', style: { alignSelf: 'flex-start' } }, L.hostSettings ? `Host's war: ${L.hostSettings}` : "Host's war: …"));
+  };
+  net.on('settings', (m) => {
+    L.hostSettings = m.text;
+    const el = document.getElementById('host-settings');
+    if (el) el.textContent = `Host's war: ${m.text}`; else pickPeople();
+  });
+  net.on('busy', () => fail(new Error('That room already has two players.')));
   net.on('world', (m) => {
     clearUI();
-    mount(heroPicker(m.s, 1, (ids) => { net.send({ t: 'picks', ids, hash: hashKey(L.key) }); screen(h('h2', {}, 'Waiting for player 1…')); }));
+    mount(heroPicker(m.s, 1, (ids) => { net.send({ t: 'picks', ids, hash: hashKey(L.key) }); screen(h('h2', {}, 'Waiting for player 1…'), leave()); }));
   });
   net.on('begin', (m) => go('campaign', { state: m.s, localPlayer: 1, key: L.key }));
   // the host is resuming a saved campaign: prove which seat is ours
   net.on('resume', async (m) => {
+    if (L.resuming) return; // asked twice
     L.resuming = true;
     screen(h('h2', {}, `Resuming campaign ${prettyCode(m.cid)}…`), h('div', { class: 'muted' }, 'Checking your copy of the campaign…'));
     const metas = await findByCid(m.cid);
@@ -109,15 +132,15 @@ async function joinFlow(code) {
     const rec = recs.sort((a, b) => b.state.turn - a.state.turn)[0];
     L.key = rec.key;
     net.send({ t: 'resumeKey', key: rec.key, turn: rec.state.turn, state: rec.state.turn > m.turn ? rec.state : null });
-    screen(h('h2', {}, 'Waiting for the host…'));
+    screen(h('h2', {}, 'Waiting for the host…'), leave());
   });
   net.on('resumeDenied', (m) => fail(new Error(m.why || 'The host could not match your seat.')));
-  try { await net.join(code); } catch (e) { return fail(e); }
+  const r = await net.attempt(() => net.join(code));
+  if (r.stale) return;
+  if (!r.ok) return fail(r.e);
   net.onClose = () => lost();
-  if (L.resuming) return;
-  net.on('settings', (m) => { toast(`Host's war: ${m.text}`, 'gold'); const el = document.getElementById('host-settings'); if (el) el.textContent = m.text; });
-  clearUI();
-  mount(factionPicker('Choose your people (you are player 2)', (fid) => { net.send({ t: 'fid', fid, banner: loadMyBanner() }); screen(h('h2', {}, 'Waiting for player 1…')); }));
+  // an older host sends no settings: don't wait for them forever
+  setTimeout(() => { if (net.role === 'client' && !L.resuming) pickPeople(); }, 2500);
 }
 
 export function lost() {
@@ -132,16 +155,23 @@ export async function hostResume(id) {
   if (!rec) return go('title');
   net.close();
   L = { key: rec.key };
-  screen(h('h2', {}, 'Creating room…'));
-  let code;
-  try { code = await net.host(); } catch (e) { return fail(e); }
+  screen(h('h2', {}, 'Creating room…'), leave('saves'));
+  const r = await net.attempt(() => net.host());
+  if (r.stale) return;
+  if (!r.ok) return fail(r.e);
+  const code = r.v;
   net.onClose = () => lost();
   const st0 = rec.state;
   screen(h('h2', {}, `Resume campaign ${prettyCode(st0.cid)}`), h('div', { class: 'title', style: { letterSpacing: '8px' } }, code),
     h('div', { class: 'muted' }, 'Tell the other player: Multiplayer → enter this room code → Join. Their phone checks its own copy of the campaign and its private seat key.'),
-    h('div', {}, 'Waiting for the other player…'), btn('Cancel', () => { net.close(); go('title'); }, 'small'));
-  net.on('peerJoined', () => setTimeout(() => net.send({ t: 'resume', cid: st0.cid, turn: st0.turn, hostHash: rec.key ? hashKey(rec.key) : null }), 300));
+    h('div', {}, 'Waiting for the other player…'), btn('Cancel', () => { net.close(); go('saves'); }, 'small'));
+  const joined = net.greet(() => net.send({ t: 'resume', cid: st0.cid, turn: st0.turn, hostHash: rec.key ? hashKey(rec.key) : null }));
+  net.on('peerJoined', () => {
+    joined();
+    screen(h('h2', {}, `Resume campaign ${prettyCode(st0.cid)}`), h('div', {}, 'The other player joined. Checking their seat…'), leave('saves'));
+  });
   net.on('resumeKey', (m) => {
+    if (L.begun) return;
     if (!m.key) { net.close(); return fail(new Error('The other player does not have this campaign saved.')); }
     let st = st0;
     if (m.state && m.state.cid === st0.cid && m.state.turn > st0.turn) { st = m.state; toast('Their copy was newer — continuing from it', 'gold'); }
@@ -153,6 +183,7 @@ export async function hostResume(id) {
       return fail(new Error('The joining player does not hold the other seat of this campaign.'));
     }
     if (mine !== 0) swapSeats(st);
+    L.begun = true;
     net.stateGetter = () => campaignSession.state;
     net.send({ t: 'begin', s: st });
     go('campaign', { state: st, localPlayer: 0, key: rec.key });

@@ -1,11 +1,10 @@
 import { prefs, setPref, buzz } from '../engine/prefs.js';
 import { makeRng } from '../engine/rng.js';
 import { registerScene, go, game, install } from '../main.js';
-import { ctx, canvas, screen } from '../engine/view.js';
+import { ctx, canvas } from '../engine/view.js';
 import { h, btn, mount, modal, toggle } from '../engine/ui.js';
 import { img } from '../engine/assets.js';
-import { FACTION_IDS, FACTIONS, BIOMES, TILE, TREES, drawUnit, drawHero, drawSpriteRef } from '../data/art.js';
-import { hasSave, listCampaigns } from '../game/save.js';
+import { BIOMES, TREES, STRUCT } from '../data/art.js';
 import { music, sfx, isMuted, setMuted } from '../engine/audio.js';
 
 // Title backdrop: a small generated realm seen from above, slowly panning, with settlements, heroes walking the
@@ -14,7 +13,6 @@ import { generateTerrain } from '../game/mapgen.js';
 import { renderTerrain, drawTerrain, drawGuards, drawAnimated, drawTowns, drawHeroes, drawSites, drawSeason } from '../campaign/mapview.js';
 import { randomBanner } from '../engine/banner.js';
 import { ROAD_SHEET } from '../maps/paint.js';
-import { STRUCT } from '../data/art.js';
 
 let V = null, clouds = [], t0 = 0;
 const KCOL = ['#e8443a', '#3a7bf0', '#f5c630', '#3fbf5a', '#b04ce0'];
@@ -113,15 +111,14 @@ registerScene('title', {
   enter() {
     setupScene();
     music.start('title');
-    const save = true; // Continue lists every saved campaign
     mount(h('div', { class: 'screen', style: { alignItems: 'center', justifyContent: 'space-between', gap: '12px' } },
       h('div', { class: 'logo-wrap grow', style: { alignSelf: 'flex-start', marginTop: '6vh' } },
         h('div', { class: 'logo-kicker' }, 'HEROES · ARMIES · EMPIRES'),
         h('div', { class: 'logo' }, 'Dynasty', h('br'), 'Wars'),
         h('div', { class: 'subtitle', style: { marginTop: '12px' } }, 'Conquer every realm')),
       h('div', { class: 'panel menu stagger rise-in', style: { width: 'min(42vw, 330px)' } },
-        save ? btn('Continue', () => { sfx('horn'); go('saves'); }, 'primary big') : null,
-        btn('New Campaign', () => { sfx('open'); go('setup', { mode: 'single' }); }, save ? '' : 'primary big'),
+        btn('Continue', () => { sfx('horn'); go('saves'); }, 'primary big'), // lists every saved campaign
+        btn('New Campaign', () => { sfx('open'); go('setup', { mode: 'single' }); }),
         btn('Multiplayer', () => { sfx('open'); go('lobby'); }),
         h('div', { class: 'menu-mini' },
           btn('How to play', () => { sfx('open'); go('howto'); }, 'small wide'),
@@ -159,7 +156,7 @@ function credits() {
     h('div', {}, h('span', { class: 'gold' }, 'Art: '), 'Aleksandr Makarov (IKnowKingRabbit) — HAS asset packs'),
     h('div', { class: 'muted small-text' }, 'patreon.com/iknowkingrabbit · @IKnowKingRabbit'),
     h('div', {}, h('span', { class: 'gold' }, 'Game design: '), 'Diante Clark'),
-    h('div', {}, h('span', { class: 'gold' }, 'Fonts: '), 'Pixelify Sans, MiKroll Fantasy (SIL OFL)'),
+    h('div', {}, h('span', { class: 'gold' }, 'Fonts: '), 'Pixelify Sans, MiKroll Fantasy (SIL OFL), Nunito (SIL OFL)'),
     h('div', {}, h('span', { class: 'gold' }, 'Networking: '), 'PeerJS'),
   ), [['Close', null, 'primary']], { dismiss: true });
 }

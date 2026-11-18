@@ -46,7 +46,7 @@ import { bannerEl } from '../engine/banner.js';
 import { GOALS, goalState, newlyDone } from '../campaign/goals.js';
 import { shareRealm } from '../campaign/share.js';
 import { portrait, unitIcon, itemIcon, heroCard, orderLabel, kingdomBadge, unitCard } from '../campaign/widgets.js';
-import { saveCampaign, getRecord, prettyCode, stampCampaign, flush } from '../game/save.js';
+import { saveCampaign, getRecord, prettyCode, stampCampaign, flush, loadBattle } from '../game/save.js';
 import { sfx, music } from '../engine/audio.js';
 import { net } from '../net/net.js';
 
@@ -75,13 +75,15 @@ function persist() { if (S.state) { if (!S.state.cid) stampCampaign(S.state, net
 registerScene('campaign', {
   enter(args) {
     if (args.load) {
-      getRecord(args.load).then((rec) => {
+      getRecord(args.load).then(async (rec) => {
         if (!rec || !rec.state || rec.state.v !== 2) return go('title');
-        if (rec.battle && rec.battle.b) {
+        // newest of the saved battle and the copy made as the page was hidden
+        const fight = await loadBattle(rec.state.cid, rec.key);
+        if (fight && fight.b) {
           // the app closed mid-battle: pick the fight back up where it was
-          S.state = rec.state; S.me = rec.seat || 0; S.key = rec.key; S.current = rec.battle.b;
-          const c = rec.battle.ctx || {}; S.queue = c.queue || []; S.reports = c.reports || []; S.choices = c.choices || null; S.orderNotes = c.orderNotes || []; S.busy = true;
-          return go('battle', { resumeBattle: rec.battle, state: rec.state, me: rec.seat || 0, key: rec.key });
+          S.state = rec.state; S.me = rec.seat || 0; S.key = rec.key; S.current = fight.b;
+          const c = fight.ctx || {}; S.queue = c.queue || []; S.reports = c.reports || []; S.choices = c.choices || null; S.orderNotes = c.orderNotes || []; S.busy = true;
+          return go('battle', { resumeBattle: fight, state: rec.state, me: rec.seat || 0, key: rec.key });
         }
         go('campaign', { state: rec.state, localPlayer: rec.seat || 0, key: rec.key });
       });
@@ -774,7 +776,7 @@ function renderGoals() {
   ui.goals.append(h('div', { class: 'panel goals-panel' },
     h('div', { class: 'row' }, h('b', { class: 'grow gold' }, `Goals ${doneN}/${GOALS.length}`), btn('Hide', () => confirm('Hide goals?', 'You can bring them back from the menu.', 'Hide', 'Keep').then((ok) => { if (ok) act({ type: 'hideGoals' }); }), 'tiny ghost'), btn('▴', () => { goalsOpen = false; renderGoals(); }, 'tiny')),
     GOALS.map((G) => h('div', { class: 'goal ' + (g.done[G.id] ? 'done' : G === next ? 'next' : '') },
-      h('span', { class: 'goal-tick' }, g.done[G.id] ? '✔' : '○'),
+      h('span', { class: 'goal-tick' }, g.done[G.id] ? '✓' : '○'),
       h('div', { class: 'col grow', style: { gap: 0, minWidth: 0 } }, h('span', {}, G.title, h('small', { class: 'muted' }, ` · +${G.reward}g`)),
         G === next ? h('small', { class: 'muted' }, G.how) : null)))));
 }
@@ -1021,12 +1023,12 @@ function setupNet() {
   // connection drops (screen locked, network blip): the game waits and reconnects instead of ending
   net.onClose = () => connectionLost();
   net.on('chat', (m) => showChat(m.text, false));
+  // host: player 2 is back — send them everything (when they say hello, so it can't be lost)
+  const back = net.greet(() => { net.peerReady = false; net.send({ t: 'resync', s: S.state, busy: !!S.busy }); });
   net.on('peerRejoined', () => {
-    // host: player 2 is back — send them everything
     if (S.lostModal) { S.lostModal.close(); S.lostModal = null; }
     toast('Player 2 reconnected', 'good'); sfx('recruit');
-    net.peerReady = false;
-    net.send({ t: 'resync', s: S.state, busy: !!S.busy });
+    back();
   });
   net.on('resync', (m) => {
     // client: the host's state is the truth
@@ -1087,18 +1089,23 @@ function connectionLost() {
   }
   if (S.reconnecting) return;
   S.reconnecting = true;
-  let tries = 0;
+  let tries = 0, timer = 0;
   const status = h('div', { class: 'muted' }, 'Trying to reach the host…');
   S.lostModal = modal('Connection lost', h('div', { class: 'col' }, h('div', {}, 'Reconnecting to the host. Your campaign is saved on this phone too.'), status),
     [['Give up', () => { S.reconnecting = false; S.lostModal = null; net.close(); go('title'); }, 'danger']]);
   const attempt = () => {
     if (!S.reconnecting || net.role !== 'client') return;
     tries++; status.textContent = `Attempt ${tries}…`;
-    net.rejoin().then(() => { status.textContent = 'Connected — syncing…'; }).catch(() => { if (tries < 60) setTimeout(attempt, 3000); else status.textContent = 'Could not reach the host. Ask them to keep the game open, then try again from Continue.'; });
+    const again = () => { clearTimeout(timer); if (tries < 60) timer = setTimeout(attempt, 3000); else status.textContent = 'Could not reach the host. Ask them to keep the game open, then try again from Continue.'; };
+    // linked but no resync within a few seconds (the host turned the link away): keep trying
+    net.rejoin().then(() => { status.textContent = 'Connected — syncing…'; clearTimeout(timer); timer = setTimeout(() => { if (S.reconnecting) again(); }, 6000); }).catch(again);
   };
-  setTimeout(attempt, 800);
+  timer = setTimeout(attempt, 800);
   // try again right away when the phone wakes up
-  const wake = () => { if (document.visibilityState === 'visible' && S.reconnecting) { tries = Math.max(0, tries - 1); attempt(); } };
+  const wake = () => {
+    if (!S.reconnecting) return document.removeEventListener('visibilitychange', wake);
+    if (document.visibilityState === 'visible') { clearTimeout(timer); tries = Math.max(0, tries - 1); attempt(); }
+  };
   document.addEventListener('visibilitychange', wake);
 }
 

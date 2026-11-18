@@ -2,7 +2,7 @@
 import { registerScene, go } from '../main.js';
 import { h, btn, mount, clearUI, modal, toast, confirm, chip } from '../engine/ui.js';
 import { listCampaigns, deleteCampaign, exportCampaign, importCampaign, prettyCode } from '../game/save.js';
-import { seasonOf, yearOf, shortDate } from '../game/family.js';
+import { yearOf, shortDate } from '../game/family.js';
 import { FACTIONS } from '../data/art.js';
 import { sfx, music } from '../engine/audio.js';
 import { hostResume } from './lobby.js';

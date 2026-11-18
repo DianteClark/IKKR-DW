@@ -28,12 +28,16 @@ let dbp = null;
 function db() {
   if (dbp) return dbp;
   dbp = new Promise((res) => {
+    // some browsers (private modes, old iOS) never answer: fall back to localStorage instead of hanging
+    const t = setTimeout(() => res(null), 4000);
+    const done = (v) => { clearTimeout(t); res(v); };
     try {
       const r = indexedDB.open(DB, 1);
       r.onupgradeneeded = () => { r.result.createObjectStore(STORE, { keyPath: 'id' }); };
-      r.onsuccess = () => res(r.result);
-      r.onerror = () => res(null);
-    } catch { res(null); }
+      r.onsuccess = () => done(r.result);
+      r.onerror = () => done(null);
+      r.onblocked = () => done(null);
+    } catch { done(null); }
   });
   return dbp;
 }
@@ -46,14 +50,15 @@ async function tx(mode, fn) {
       const r = fn(s);
       t.oncomplete = () => res(r && 'result' in r ? r.result : true);
       t.onerror = () => res(null);
+      t.onabort = () => res(null); // e.g. storage full
     } catch { res(null); }
   });
 }
 
 function meta(rec) {
-  const st = rec.state, p = st.players[rec.seat] || st.players[0];
+  const st = rec.state, p = (st.players || [])[rec.seat] || (st.players || [])[0];
   const k = p ? st.kingdoms[p.kingdom] : null;
-  return { id: rec.id, cid: st.cid, seat: rec.seat, mode: st.mode || 'single', updated: rec.updated, turn: st.turn, size: st.size, realm: k ? k.name : '?', fid: k ? k.fid : 'castle', color: k ? k.color : '#888', alive: k ? k.alive : false, lands: k ? st.territories.filter((t) => t.owner === k.id).length : 0, over: !!st.over, seed: st.seed };
+  return { id: rec.id, cid: st.cid, seat: rec.seat, mode: st.mode || 'single', updated: rec.updated || 0, turn: st.turn, size: st.size, realm: k ? k.name : '?', fid: k ? k.fid : 'castle', color: k ? k.color : '#888', alive: k ? k.alive : false, lands: k ? (st.territories || []).filter((t) => t.owner === k.id).length : 0, over: !!st.over, seed: st.seed };
 }
 
 // one record per campaign per person (the private seat key tells two players apart, even on one device)
@@ -80,12 +85,27 @@ export async function getRecord(id) {
   if (r && r !== true) return r;
   try { const s = localStorage.getItem(LS_PREFIX + id); return s ? JSON.parse(s) : null; } catch { return null; }
 }
+// a record the game can open: current save version, with players and kingdoms
+const usable = (r) => !!(r && r.id && r.state && r.state.v === 2 && Array.isArray(r.state.players) && Array.isArray(r.state.kingdoms) && Array.isArray(r.state.territories));
+// every campaign that can be opened, newest first; listCampaigns.skipped counts saves too old or too damaged to open
 export async function listCampaigns() {
   await migrateLegacy();
   const all = (await tx('readonly', (s) => s.getAll())) || [];
   const recs = Array.isArray(all) ? all : [];
-  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith(LS_PREFIX)) { const r = JSON.parse(localStorage.getItem(k)); if (!recs.some((x) => x.id === r.id)) recs.push(r); } } } catch {}
-  return recs.filter((r) => r && r.state && r.state.v === 2).map(meta).sort((a, b) => b.updated - a.updated);
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith(LS_PREFIX)) continue;
+      let r = null; try { r = JSON.parse(localStorage.getItem(k)); } catch {}
+      if (!r || !r.id) { recs.push(null); continue; }
+      if (!recs.some((x) => x && x.id === r.id)) recs.push(r);
+    }
+  } catch {}
+  const out = [];
+  let skipped = 0;
+  for (const r of recs) { try { if (!usable(r)) throw 0; out.push(meta(r)); } catch { skipped++; } }
+  listCampaigns.skipped = skipped;
+  return out.sort((a, b) => b.updated - a.updated);
 }
 export async function deleteCampaign(id) {
   await tx('readwrite', (s) => s.delete(id));
@@ -95,7 +115,6 @@ export async function findByCid(cid) {
   const list = await listCampaigns();
   return list.filter((m) => m.cid === cid);
 }
-export async function hasAnySave() { return (await listCampaigns()).length > 0; }
 
 // old single-slot saves become a normal campaign entry
 async function migrateLegacy() {
@@ -118,6 +137,7 @@ async function gz(str) {
 }
 async function ungz(s) {
   if (s[0] === 'J') return decodeURIComponent(escape(atob(s.slice(1))));
+  if (s[0] !== 'G' || !window.DecompressionStream) throw new Error('unreadable');
   const bin = atob(s.slice(1)); const buf = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
   const ds = new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'));
   return await new Response(ds).text();
@@ -128,13 +148,17 @@ export async function exportCampaign(id) {
   return 'IKKRDW1:' + (await gz(JSON.stringify(rec)));
 }
 export async function importCampaign(text) {
-  const t = (text || '').trim();
-  if (!t.startsWith('IKKRDW1:')) throw new Error('That is not a campaign backup.');
-  const rec = JSON.parse(await ungz(t.slice(8)));
-  if (!rec.state || rec.state.v !== 2) throw new Error('That backup is from an incompatible version.');
+  const t = (text || '').replace(/\s+/g, ''); // pasted codes often pick up line breaks
+  if (!t.startsWith('IKKRDW1:')) throw new Error('That is not a campaign backup (it should start with IKKRDW1:).');
+  let rec;
+  try { rec = JSON.parse(await ungz(t.slice(8))); } catch { throw new Error('That backup is damaged or incomplete. Copy the whole code and try again.'); }
+  if (!rec || !rec.state || rec.state.v !== 2) throw new Error('That backup is from an incompatible version.');
+  if (!rec.state.cid) throw new Error('That backup is damaged (no campaign code).');
+  if (!rec.id) rec.id = recId(rec.state, rec.key);
+  if (!usable(rec)) throw new Error('That backup is damaged or incomplete.');
   rec.updated = Date.now();
   const ok = await tx('readwrite', (s) => s.put(rec));
-  if (!ok) localStorage.setItem(LS_PREFIX + rec.id, JSON.stringify(rec));
+  if (!ok) { try { localStorage.setItem(LS_PREFIX + rec.id, JSON.stringify(rec)); } catch { throw new Error('Not enough storage on this device to import it.'); } }
   return meta(rec);
 }
 
@@ -151,10 +175,6 @@ export function seatOfKey(state, key) {
   const hk = hashKey(key);
   return state.seats.findIndex((s) => s && s.hash === hk);
 }
-
-// legacy API (kept so older call sites still work)
-export function hasSave() { try { return !!localStorage.getItem(LEGACY); } catch { return false; } }
-export function clearSave() {}
 
 // ---------- mid-battle saves (single player) ----------
 // A battle in progress is kept as `battle` on the campaign's record: { at, setup, sim, b, ctx, ... } (see scenes/battle.js).

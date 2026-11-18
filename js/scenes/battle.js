@@ -1173,7 +1173,7 @@ function refreshHUD(full) {
       B.side ? h('span', { class: 'chip' }, picon('flag', 14), ` ${ownP}/${posts.length}`) : h('span', { class: 'chip' }, 'Watching'),
       stS && stS.list.length ? h('span', { class: 'chip gold', title: 'Command points' }, picon('points', 14), ` ${stS.pool}`) : null,
       h('span', { class: 'grow' }),
-      !B.client && net.role === 'single' ? btn(B.paused ? '▶' : '❚❚', () => { B.paused = !B.paused; refreshHUD(true); }, 'tiny') : null,
+      !B.client && net.role === 'single' ? btn(B.paused ? '►' : '❚❚', () => { B.paused = !B.paused; refreshHUD(true); }, 'tiny') : null,
       !B.client && net.role === 'single' && !B.auto ? btn(`${B.speed}x`, () => { B.speed = B.speed >= 3 ? 1 : B.speed + 1; refreshHUD(true); }, 'tiny') : null,
       B.side && B.started && !B.auto ? btn('Auto', autoBattle, 'tiny') : B.auto ? h('span', { class: 'chip gold' }, 'Auto') : null,
       B.side ? btn('Retreat', () => confirm('Sound the retreat?', 'Your army withdraws and the battle is lost. Heroes still standing escape.', 'Retreat', 'Fight on', 'danger').then((ok) => ok && send({ type: 'retreat' })), 'danger tiny') : null,

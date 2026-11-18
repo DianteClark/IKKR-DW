@@ -1,7 +1,7 @@
 // DOM helpers and the UI component kit for the overlay.
 import { url, img, loadImage } from './assets.js';
 
-export const uiRoot = document.getElementById('ui');
+const uiRoot = document.getElementById('ui');
 
 // optional click sound hook (set by audio.js to avoid an import cycle)
 let clickHook = null;
@@ -26,10 +26,6 @@ export function h(tag, attrs = {}, ...children) {
 
 export function btn(label, onClick, cls = '') {
   return h('button', { class: 'btn ' + cls, onClick: (e) => { e.stopPropagation(); clickHook && clickHook(cls); onClick && onClick(e); } }, label);
-}
-
-export function iconBtn(iconEl, label, onClick, cls = '') {
-  return h('button', { class: 'btn iconbtn ' + cls, onClick: (e) => { e.stopPropagation(); clickHook && clickHook(cls); onClick && onClick(e); } }, iconEl, label ? h('span', { class: 'lbl' }, label) : null);
 }
 
 export function clearUI() { uiRoot.innerHTML = ''; }
