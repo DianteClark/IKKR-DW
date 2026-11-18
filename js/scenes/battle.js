@@ -365,6 +365,9 @@ function consumeEvents() {
       if (w && l) banner('A GRUDGE SETTLED', mineSide(w.side) ? 'good' : B.side ? 'bad' : '', `${w.name} bests ${l.name}`);
     } else if (e.k === 'arrive') {
       const s = sq(e.id); if (s && mineSide(s.side)) { const r = B.render.get(s.id); if (r) B.fx.push({ k: 'ring', x: r.x * TS, y: r.y * TS, age: 0, life: 0.45, col: '#8fd06b' }); }
+    } else if (e.k === 'join') {
+      const s = sq(e.id);
+      if (s && mineSide(s.side)) { const r = B.render.get(s.id); if (r) J.floatText(r.x * TS, r.y * TS - 26, 'TO ARMS!', '#ffd25a'); }
     } else if (e.k === 'disengage') {
       const s = sq(e.id); if (s && mineSide(s.side)) toast(`${s.name} breaks off the fight`);
     } else if (e.k === 'reform') {
@@ -895,6 +898,18 @@ function squadAt(wx, wy, side, r) {
   }
   return best;
 }
+// every visible squad of a side within r, nearest first
+function squadsAt(wx, wy, side, r) {
+  const out = [];
+  for (const s of B.sim.squads) {
+    if (HIDDEN(s) || (side && s.side !== side) || !seenBy(s)) continue;
+    const rr = B.render.get(s.id) || s;
+    const d = Math.hypot(rr.x - wx, rr.y - 0.35 - wy);
+    if (d < r) out.push([d, s]);
+  }
+  return out.sort((a, b) => a[0] - b[0]).map((x) => x[1]);
+}
+const unitClassOf = (q) => (q.ranged ? 'ranged' : q.mounted ? 'mounted' : q.abil || 'foot');
 function postAt(wx, wy, r) {
   let best = null, bd = r;
   for (const p of B.sim.field.posts) { const d = Math.hypot(p.x - wx, (p.y - wy) * 1.3); if (d < bd) { bd = d; best = p; } }
@@ -919,22 +934,34 @@ function tap(sx, sy) {
     return;
   }
   if (B.mode) { modeOrder(wx, wy, null); return; }
-  const own = squadAt(wx, wy, B.side, R);
   const sel = selSquads();
   const now = performance.now();
+  // with squads selected, only a tap right on another squad's body selects it; a looser tap near friends is an order
+  // to go there. Nothing selected: the generous radius picks the nearest squad. Stacked squads cycle on repeat taps.
+  const tight = Math.max(0.8, 16 / (cam.zoom * TS));
+  const pool = squadsAt(wx, wy, B.side, sel.length ? tight : R);
+  let own = pool[0] || null;
+  // the base building itself is an order target even with friends standing beside it: closer to the building than
+  // to the squad's body means "go there"
+  if (own && sel.length && !sel.some((q) => q.id === own.id)) {
+    const base = postAt(wx, wy, 2.4), rr = B.render.get(own.id) || own;
+    if (base && Math.hypot(base.x - wx, base.y - 0.4 - wy) < Math.hypot(rr.x - wx, rr.y - 0.35 - wy)) own = null;
+  }
+  if (own && pool.length > 1 && B.lastTap && now - B.lastTap.t < 900 && pool.some((q) => q.id === B.lastTap.id)) {
+    own = pool[(pool.findIndex((q) => q.id === B.lastTap.id) + 1) % pool.length];
+  }
   if (own) {
-    const twice = B.lastTap && B.lastTap.id === own.id && now - B.lastTap.t < 600;
+    const twice = B.lastTap && B.lastTap.id === own.id && now - B.lastTap.t < 450;
     B.lastTap = { id: own.id, t: now };
-    if (sel.length === 1 && sel[0].id === own.id) { pulseSquad(own); return; }
     if (own.ally) { toast(`${own.name} fights for ${own.allyName || 'your ally'} and follows their own orders`); return; }
-    // with squads selected, tapping a friendly squad that holds a base sends them to that base;
-    // double-tap (or tap its card on the left) to select it instead
-    const base = postAt(own.x, own.y, 2.4);
-    if (sel.length && !sel.some((q) => q.id === own.id) && base && !twice) {
-      orderMove(sel, base); toast(`Joining ${own.name} at the base · double-tap to select it instead`);
-      return;
+    if (twice && sel.length === 1 && sel[0].id === own.id) {
+      // double-tap: every squad of the same kind in view
+      const a0 = cam.toWorld(0, 0), a1 = cam.toWorld(screen.w, screen.h), v = { x: a0.x, y: a0.y, w: a1.x - a0.x, h: a1.y - a0.y }, cls = unitClassOf(own);
+      const ids = B.sim.squads.filter((q) => q.side === B.side && !HIDDEN(q) && !q.ally && q.state !== 'rout' && unitClassOf(q) === cls && (!v || (q.x * TS > v.x && q.x * TS < v.x + v.w && q.y * TS > v.y && q.y * TS < v.y + v.h))).map((q) => q.id);
+      if (ids.length > 1) { setSel([own.id, ...ids.filter((i) => i !== own.id)]); toast(`${ids.length} squads selected`); buzz('tap'); sfx('click'); for (const q of selSquads()) pulseSquad(q); return; }
     }
-    setSel([own.id]); sfx('click'); pulseSquad(own); return;
+    if (sel.length === 1 && sel[0].id === own.id) { pulseSquad(own); return; }
+    setSel([own.id]); sfx('click'); buzz('tap'); pulseSquad(own); return;
   }
   const foe = squadAt(wx, wy, B.side === 'att' ? 'def' : 'att', R);
   if (!sel.length) { toast(foe ? `${foe.name} · ${liveCount(foe)} troops. Select one of your squads first` : 'Tap one of your squads first, or use All'); return; }
@@ -964,7 +991,7 @@ function tap(sx, sy) {
   if (rp && rp.d < Math.max(2.2, R)) { orderPoint(sel, rp); return; }
   const near = postAt(wx, wy, 8);
   if (near) { orderMove(sel, near); return; }
-  toast('Tap a base, a road or an enemy to give an order');
+  setSel([]); toast('Selection cleared · tap a base, a road or an enemy to give orders');
 }
 function pulseSquad(s) { const r = B.render.get(s.id); if (r) B.fx.push({ k: 'ring', x: r.x * TS, y: r.y * TS, age: 0, life: 0.45, col: '#ffd25a' }); }
 function orderPoint(list, rp) {
@@ -1025,8 +1052,8 @@ function dragStart(sx, sy) {
   if (!B.started || B.ended || !B.side || B.aim) return;
   if (B.mode) { B.drag = { mode: B.mode.k, sx, sy, x: sx, y: sy }; return; }
   const w = cam.toWorld(sx, sy), wx = w.x / TS, wy = w.y / TS;
-  const own = squadAt(wx, wy, B.side, hitR());
-  if (own) {
+  const own = squadAt(wx, wy, B.side, B.selected.length ? Math.max(0.8, 16 / (cam.zoom * TS)) : hitR());
+  if (own && !own.ally) {
     if (!B.selected.includes(own.id)) setSel([own.id]);
     B.drag = { mode: 'order', sx, sy, x: sx, y: sy };
   } else if (B.box) B.drag = { mode: 'box', sx, sy, x: sx, y: sy };
@@ -1225,7 +1252,7 @@ function refreshHUD(full) {
           btn('✕', () => { setSel([]); }, 'tiny')),
         h('div', { class: 'bprow' }, ...row2)));
     } else if (B.started && B.side) {
-      hud.bottom.appendChild(h('div', { class: 'bpanel hint' }, B.auto ? 'Your generals are in command' : 'Tap a squad, then a base, a road or an enemy · drag from a squad to order'));
+      hud.bottom.appendChild(h('div', { class: 'bpanel hint' }, B.auto ? 'Your generals are in command' : 'Tap a squad, then a base, a road or an enemy · double-tap a squad for all of its kind'));
     }
   }
 }

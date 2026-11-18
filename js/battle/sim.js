@@ -137,6 +137,17 @@ export function createBattle(setup) {
 const alive = (s) => s.state !== 'dead' && s.state !== 'reserve' && s.state !== 'reinforce';
 export const onField = alive;
 const fighting = (s) => alive(s) && s.state !== 'rout';
+// the nearest enemy that is locked in melee with one of s's friends, within r: squads jump into fights they come upon
+function brawlNear(sim, s, r) {
+  let best = null, bd = r;
+  for (const f of sim.squads) {
+    if (f === s || f.side !== s.side || f.state !== 'fight' || f.engaged == null || !alive(f)) continue;
+    const e = sim.squads.find((q) => q.id === f.engaged);
+    if (!e || !fighting(e) || e.side === s.side || !visibleTo(sim, s.side, e)) continue;
+    const d = dist(s, e); if (d < bd) { bd = d; best = e; }
+  }
+  return best;
+}
 export const liveCount = (s) => s.soldiers.reduce((n, x) => n + (x.alive ? 1 : 0), 0);
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 function ev(sim, e) { e.seq = ++sim.evSeq; e.t = sim.t; sim.events.push(e); if (sim.events.length > 240) sim.events.splice(0, 120); }
@@ -814,6 +825,11 @@ export function step(sim) {
     if (buff(s, 'feint') && s.path.length) { const wp = s.path[0]; if (dist(s, wp) < 1.3) s.path.shift(); else moveToward(s, wp, speed * 1.2); s.state = 'move'; continue; }
     // a direct order is obeyed: march on through, ignoring skirmishers along the way
     if (s.forced && s.path.length && !s.chase) {
+      // passing a friend locked in melee: if the march ends near that fight anyway, wade in instead of walking by
+      if (!s.ranged && !s.regroup && sim.tick % 6 === s.id % 6) {
+        const end = s.path[s.path.length - 1], b = brawlNear(sim, s, 2.6);
+        if (b && Math.hypot(b.x - end.x, b.y - end.y) < 5) { s.chase = b.id; s.path = []; s.goal = null; s.rally = null; ev(sim, { k: 'join', id: s.id, x: b.x, y: b.y }); continue; }
+      }
       const wp = s.path[0];
       if (dist(s, wp) < (s.path.length === 1 ? 0.5 : 0.7)) s.path.shift();
       else moveToward(s, wp, speed * (s.buffs.exposed > 0 ? 0.85 : 1), sim.field);
@@ -822,7 +838,11 @@ export function step(sim) {
         s.forced = false; s.state = 'hold';
         ev(sim, { k: 'arrive', id: s.id, post: s.goal });
         if (s.regroup === 1) { s.regroup = 2; s.holdFast = true; s._rg = 0; s._rgAt = sim.t; ev(sim, { k: 'regrouped', id: s.id, side: s.side }); }
-        else if (!nextQueued(sim, s) && s.rally) s.holdFast = true; // a rally point is held until told otherwise
+        else if (!nextQueued(sim, s)) {
+          const b = !s.ranged ? brawlNear(sim, s, s.rally ? 3 : 4.5) : null;
+          if (b) { s.chase = b.id; s.forced = true; s.rally = null; ev(sim, { k: 'join', id: s.id, x: b.x, y: b.y }); }
+          else if (s.rally) s.holdFast = true; // a rally point is held until told otherwise
+        }
       }
       continue;
     }
@@ -864,8 +884,12 @@ export function step(sim) {
       else moveToward(s, wp, speed, sim.field);
       s.state = 'move';
       if (!s.path.length) nextQueued(sim, s);
-      if (foe && fd < 2.0 && !s.ranged) s.chase = foe.id;
+      if (!s.ranged) { const b = foe && fd < 2.0 ? foe : brawlNear(sim, s, 3.2); if (b) s.chase = b.id; }
       continue;
+    }
+    if (!s.ranged && s.regroup !== 2 && sim.tick % 6 === s.id % 6) {
+      const b = brawlNear(sim, s, s.holdFast ? 2.4 : (sim.night ? 4.5 : SIGHT + 1.5));
+      if (b) { s.chase = b.id; s.forced = true; s.holdFast = false; s.state = 'move'; ev(sim, { k: 'join', id: s.id, x: b.x, y: b.y }); continue; }
     }
     if (foe && fd < (sim.night ? 3.8 : SIGHT) && !s.holdFast && visibleTo(sim, s.side, foe)) { if (s.ranged) s.state = 'hold'; else { moveToward(s, foe, speed, sim.field); s.state = 'move'; } continue; }
     if (s.state === 'move' || s.state === 'fight' || s.state === 'shoot' || s.state === 'confused') s.state = 'hold';
