@@ -1,7 +1,7 @@
 // DOM helpers and the UI component kit for the overlay.
 import { url, img, loadImage } from './assets.js';
 
-export const uiRoot = document.getElementById('ui');
+const uiRoot = document.getElementById('ui');
 
 // optional click sound hook (set by audio.js to avoid an import cycle)
 let clickHook = null;
@@ -26,10 +26,6 @@ export function h(tag, attrs = {}, ...children) {
 
 export function btn(label, onClick, cls = '') {
   return h('button', { class: 'btn ' + cls, onClick: (e) => { e.stopPropagation(); clickHook && clickHook(cls); onClick && onClick(e); } }, label);
-}
-
-export function iconBtn(iconEl, label, onClick, cls = '') {
-  return h('button', { class: 'btn iconbtn ' + cls, onClick: (e) => { e.stopPropagation(); clickHook && clickHook(cls); onClick && onClick(e); } }, iconEl, label ? h('span', { class: 'lbl' }, label) : null);
 }
 
 export function clearUI() { uiRoot.innerHTML = ''; }
@@ -123,20 +119,8 @@ export function sprite(src, sx, sy, sw, sh, scale = 2, extra = {}) {
   return el;
 }
 
-// UI icons from the HAS icon sheet (16x16 cells, 6 cols)
-const ICON_SRC = 'assets/has2020/UI/Separate/Icons/_Icons.png';
-const ICONS = { amulet: [0, 0], helm: [1, 0], armor: [2, 0], flag: [3, 0], screen: [4, 0], book: [5, 0], sword: [0, 1], chest: [1, 1], shield: [2, 1], castle: [3, 1], save: [4, 1], ladder: [5, 1], ring: [0, 2], pants: [1, 2], glove: [2, 2], blade: [3, 2], hammer: [4, 2], pick: [5, 2], boots: [1, 3], axe: [3, 3], scythe: [4, 3], whip: [5, 3], orb: [3, 4], wand: [4, 4] };
-export function icon(name, scale = 1.25) {
-  const c = ICONS[name] || [3, 0];
-  return sprite(ICON_SRC, c[0] * 16, c[1] * 16, 16, 16, scale, { class: 'ico' });
-}
-
 export function bar(frac, cls = '') {
   return h('div', { class: 'bar ' + cls }, h('i', { style: { width: Math.max(0, Math.min(1, frac)) * 100 + '%' } }));
-}
-
-export function panel(opts = {}, ...children) {
-  return h('div', { class: 'panel ' + (opts.class || ''), style: opts.style || null }, opts.title ? h('h2', {}, opts.title) : null, ...children);
 }
 
 export function chip(text, cls = '') { return h('span', { class: 'chip ' + cls }, text); }

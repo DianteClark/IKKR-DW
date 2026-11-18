@@ -5,7 +5,7 @@ import { registerScene, go } from '../main.js';
 import { h, btn, mount, clearUI, modal } from '../engine/ui.js';
 import { sfx, music } from '../engine/audio.js';
 
-export const PAGES = [
+const PAGES = [
   { title: 'Your goal', lines: [
     'You start as a small village with 3 heroes. Grow it into a kingdom, then an empire, until every realm bows to you (or to you and the allies you invited).',
     'Each turn is one month. Three months make a season, twelve a year. Seasons change the land, harvests and weather.',

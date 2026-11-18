@@ -26,6 +26,12 @@ function ensure() {
 function unlock() { const c = ensure(); if (c && c.state === 'suspended') c.resume(); }
 document.addEventListener('pointerdown', unlock, { passive: true });
 document.addEventListener('keydown', unlock);
+// quiet in the background (backgrounded timers stutter the music anyway); back on return
+document.addEventListener('visibilitychange', () => {
+  if (!ctx) return;
+  if (document.visibilityState === 'hidden') { if (ctx.state === 'running') ctx.suspend().catch(() => {}); }
+  else if (ctx.state !== 'running') ctx.resume().catch(() => {});
+});
 
 export function setMuted(v) {
   muted = !!v;

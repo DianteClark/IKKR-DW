@@ -32,14 +32,12 @@ const ICONS = {
   points: ['....u.....', '...uuu....', '..uucuu...', '.uucccuu..', 'uucccccuu.', '.uucccuu..', '..uucuu...', '...uuu....', '....u.....', '..........'],
   male: ['....kkkkk.', '.....kuuk.', '....ku.uk.', '..kkku.k..', '.kuuuk....', 'kuk.kuk...', 'kuk.kuk...', '.kuuuk....', '..kkk.....', '..........'],
   female: ['..kkk.....', '.kpppk....', 'kpk.kpk...', 'kpk.kpk...', '.kpppk....', '..kpk.....', '.kkpkk....', '..kpk.....', '..kkk.....', '..........'],
-  shield: ['kkkkkkkkk.', 'kuuuuyuuk.', 'kuuuuyuuk.', 'kyyyyyyyk.', 'kuuuuyuuk.', 'kuuuuyuuk.', '.kuuuyuk..', '..kuuyk...', '...kkk....', '..........'],
   siege: ['k.k.k.k...', 'kkkkkkk...', '.kgggk....', '.kgkgk....', '.kgggk..k.', '.kgkgk.ksk', '.kgggkksk.', 'kkkkkkkk..', 'knkkknk...', '.k...k....'],
   march: ['..........', '.....kk...', '.....kwk..', 'kkkkkkwwk.', 'kwwwwwwwwk', 'kkkkkkwwk.', '.....kwk..', '.....kk...', '..........', '..........'],
   scroll: ['.kkkkkkk..', 'kwkwwwwwk.', '.kwkkkwwk.', '.kwwwwwwk.', '.kwkkkkwk.', '.kwwwwwwk.', '.kwkkkwwk.', '.kwwwwwkwk', '..kkkkkkk.', '..........'],
   close: ['..........', '.kk....kk.', '.kwk..kwk.', '..kwkkwk..', '...kwwk...', '...kwwk...', '..kwkkwk..', '.kwk..kwk.', '.kk....kk.', '..........'],
-  wave: ['..k.k.....','.kwkwk.k..', '.kwkwkkwk.', 'kkwwwwwwk.', 'kwwwwwwwk.', 'kwwwwwwk..', '.kwwwwwk..', '..kwwwk...', '...kkk....', '..........'],
   wave: ['..k.k.....', '.kwkwk.k..', '.kwkwkkwk.', 'kkwwwwwwk.', 'kwwwwwwwk.', 'kwwwwwwk..', '.kwwwwwk..', '..kwwwk...', '...kkk....', '..........'],
-  // battle tactics
+  // battle tactics (shield: shield wall buff on squads, also the Protect order)
   arrows: ['......kgk.', '.....kgk..', '....knk.k.', '...knk.kgk', '..knk.kgk.', '.knk.knk..', 'kwk.knk...', '.k.knk....', '..kwk.....', '...k......'],
   shield: ['.kkkkkkkk.', 'kssswwsssk', 'ksswwwwssk', 'kssswwsssk', 'ksssssssk.', '.kssssssk.', '.kssssssk.', '..kssssk..', '...kssk...', '....kk....'],
   moon: ['...kkkk...', '..kyyyk...', '.kyyyk....', 'kyyyk.....', 'kyyyk.....', 'kyyyk.....', 'kyyyyk....', '.kyyyykkk.', '..kyyyyyk.', '...kkkkk..'],
@@ -48,7 +46,6 @@ const ICONS = {
   camp: ['....k.....', '...kRk....', '..kRRRk...', '..kRkRk...', '.kRRkRRk..', '.kRk.kRk..', 'kRRk.kRRk.', 'kRk...kRk.', 'kkk...kkk.', '..........'],
   guard: ['..kkkkkk..', '.k......k.', 'k...kk...k', 'k..kssk..k', 'k..kssk..k', 'k...kk...k', 'k........k', '.k......k.', '..kkkkkk..', '..........'],
 };
-export const ICON_NAMES = Object.keys(ICONS);
 const cache = new Map();
 function canvasFor(name) {
   if (cache.has(name)) return cache.get(name);

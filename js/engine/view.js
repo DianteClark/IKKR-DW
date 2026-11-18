@@ -52,14 +52,6 @@ export class Camera {
     this.x = Math.max(minX - (b.pad || 0), Math.min(maxX + (b.pad || 0), this.x));
     this.y = Math.max(minY - (b.pad || 0), Math.min(maxY + (b.pad || 0), this.y));
   }
-  // zoom so the whole box fits, snapped so device pixels per world pixel is a whole number when possible
-  fit(w, h, margin = 0) {
-    const z = Math.min(screen.w / (w + margin), screen.h / (h + margin));
-    const s = z * screen.dpr;
-    const snapped = s >= 1 ? Math.floor(s) / screen.dpr : z;
-    this.zoom = Math.max(this.min, snapped);
-    return this.zoom;
-  }
   zoomAt(sx, sy, factor) {
     const before = this.toWorld(sx, sy);
     this.zoom = Math.max(this.min, Math.min(this.max, this.zoom * factor));
