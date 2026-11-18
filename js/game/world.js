@@ -103,6 +103,7 @@ export function newKingdom(state, rng, { fid, cap, player = -1, name, kind = 're
     banner: banner || randomBanner(rng, color),
     temper: player >= 0 ? null : TEMPER_IDS[Math.floor(rng() * TEMPER_IDS.length)],
   };
+  if (player >= 0) k.steward = { on: true, focus: 'grow' }; // new campaigns: the Steward keeps house
   state.kingdoms.push(k);
   if (cap != null && cap >= 0) state.territories[cap].owner = k.id;
   return k;
@@ -234,6 +235,7 @@ export function createWorld(seed, players, opts = {}) {
 // older saves: give every hero a face that matches their gender
 export function fixPortraits(state) {
   // older saves: morale and stability became one Order value (kept in k.morale)
+  for (const k of state.kingdoms) if (k.player >= 0 && !k.steward) k.steward = { on: false, focus: 'grow' }; // older saves keep running the realm by hand
   for (const k of state.kingdoms) if (k.stability != null) { k.morale = Math.round((k.morale + k.stability) / 2); delete k.stability; }
   for (const h of state.heroes) if (!FORMATIONS[h.formation]) h.formation = 'line'; // Loose was retired
   tidy(state); // squads above their cap in older saves

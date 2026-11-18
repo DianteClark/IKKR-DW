@@ -11,6 +11,7 @@ import { warTick } from './diplomacy.js';
 import { worldEvents, vagabondTick, decayMarks } from './events.js';
 import { diplomacyTick } from './diplomacy.js';
 import { TIERS, tierIndex } from './rules.js';
+import { stewardTick } from './steward.js';
 
 export function endTurn(state) {
   const rng = rngFor(state, 999);
@@ -18,6 +19,8 @@ export function endTurn(state) {
   state.newsQueue = [];
   decayMarks(state);
   for (const t of state.territories) if (t.ruined > 0) t.ruined--;
+  // the Steward settles each human realm's household before the month is counted
+  for (const k of state.kingdoms) if (k.alive && k.player >= 0 && isHumanKingdom(state, k.id)) { const line = stewardTick(state, k); if (line) notes.push({ kid: k.id, kind: 'steward', text: line }); }
   for (const k of state.kingdoms) economyTick(state, k, rng, notes);
   for (const h of state.heroes) {
     if (h.status !== 'active') continue;

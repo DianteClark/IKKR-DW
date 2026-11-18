@@ -31,7 +31,7 @@ export function weatherTick(state, rng, notes) {
     for (const t of area) if (!(kind === 'blizzard' && COLD.has(t.biome))) t.weather = { kind, until: state.turn };
     for (const p of state.players) {
       const kid = p.kingdom;
-      if (area.some((t) => t.owner === kid) && isHumanKingdom(state, kid)) notes.push({ kid, kind: 'raid', text: `${WEATHER[kind].name} over ${c.name}: ${WEATHER[kind].desc}` });
+      if (area.some((t) => t.owner === kid) && isHumanKingdom(state, kid)) notes.push({ kid, kind: 'weather', text: `${WEATHER[kind].name} over ${c.name}: ${WEATHER[kind].desc}` });
     }
   }
 }
