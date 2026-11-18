@@ -103,7 +103,7 @@ export function breakTreaty(state, kid, other) {
   state.treaties = state.treaties.filter((x) => x !== t);
   bump(state, other, kid, -50);
   for (const k of state.kingdoms) if (k.alive && k.id !== kid && k.id !== other) bump(state, k.id, kid, -8); // word of betrayal travels
-  const K = state.kingdoms[kid]; K.stability = clamp(K.stability - 6);
+  const K = state.kingdoms[kid]; K.morale = clamp(K.morale - 6);
   // lent heroes come home
   for (const h of state.heroes) if ((h.kingdom === kid && h.lentTo === other) || (h.kingdom === other && h.lentTo === kid)) { h.lentTo = -1; h.lentTurns = 0; }
   log(state, `${K.name} broke its ${t.type === 'vassal' ? (t.a === kid ? 'hold over' : 'oath to') : t.type + ' with'} ${state.kingdoms[other].name}!`, -1, 'betrayal');

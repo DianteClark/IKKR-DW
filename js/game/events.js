@@ -37,7 +37,7 @@ export function worldEvents(state, rng) {
     if (roll < 0.12) {
       t.level = Math.max(0, t.level - 1); t.ruined = Math.max(t.ruined, 1); mark(t, 'quake');
       for (const h of here) h.troops.splice(0, Math.floor(h.troops.length * 0.2));
-      if (k) k.stability = clamp(k.stability - 6);
+      if (k) k.morale = clamp(k.morale - 6);
       ev(state, list, 'quake', t.id, `An earthquake shook ${t.name}. Walls fell and soldiers were lost.`, t.owner);
     } else if (roll < 0.24 && ['grass', 'dirt', 'marsh', 'sand', 'lava'].includes(t.biome)) {
       t.blight = 3; mark(t, 'wildfire');
@@ -67,11 +67,11 @@ export function worldEvents(state, rng) {
       spawnRaiders(state, rng, t, 'monster', list);
     }
   }
-  // unrest: realms with low stability may lose land to revolt, or be overthrown outright
+  // unrest: realms with low Order may lose land to revolt, or be overthrown outright
   for (const k of state.kingdoms) {
     if (!k.alive || k.landless || k.kind !== 'realm') continue;
-    if (k.stability < 10 && k.morale < 28 && rng() < 0.15) { overthrow(state, k, rng, list); continue; }
-    if (k.stability < 22 && rng() < (22 - k.stability) / 110) {
+    if (k.morale < 12 && rng() < 0.15) { overthrow(state, k, rng, list); continue; }
+    if (k.morale < 24 && rng() < (24 - k.morale) / 110) {
       const lands = kingdomTerritories(state, k.id).filter((t) => t.id !== k.capital && !heroesAt(state, t.id, k.id).length);
       if (lands.length) revolt(state, rng, rng.pick(lands), list);
     }
@@ -98,7 +98,7 @@ export function spawnRaiders(state, rng, t, kind, list) {
   }
   for (const h of heroesAt(state, t.id, t.owner)) { const own = kingdomTerritories(state, h.kingdom).filter((x) => x.id !== t.id); if (own.length) h.loc = own[0].id; }
   const k = newKingdom(state, rng, { fid, cap: t.id, name, kind, tier: 'kingdom' });
-  k.gold = 150; k.morale = 70; k.stability = 70;
+  k.gold = 150; k.morale = 70;
   mark(t, kind === 'bandit' ? 'bandits' : 'outbreak', 4);
   const n = 1 + (state.turn > 12 ? 1 : 0) + (rng() < 0.3 ? 1 : 0);
   for (let i = 0; i < n; i++) {
@@ -116,11 +116,11 @@ export function revolt(state, rng, t, list) {
   const lead = state.heroes.find((h) => h.status === 'vagabond' && h.loc === t.id && h.ambition > 50);
   const fid = lead ? lead.fid : t.race || oldK.fid;
   const k = newKingdom(state, rng, { fid, cap: t.id, name: `Free Folk of ${t.name}`, kind: 'rebel', tier: 'village' });
-  k.morale = 75; k.stability = 50; k.gold = 120;
+  k.morale = 62; k.gold = 120;
   if (lead) { joinKingdom(state, lead, k.id, 100); lead.loc = t.id; k.ruler = lead.id; }
   else { const h = makeHero(state, rng, fid, k.id, t.id, { ruler: true, maxUnit: 2 }); k.ruler = h.id; }
   t.ruined = 1; mark(t, 'revolt', 3);
-  oldK.stability = clamp(oldK.stability + 6); // the hotheads left
+  oldK.morale = clamp(oldK.morale + 6); // the hotheads left
   ev(state, list, 'revolt', t.id, `The people of ${t.name} rose against ${oldK.name}${lead ? ', led by ' + lead.name : ''}!`, oldK.id);
   return k;
 }
@@ -131,7 +131,7 @@ export function overthrow(state, k, rng, list) {
   const human = k.player >= 0;
   // the realm shatters into rebel holdings; the ruler is cast out
   const rebels = newKingdom(state, rng, { fid: k.fid, cap: k.capital, name: `Free Folk of ${state.territories[k.capital].name}`, kind: 'rebel', tier: 'kingdom' });
-  rebels.morale = 70; rebels.stability = 40; rebels.gold = Math.round(k.gold / 2);
+  rebels.morale = 55; rebels.gold = Math.round(k.gold / 2);
   for (const t of lands) { t.owner = rebels.id; mark(t, 'revolt', 3); }
   const heroes = kingdomHeroes(state, k.id, true);
   let followers = 0;
@@ -144,7 +144,7 @@ export function overthrow(state, k, rng, list) {
     const h = makeHero(state, rng, k.fid, rebels.id, k.capital, { ruler: true, maxUnit: 3 }); rebels.ruler = h.id;
   }
   state.treaties = state.treaties.filter((t) => t.a !== k.id && t.b !== k.id);
-  k.gold = Math.round(k.gold / 2); k.stability = 40; k.morale = 40;
+  k.gold = Math.round(k.gold / 2); k.morale = 40;
   ev(state, list, 'overthrow', k.capital, human
     ? `Revolution! ${k.name} has been overthrown. ${ruler ? ruler.name : 'Your ruler'} flees with ${followers - 1} loyal hero${followers === 2 ? '' : 'es'}.`
     : `${k.name} was overthrown by its own people! ${ruler ? ruler.name + ' is now a vagabond.' : ''}`, k.id);
@@ -161,9 +161,9 @@ export function vagabondTick(state, rng, list) {
     const owner = here.owner >= 0 ? state.kingdoms[here.owner] : null;
     // ambitious wanderers stir trouble and may rise up
     if (h.ambition > 60 && owner) {
-      owner.stability = clamp(owner.stability - 1);
+      owner.morale = clamp(owner.morale - 1);
       const guarded = heroesAt(state, here.id, here.owner).length;
-      if (!guarded && state.turn > 3 && owner.stability < 35 && rng() < 0.03 + (35 - owner.stability) / 400) {
+      if (!guarded && state.turn > 3 && owner.morale < 35 && rng() < 0.03 + (35 - owner.morale) / 400) {
         const win = rng() < squadPower(h, state.items) / (squadPower(h, state.items) + garrisonPower(here));
         if (win) revolt(state, rng, here, list);
         else { h.troops = h.troops.slice(0, Math.floor(h.troops.length / 2)); log(state, `An uprising led by ${h.name} at ${here.name} was crushed.`, owner.id, 'revolt'); }
@@ -172,7 +172,7 @@ export function vagabondTick(state, rng, list) {
     }
     // serve a lord with a good name
     if (owner && owner.player < 0 && owner.kind !== 'monster') {
-      const appeal = (owner.morale + owner.stability) / 200 - h.ambition / 250;
+      const appeal = owner.morale / 100 - h.ambition / 250;
       if (rng() < 0.05 + Math.max(0, appeal) * 0.15) { joinKingdom(state, h, owner.id, 55); log(state, `The vagabond ${h.name} pledged to ${owner.name}.`, owner.id); continue; }
     }
     // wanderers recover and gather a few followers

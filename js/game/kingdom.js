@@ -1,4 +1,4 @@
-// Realm-wide management: gold, food, morale and stability, policies, edicts, tiers and buildings.
+// Realm-wide management: gold, food and Order (k.morale), policies, edicts, tiers and buildings.
 // Decisions apply to the whole kingdom, so even a large realm stays simple to run.
 import {
   POLICIES, EDICTS, TIERS, tierIndex, PROMOTE, BUILDINGS, territoryIncome, territoryFood, squadCap, newSoldier,
@@ -31,7 +31,7 @@ export function economyPreview(state, k) {
   }
   const trade = k.landless ? 0 : tradeIncome(state, k.id);
   return { gold: gold - tributeOut + tributeIn + trade, trade, food: food - eat, foodMade: food, foodEaten: eat, tributeIn, tributeOut, soldiers, lands: lands.length,
-    morale: tax.morale + rat.morale, stability: tax.stability || 0,
+    morale: tax.morale + rat.morale, stability: 0,
     // parts, for the economy breakdown
     landGold, landFood, taxGold: tax.gold, granary: !!k.buildings.granary, season, seasonFood: SEASON_FOOD[season], rationFood: rat.food,
     heroCount: heroes.length, ruined: lands.filter((t) => t.ruined > 0).length };
@@ -44,12 +44,12 @@ export function economyTick(state, k, rng, notes) {
   k.food += p.food;
   // drift toward a resting point, then policy effects
   k.morale = clamp(k.morale + (55 - k.morale) * 0.08 + p.morale);
-  k.stability = clamp(k.stability + (55 - k.stability) * 0.06 + p.stability - kingdomTerritories(state, k.id).filter((t) => t.ruined > 0).length * 1.5);
+  k.morale = clamp(k.morale - kingdomTerritories(state, k.id).filter((t) => t.ruined > 0).length * 1.5);
   if (k.landless) { k.morale = clamp(k.morale - 1); }
   if (k.food < 0) {
-    // famine: troops desert, morale and stability collapse
+    // famine: troops desert, order collapses
     const sev = Math.min(1, -k.food / 80);
-    k.morale = clamp(k.morale - 6 - 6 * sev); k.stability = clamp(k.stability - 4 - 6 * sev);
+    k.morale = clamp(k.morale - 8 - 9 * sev);
     let lost = 0;
     for (const h of kingdomHeroes(state, k.id, true)) { const n = Math.floor(h.troops.length * (0.08 + 0.12 * sev)); h.troops.splice(h.troops.length - n, n); lost += n; }
     k.food = Math.max(-40, Math.floor(k.food / 2));
@@ -84,11 +84,11 @@ export function issueEdict(state, kid, id) {
   k.gold -= c.gold; k.food -= c.food; k.edictTurn = state.turn;
   const hs = kingdomHeroes(state, kid, true);
   if (id === 'festival') k.morale = clamp(k.morale + 12);
-  if (id === 'martial') { k.stability = clamp(k.stability + 15); k.morale = clamp(k.morale - 8); }
+  if (id === 'martial') { k.morale = clamp(k.morale + 9); for (const h of kingdomHeroes(state, k.id)) h.loyalty = clamp(h.loyalty - 4); } // order by force
   if (id === 'conscript') {
     const rng = rngFor(state, kid * 91);
     for (const h of hs) { const cap = squadCap(h, k); while (h.troops.length < cap) h.troops.push(newSoldier(rng)); }
-    k.stability = clamp(k.stability - 10); k.morale = clamp(k.morale - 6);
+    k.morale = clamp(k.morale - 10);
   }
   for (const h of hs) h.morale = k.morale;
   log(state, `${k.name} proclaimed: ${EDICTS[id].name}.`, kid, 'edict');
@@ -108,7 +108,7 @@ export function promoteRealm(state, kid) {
   const s = promotionStatus(state, kid);
   if (!s || !s.ok || !s.afford) return false;
   const k = state.kingdoms[kid];
-  k.gold -= s.cost; k.tier = s.next.id; k.morale = clamp(k.morale + 10); k.stability = clamp(k.stability + 10);
+  k.gold -= s.cost; k.tier = s.next.id; k.morale = clamp(k.morale + 12);
   log(state, `${k.name} has risen to become a${s.next.id === 'empire' ? 'n' : ''} ${s.next.name}!`, kid, 'tier');
   return true;
 }
@@ -153,9 +153,9 @@ export function aiDevelop(state, k, rng) {
   const want = [coastal ? 'harbour' : null, 'stables', 'spies', 'pits', 'granary', 'beastpit', 'academy', 'magetower', 'aerie', 'council'].filter(Boolean);
   for (const b of want) if (!k.buildings[b] && tierIndex(k) >= BUILDINGS[b].tier && k.gold > BUILDINGS[b].cost * 2) { build(state, k.id, b); break; }
   if (k.food < 30) k.policy.rations = 'half'; else if (k.morale < 35) k.policy.rations = 'feast'; else k.policy.rations = 'normal';
-  if (k.stability < 30) k.policy.tax = 'low'; else if (k.gold < 150) k.policy.tax = 'high'; else k.policy.tax = 'normal';
+  if (k.morale < 32) k.policy.tax = 'low'; else if (k.gold < 150) k.policy.tax = 'high'; else k.policy.tax = 'normal';
   if (k.edictTurn !== state.turn) {
-    if (k.stability < 25) issueEdict(state, k.id, 'martial');
-    else if (k.morale < 35) issueEdict(state, k.id, 'festival');
+    if (k.morale < 25) issueEdict(state, k.id, 'martial');
+    else if (k.morale < 38) issueEdict(state, k.id, 'festival');
   }
 }

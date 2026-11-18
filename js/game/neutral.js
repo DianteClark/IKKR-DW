@@ -109,7 +109,7 @@ export function applyNeutralOrders(state, rng, results) {
       const y = plunderYield(t);
       k.gold += y.gold; k.food += y.food;
       t.level = Math.max(0, t.level - 1); t.ruined = 2; t.militia = Math.max(1, (t.militia || 0) - 3);
-      k.stability = Math.max(0, k.stability - 3); k.morale = Math.min(100, k.morale + 2);
+      k.morale = Math.max(0, k.morale - 2);
       for (const x of state.territories) if (x.owner < 0) x.favor[k.id] = (x.favor[k.id] || 0) - (x.id === t.id ? 40 : 12);
       note(k.id, `${h.name} plundered ${t.name}: +${y.gold}g, +${y.food} food. The free hamlets will remember.`);
     } else if (o.type === 'protect') {
@@ -214,7 +214,7 @@ export function neutralTick(state, rng, notes) {
       const victims = [t, ...t.nb.map((n) => state.territories[n])].filter((x) => x.owner >= 0);
       if (victims.length) {
         const v = rng.pick(victims), k = state.kingdoms[v.owner];
-        k.food = Math.max(-20, k.food - 25); k.stability = Math.max(0, k.stability - 3);
+        k.food = Math.max(-20, k.food - 25); k.morale = Math.max(0, k.morale - 3);
         const text = `${s.kind === 'lair' ? 'Beasts' : 'Bandits'} from the ${SITES[s.kind].name.toLowerCase()} near ${t.name} raided ${v.name} (−25 food). Clear it out!`;
         log(state, text, k.id, 'wild');
         if (isHumanKingdom(state, k.id)) notes.push({ kid: k.id, kind: 'raid', text });

@@ -215,13 +215,14 @@ export const BUILDINGS = {
 };
 
 export const POLICIES = {
-  tax: { low: { name: 'Low', gold: 0.75, morale: 3, stability: 2 }, normal: { name: 'Normal', gold: 1, morale: 0, stability: 0 }, high: { name: 'High', gold: 1.3, morale: -4, stability: -3 } },
+  // `morale` on a realm is its Order: one value for the people's mood and the peace of the land
+  tax: { low: { name: 'Low', gold: 0.75, morale: 4 }, normal: { name: 'Normal', gold: 1, morale: 0 }, high: { name: 'High', gold: 1.3, morale: -5 } },
   rations: { half: { name: 'Half', food: 0.6, morale: -4 }, normal: { name: 'Normal', food: 1, morale: 0 }, feast: { name: 'Feast', food: 1.4, morale: 4 } },
 };
 export const EDICTS = {
-  festival: { name: 'Festival', cost: { gold: 150 }, desc: 'Morale +12 across the realm.' },
-  conscript: { name: 'Conscription', cost: { gold: 0 }, desc: 'Every squad is filled with fresh recruits for free. Stability −10, morale −6.' },
-  martial: { name: 'Martial Law', cost: { gold: 0 }, desc: 'Stability +15, morale −8.' },
+  festival: { name: 'Festival', cost: { gold: 150 }, desc: 'Order +12: the people celebrate.' },
+  conscript: { name: 'Conscription', cost: { gold: 0 }, desc: 'Every squad is filled with fresh recruits for free. Order −10.' },
+  martial: { name: 'Martial Law', cost: { gold: 0 }, desc: 'Order +9, but your heroes lose 4 loyalty.' },
 };
 
 export const FOOD = { grass: 30, marsh: 22, dirt: 18, sand: 10, ice: 10, christmas: 12, deepmarsh: 16, lava: 8, cave: 12, dungeon: 10 };

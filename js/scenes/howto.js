@@ -44,7 +44,7 @@ export const PAGES = [
     'Use stratagems (right side), call in your reserve, and use hero skills when their buttons light up.',
   ] },
   { title: 'Your realm', lines: [
-    'Gold pays for soldiers and buildings; food feeds your armies; morale and stability keep the peace. Tap any of them in the top bar to see why it changes.',
+    'Gold pays for soldiers and buildings; food feeds your armies; Order keeps the peace and steadies your armies. Tap any of them in the top bar to see why it changes.',
     'Gather 5 heroes and your village becomes a kingdom. Build in Realm → Build.',
     'Heroes marry, have children and pass on their strengths. Name your children when they are born.',
     'Diplomacy: propose alliances, make peace, lend heroes. Rulers have temperaments — some never forget.',

@@ -97,7 +97,7 @@ export function newKingdom(state, rng, { fid, cap, player = -1, name, kind = 're
   const color = banner ? banner.bg : KINGDOM_COLORS.find((c) => !usedColors.has(c)) || KINGDOM_COLORS[state.kingdoms.length % KINGDOM_COLORS.length];
   const k = {
     id: state.kingdoms.length, name: name || kingdomName(rng, state.territories[cap].name), fid, color, kind,
-    gold: player >= 0 ? 800 : 500, food: 120, morale: 60, stability: 60, tier,
+    gold: player >= 0 ? 800 : 500, food: 120, morale: 60, tier, // morale = the realm's Order
     buildings: {}, policy: { tax: 'normal', rations: 'normal' }, edictTurn: -1,
     troopRaces: [fid], alive: true, landless: false, player, ruler: -1, capital: cap, items: [], rel: {}, intel: {}, loadout: [],
     banner: banner || randomBanner(rng, color),
@@ -233,6 +233,8 @@ export function createWorld(seed, players, opts = {}) {
 
 // older saves: give every hero a face that matches their gender
 export function fixPortraits(state) {
+  // older saves: morale and stability became one Order value (kept in k.morale)
+  for (const k of state.kingdoms) if (k.stability != null) { k.morale = Math.round((k.morale + k.stability) / 2); delete k.stability; }
   for (const h of state.heroes) if (!FORMATIONS[h.formation]) h.formation = 'line'; // Loose was retired
   tidy(state); // squads above their cap in older saves
   for (const h of state.heroes) if (!portraitFits(h.fid, h.gender, h.portrait)) h.portrait = (h.portrait % 20) + (h.gender === 'f' ? 20 : 0);
@@ -578,7 +580,7 @@ export function applyBattle(state, b, result) {
   // allied heroes who marched in as reinforcements share the losses and the glory
   const extra = Object.keys(result.heroes || {}).map(Number).filter((id) => !b.attackers.includes(id) && !b.defenders.includes(id) && !report.defected.includes(id));
   for (const id of extra) { const h = hero(state, id); if (!h || h.status !== 'active') continue; const withAtt = friendly(state, b.att, h.kingdom); settle([id], withAtt ? attWon : !attWon); }
-  const shift = (k, m, s) => { if (k) { k.morale = clamp(k.morale + m); k.stability = clamp(k.stability + s); } };
+  const shift = (k, m, s) => { if (k) k.morale = clamp(k.morale + m + s * 0.6); };
   if (weatherAtId(state, b.tid) === 'blizzard') shift(attK, -4, 0); // marching into a blizzard
   shift(attK, attWon ? 6 : -6, attWon ? 0 : -2);
   shift(defK, attWon ? -8 : 5, attWon ? -5 : 1);

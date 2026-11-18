@@ -304,8 +304,7 @@ export function refreshUI() {
       h('span', { class: 'tag gold' }, k.landless ? 'Landless' : TIERS[tierIndex(k)].name)),
     h('span', { class: 'chip gold tap', title: 'Gold', onClick: () => economySheet('gold') }, picon('gold', 16), `${k.gold} `, h('small', { class: eco.gold >= 0 ? 'good' : 'bad' }, sign(eco.gold))),
     h('span', { class: 'chip tap', title: 'Food', onClick: () => economySheet('food') }, picon('food', 16), `${Math.round(k.food)} `, h('small', { class: eco.food >= 0 ? 'good' : 'bad' }, sign(eco.food))),
-    h('span', { class: 'chip tap ' + (k.morale < 35 ? 'bad' : ''), title: 'Morale', onClick: () => economySheet('morale') }, picon('morale', 16), `${Math.round(k.morale)}`),
-    h('span', { class: 'chip tap ' + (k.stability < 30 ? 'bad' : ''), title: 'Stability', onClick: () => economySheet('stability') }, picon('stability', 16), `${Math.round(k.stability)}`),
+    h('span', { class: 'chip tap ' + (k.morale < 30 ? 'bad' : ''), title: 'Order', onClick: () => economySheet('morale') }, picon('stability', 16), `${Math.round(k.morale)}`),
     h('span', { class: 'chip muted', title: cap1(dateOf(st.turn)) }, shortDate(st.turn)),
     h('span', { class: 'grow' }),
     btn(picon('menu', 18), menu, 'small'),
@@ -707,7 +706,7 @@ function economySheet(focusOn = 'gold') {
   const mines = (st.sites || []).filter((x) => x.kind === 'mine' && x.status === 'claimed' && x.owner === k.id).length;
   const lands = kingdomTerritories(st, k.id).sort((a, b) => territoryIncome(b) - territoryIncome(a));
   const tax = POLICIES.tax[k.policy.tax], rat = POLICIES.rations[k.policy.rations];
-  const driftM = (55 - k.morale) * 0.08, driftS = (55 - k.stability) * 0.06;
+  const driftM = (55 - k.morale) * 0.08;
   const section = (id, title, total, lines) => h('div', { class: 'card col eco-sec' + (focusOn === id ? ' on' : ''), style: { alignItems: 'stretch', gap: '2px' } },
     h('div', { class: 'row' }, h('b', { class: 'grow' }, title), h('b', { class: total >= 0 ? 'good' : 'bad' }, sgn(total) + ' / month')), ...lines);
   const body = h('div', { class: 'col' },
@@ -728,18 +727,14 @@ function economySheet(focusOn = 'gold') {
       e.rationFood !== 1 ? line(`${rat.name} rations`, pct(e.rationFood), e.rationFood < 1 ? 'good' : 'bad') : null,
       k.food + e.food < 0 ? h('div', { class: 'bad', style: { fontSize: '12px' } }, 'Stores will run out: famine makes soldiers desert. Cut rations, rest fewer troops or take farmland.') : null,
     ]),
-    section('morale', 'Morale', driftM + e.morale - (k.landless ? 1 : 0), [
+    section('morale', 'Order', driftM + e.morale - (k.landless ? 1 : 0) - e.ruined * 1.5, [
       line('Settles toward 55', sgn(driftM)),
       tax.morale ? line(`${tax.name} taxes`, sgn(tax.morale), tax.morale > 0 ? 'good' : 'bad') : null,
       rat.morale ? line(`${rat.name} rations`, sgn(rat.morale), rat.morale > 0 ? 'good' : 'bad') : null,
       k.landless ? line('Wandering without land', '−1', 'bad') : null,
-      h('div', { class: 'muted', style: { fontSize: '12px' } }, 'Victories, festivals and feasts raise it; defeats, famine and plunder lower it. Heroes fight with the realm\'s morale.'),
-    ]),
-    section('stability', 'Stability', driftS + e.stability - e.ruined * 1.5, [
-      line('Settles toward 55', sgn(driftS)),
-      tax.stability ? line(`${tax.name} taxes`, sgn(tax.stability), tax.stability > 0 ? 'good' : 'bad') : null,
       e.ruined ? line(`${e.ruined} sacked land${e.ruined > 1 ? 's' : ''}`, sgn(-e.ruined * 1.5), 'bad') : null,
-      h('div', { class: 'muted', style: { fontSize: '12px' } }, k.stability < 22 ? 'Danger: below 22 the people may revolt.' : 'Below 22 revolts break out; below 10 the ruler can be overthrown.'),
+      h('div', { class: 'muted', style: { fontSize: '12px' } }, 'Victories, festivals and feasts raise it; defeats, famine and plunder lower it. Your armies fight with the realm\'s Order.'),
+      h('div', { class: k.morale < 24 ? 'bad' : 'muted', style: { fontSize: '12px' } }, k.morale < 24 ? 'Danger: below 24 the people may revolt.' : 'Below 24 revolts break out; below 12 the ruler can be overthrown.'),
     ]),
     btn('Taxes, rations and edicts…', () => { mm.close(); realmSheet(); }, 'small'));
   const mm = sheet('Your economy this month', body, [], { side: 'right' });
@@ -762,9 +757,8 @@ function realmSheet() {
         eco.trade ? statRow('Trade caravans', `+${eco.trade}g from friendly borders`) : null,
         statRow('Food per turn', `${sign(eco.food)}  (grown ${eco.foodMade}, eaten ${eco.foodEaten})`),
         statRow('Date', `${cap1(dateOf(st.turn))} · harvest ×${SEASON_FOOD[seasonOf(st.turn)]}`),
-        h('div', { class: 'row' }, h('span', { style: { width: '90px' } }, 'Morale'), h('div', { class: 'grow' }, bar(k.morale / 100, 'mor')), h('b', {}, Math.round(k.morale))),
-        h('div', { class: 'row' }, h('span', { style: { width: '90px' } }, 'Stability'), h('div', { class: 'grow' }, bar(k.stability / 100)), h('b', {}, Math.round(k.stability))),
-        k.stability < 30 ? h('div', { class: 'bad', style: { fontSize: '13px' } }, 'Low stability breeds revolts. Very low stability and morale can overthrow you!') : null,
+        h('div', { class: 'row' }, h('span', { style: { width: '90px' } }, 'Order'), h('div', { class: 'grow' }, bar(k.morale / 100, 'mor')), h('b', {}, Math.round(k.morale))),
+        k.morale < 30 ? h('div', { class: 'bad', style: { fontSize: '13px' } }, 'Low Order breeds revolts. Very low Order can overthrow you!') : null,
         k.food < 0 || eco.food < 0 ? h('div', { class: 'bad', style: { fontSize: '13px' } }, 'Food is running out. Famine makes soldiers desert.') : null,
         prom ? h('div', { class: 'card col', style: { alignItems: 'stretch' } },
           h('b', {}, `Become a${prom.next.id === 'empire' ? 'n' : ''} ${prom.next.name}`),
@@ -780,9 +774,9 @@ function realmSheet() {
       });
       content = h('div', { class: 'col' },
         h('b', {}, 'Taxes'), segmented(Object.entries(POLICIES.tax).map(([v, p]) => ({ value: v, label: p.name })), k.policy.tax, (v) => { act({ type: 'policy', kind: 'tax', value: v }); render(); }),
-        h('div', { class: 'muted', style: { fontSize: '13px' } }, 'High taxes fill the treasury but sour morale and stability.'),
+        h('div', { class: 'muted', style: { fontSize: '13px' } }, 'High taxes fill the treasury but lower Order.'),
         h('b', {}, 'Rations'), segmented(Object.entries(POLICIES.rations).map(([v, p]) => ({ value: v, label: p.name })), k.policy.rations, (v) => { act({ type: 'policy', kind: 'rations', value: v }); render(); }),
-        h('div', { class: 'muted', style: { fontSize: '13px' } }, 'Feasts lift morale but eat your stores.'),
+        h('div', { class: 'muted', style: { fontSize: '13px' } }, 'Feasts lift Order but eat your stores.'),
         h('b', {}, k.edictTurn === st.turn ? 'Edict (used this turn)' : 'One edict per turn'), edicts);
     } else if (tab === 'build') {
       content = h('div', { class: 'col' }, Object.entries(BUILDINGS).map(([id, b]) => {
@@ -878,7 +872,7 @@ function intro() {
     h('div', {}, '• Tap a land, then give each hero an order: attack, move, rest & train, or act in the wilds.'),
     h('div', {}, '• Follow the Goals chip at the top-left: it teaches the game as you play.'),
     h('div', {}, '• Gather 5 heroes and your village becomes a kingdom. Grow it into an empire.'),
-    h('div', {}, '• Tap gold, food, morale or stability to see why they change each month.'),
+    h('div', {}, '• Tap gold, food or Order to see why they change each month.'),
     h('div', {}, '• Attacking another realm is an act of war. You lose only when your last hero falls.'),
   ), [['To war!', () => { sfx('horn'); banner('Early spring, year 1', 'blue', k.name); }, 'primary']]);
 }
