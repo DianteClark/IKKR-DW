@@ -10,15 +10,16 @@ export const TRADE_GOLD = 14, MAX_ROUTES = 6;
 // all trade routes in the world: [landA, landB] with different, friendly owners
 export function tradeRoutes(state) {
   if (state._tr && state._tr.turn === state.turn && state._tr.n === state.treaties.length) return state._tr.list;
-  const list = [];
+  const list = [], seenPair = new Set();
+  const add = (a, b, m) => { const key = Math.min(a, b) + ',' + Math.max(a, b); if (seenPair.has(key)) return; seenPair.add(key); list.push(m == null ? [a, b] : [a, b, m]); };
+  const ok = (t, u) => u.owner >= 0 && u.owner !== t.owner && friendly(state, t.owner, u.owner) && t.raided !== state.turn && u.raided !== state.turn;
   for (const t of state.territories) {
     if (t.owner < 0) continue;
     for (const n of t.nb) {
-      if (n < t.id) continue;
       const u = state.territories[n];
-      if (u.owner < 0 || u.owner === t.owner || !friendly(state, t.owner, u.owner)) continue;
-      if (t.raided === state.turn || u.raided === state.turn) continue;
-      list.push([t.id, n]);
+      if (n > t.id && ok(t, u)) add(t.id, n);
+      // roads also cross a single stretch of free land between friendly realms
+      if (u.owner < 0 && u.raided !== state.turn) for (const n2 of u.nb) if (n2 > t.id && ok(t, state.territories[n2])) add(t.id, n2, n);
     }
   }
   Object.defineProperty(state, '_tr', { value: { turn: state.turn, n: state.treaties.length, list }, enumerable: false, configurable: true, writable: true });
@@ -34,7 +35,7 @@ export function raidableHere(state, h) {
   if (!h || h.status !== 'active') return null;
   // caravans can be ambushed where they pass, or from the land right beside their road
   const near = new Set([h.loc, ...state.territories[h.loc].nb]);
-  const r = tradeRoutes(state).find(([a, b]) => (near.has(a) || near.has(b)) && ![state.territories[a].owner, state.territories[b].owner].some((o) => o === h.kingdom || friendly(state, h.kingdom, o)));
+  const r = tradeRoutes(state).find(([a, b, m]) => (near.has(a) || near.has(b) || (m != null && near.has(m))) && ![state.territories[a].owner, state.territories[b].owner].some((o) => o === h.kingdom || friendly(state, h.kingdom, o)));
   return r || null;
 }
 export function resolveRaid(state, h, results) {
@@ -44,7 +45,7 @@ export function resolveRaid(state, h, results) {
   const t = ta.id === h.loc || ta.nb.includes(h.loc) ? ta : tb, victim = t.owner;
   const gold = 60 + Math.round(h.level * 8);
   state.kingdoms[h.kingdom].gold += gold;
-  ta.raided = state.turn; tb.raided = state.turn;
+  ta.raided = state.turn; tb.raided = state.turn; if (r[2] != null) state.territories[r[2]].raided = state.turn;
   results.push({ kid: h.kingdom, text: `${h.name} raided a caravan at ${t.name}: +${gold}g.` });
   log(state, `${h.name} raided a caravan at ${t.name}.`, -1, 'war');
   if (victim >= 0) actOfWar(state, h.kingdom, victim, `a caravan raid at ${t.name}`);

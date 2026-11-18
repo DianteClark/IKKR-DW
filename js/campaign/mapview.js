@@ -773,10 +773,10 @@ export function drawFog(ctx, T, view) {
 export function drawCaravans(ctx, state, T, routes, time, view) {
   if (!routes || !routes.length || (view && view.w > 1800)) return;
   for (let i = 0; i < routes.length; i++) {
-    const [a, b] = routes[i];
+    const [a, b, m] = routes[i];
     if (hashI(a, b) % 3) continue; // a third of routes have a caravan on the road at any time
     if (!seen(a) && !seen(b)) continue;
-    const pts = T.roadPath ? T.roadPath(a, b) : null; if (!pts || pts.length < 2) continue;
+    const pts = !T.roadPath ? null : m == null ? T.roadPath(a, b) : [...(T.roadPath(a, m) || []), ...(T.roadPath(m, b) || [])]; if (!pts || pts.length < 2) continue;
     const per = 14 + (hashI(b, a) % 8), ph = ((time + (hashI(a, b) % 97)) % per) / per;
     const f = ph < 0.5 ? ph * 2 : 2 - ph * 2;
     const [x, y, dx] = pathPoint(pts, f);

@@ -14,8 +14,8 @@ export function applyAction(state, playerIdx, a) {
   const k = state.kingdoms[kid];
   const own = (id) => { const x = hero(state, id); return x && x.kingdom === kid && x.status === 'active'; };
   switch (a.type) {
-    case 'order': return own(a.hero) && !(a.order && a.order.type === 'raid') && setOrder(state, a.hero, a.order); // caravan raids are for the computer only
-    case 'orderMany': { let ok = false; for (const id of [].concat(a.heroes || [])) if (own(id) && !(a.order && a.order.type === 'raid') && setOrder(state, id, a.order)) ok = true; return ok; }
+    case 'order': return own(a.hero) && setOrder(state, a.hero, a.order);
+    case 'orderMany': { let ok = false; for (const id of [].concat(a.heroes || [])) if (own(id) && setOrder(state, id, a.order)) ok = true; return ok; }
     case 'steward': { k.steward = { on: !!a.on, focus: ['grow', 'defend', 'prosper'].includes(a.focus) ? a.focus : 'grow' }; return true; }
     case 'develop': {
       const t = state.territories[a.tid];

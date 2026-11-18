@@ -51,7 +51,7 @@ export const PAGES = [
     'Gather 5 heroes and your village becomes a kingdom.',
     'Heroes marry, have children and pass on their strengths. Name your children when they are born.',
     'Offers and demands from other realms arrive as Accept / Refuse cards in the month summary. Diplomacy lists every realm with one main action. Rulers have temperaments: some never forget.',
-    'Trade caravans, weather and bandits run on their own; you will see what they did in the month summary.',
+    'Trade caravans, weather and bandits run on their own; you will see what they did in the month summary. Heroes standing on or beside a foreign caravan road can raid it for gold.',
   ] },
   { title: 'Playing together', lines: [
     'Multiplayer: one player hosts (choosing map and rules) and shares the room code; the other joins.',

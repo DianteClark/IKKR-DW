@@ -14,6 +14,11 @@ export function realmPower(state, kid) {
 export function borders(state, a, b) {
   return state.territories.some((t) => t.owner === a && t.nb.some((n) => state.territories[n].owner === b));
 }
+// realms that border, or face each other across a single stretch of free land
+export function nearby(state, a, b) {
+  const T = state.territories;
+  return T.some((t) => t.owner === a && t.nb.some((n) => T[n].owner === b || (T[n].owner < 0 && T[n].nb.some((m) => T[m].owner === b))));
+}
 export function dominant(state) {
   const counts = new Map();
   for (const t of state.territories) if (t.owner >= 0) counts.set(t.owner, (counts.get(t.owner) || 0) + 1);
@@ -211,7 +216,9 @@ export function diplomacyTick(state, rng, notes) {
     const others = alive.filter((o) => o.id !== k.id && !friendly(state, k.id, o.id) && o.kind !== 'monster');
     if (!others.length) continue;
     // coalitions against the dominant realm, alliances with friendly neighbours
-    const cands = others.filter((o) => (dom >= 0 && o.id !== dom && k.id !== dom) || (k.rel[o.id] || 0) > 25);
+    // …or simply with realms nearby that they are at peace with
+    const cands = others.filter((o) => (dom >= 0 && o.id !== dom && k.id !== dom) || (k.rel[o.id] || 0) > 25
+      || (o.kind === 'realm' && !atWar(state, k.id, o.id) && (k.rel[o.id] || 0) > -10 && nearby(state, k.id, o.id) && rng() < 0.25));
     if (cands.length) {
       const o = rng.pick(cands);
       const r = propose(state, k.id, o.id, 'alliance');

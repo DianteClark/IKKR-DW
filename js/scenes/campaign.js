@@ -41,7 +41,7 @@ import { pendingChoice } from '../game/choices.js';
 import { checkAchievements, recordCampaign } from '../game/legacy.js';
 import { renderTerrain, drawTerrain, drawOverlay, drawSites, drawTowns, drawHeroes, drawOrders, drawAnimated, drawSeason, captureFx, renderMinimap, updateMinimap, hitTest, drawLandOutline, drawGuards, setSeason, setVisibility, drawFog, drawCaravans, drawWeather, isSeen, TS } from '../campaign/mapview.js';
 import { visibleLands, fogOn } from '../game/fog.js';
-import { tradeRoutes } from '../game/trade.js';
+import { tradeRoutes, raidableHere } from '../game/trade.js';
 import { bannerEl } from '../engine/banner.js';
 import { GOALS, goalState, newlyDone } from '../campaign/goals.js';
 import { shareRealm } from '../campaign/share.js';
@@ -483,14 +483,25 @@ function orderActions(list) {
     out.push({ id: 'skirmish:' + fk, label: `Fight ${F.name.split(' of ').pop()}'s heroes${war ? '' : ' (act of war)'}`, cls: 'danger', on, desc: 'Battle the foreign heroes standing in this land.',
       run: () => (on || war ? go() : confirm('Attack them here?', `${F.name}'s heroes are not your enemies yet. Attacking them is an act of war: they will declare war on you or sue for peace.`, 'Attack', 'Cancel', 'danger').then((ok) => ok && go())) });
   }
+  // caravans passing on or beside this land can be robbed for gold
+  const route = !k.landless && list.every((x) => raidableHere(st, x)) ? raidableHere(st, lead) : null;
+  if (route) {
+    const ta = st.territories[route[0]], tb = st.territories[route[1]];
+    const ct = ta.id === lead.loc || ta.nb.includes(lead.loc) ? ta : tb, victim = ct.owner;
+    const peace = victim >= 0 && !atWar(st, k.id, victim);
+    const gold = 60 + Math.round(lead.level * 8), on = is('raid');
+    const go = () => { all(on ? null : { type: 'raid' }); if (!on) { sfx('horn'); toast(`Your heroes will ambush the caravan near ${ct.name}`); } };
+    out.push({ id: 'raid', label: `Raid caravan +${gold}g${peace ? ' (act of war)' : ''}`, cls: 'danger', on, desc: `Ambush the caravan running ${ta.name} – ${tb.name}.`,
+      run: () => (on || !peace ? go() : confirm('Raid the caravan?', `It belongs to ${st.kingdoms[victim].name}. Robbing it is an act of war: they will declare war on you or sue for peace.`, 'Raid', 'Cancel', 'danger').then((ok) => ok && go())) });
+  }
   // which four matter most depends on where they stand
   const free = t.owner < 0, own = t.owner === k.id;
   const firstExplore = out.find((a) => a.kind === 'explore');
   const want = k.landless ? ['take', 'move', 'rest']
     : sieges.length ? ['attack', 'besiege', 'move', 'rest']
     : free ? ['protect', 'take', firstExplore && firstExplore.id, 'move']
-    : own ? ['rest', 'move', 'attack']
-    : ['move', 'attack', 'rest'];
+    : own ? ['rest', 'move', 'attack', 'raid']
+    : ['move', 'attack', 'rest', 'raid'];
   const primary = want.filter(Boolean).map((id) => out.find((a) => a.id === id)).filter(Boolean).slice(0, 4);
   const rest = out.filter((a) => !primary.includes(a));
   return { primary, rest, all, cur: so };
