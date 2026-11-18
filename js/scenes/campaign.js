@@ -15,7 +15,7 @@ import { SPELLS } from '../data/spells.js';
 import {
   terrainOf, hero, heroesAt, kingdomHeroes, kingdomTerritories, captivesOf, vagabondsIn, validTargets, validMoves, validSpyTargets,
   restPrice, applyOrders, collectBattles, prepareBattle, autoResolve, applyBattle, isHumanKingdom, powerAt, troopOptions, battleOdds,
-  hasIntel, friendly, overlordOf, treaty, proposedMajority, totalTroops, fixPortraits, skirmishTargets,
+  hasIntel, friendly, overlordOf, treaty, proposedMajority, totalTroops, fixPortraits, skirmishTargets, courtFull, courtSize,
 } from '../game/world.js';
 import { endTurn } from '../game/turn.js';
 import { scoutsLeft, scoutableLands } from '../game/intel.js';
@@ -29,7 +29,7 @@ import { runAI } from '../game/ai.js';
 import { applyAction } from '../game/actions.js';
 import {
   squadCap, developCost, territoryIncome, territoryFood, heroTotals, unitName, FORMATIONS, FORMATION_IDS, HIRE_COST, isRanged, LEVEL_XP,
-  soldierStats, soldierTitle, unitLevel, TIERS, tierIndex, BUILDINGS, POLICIES, EDICTS, STRATAGEMS, PROMOTE_ELITE_COST, commandPool, recruitCost, CLASS_INFO, ROLES, ROLE_LEVEL, canLead, TEMPERS,
+  soldierStats, soldierTitle, unitLevel, TIERS, tierIndex, courtCap, BUILDINGS, POLICIES, EDICTS, STRATAGEMS, PROMOTE_ELITE_COST, commandPool, recruitCost, CLASS_INFO, ROLES, ROLE_LEVEL, canLead, TEMPERS,
 } from '../game/rules.js';
 import { SLOTS, SLOT_NAMES, itemStatText, rarityColor } from '../game/items.js';
 import { economyPreview, edictCost, canEdict, promotionStatus, loadoutOptions, loadoutSlots } from '../game/kingdom.js';
@@ -319,7 +319,7 @@ export function refreshUI() {
     btn(picon('home', 18), goHome, 'small home-btn'),
     net.role !== 'single' ? btn(picon('chat', 18), chatSheet, 'small home-btn') : null,
     idle ? btn(`Idle ${idle}`, nextIdle, 'small gold-btn') : null,
-    btn('Heroes', heroesList, 'small'),
+    btn(`Heroes ${courtSize(st, k.id)}/${courtCap(k)}`, heroesList, 'small'),
     btn('Realm', realmSheet, 'small'),
     btn(h('span', { class: 'row', style: { gap: '4px' } }, `Diplomacy${incoming ? ` (${incoming})` : ''}`, warsOf(st, k.id).length ? picon('swords', 14) : null), diplomacySheet, 'small' + (incoming ? ' primary' : '')),
     prisoners ? btn(`Prisoners (${prisoners})`, showCaptives, 'small') : null,
@@ -387,7 +387,7 @@ function territoryPanel(tid) {
     const vags = vagabondsIn(st, tid);
     if (vags.length) {
       add(body, h('h3', {}, 'Wanderers here'));
-      for (const v of vags) add(body, heroCard(st, v, { stats: true, order: false, badges: [v.trait], extra: btn(`Hire ${HIRE_COST}g`, () => { if (!act({ type: 'hire', hero: v.id })) toast('Not enough gold'); else { sfx('recruit'); toast(`${v.name} joins you!`, 'good'); } }, 'small good') }));
+      for (const v of vags) add(body, heroCard(st, v, { stats: true, order: false, badges: [v.trait], extra: btn(`Hire ${HIRE_COST}g`, () => { if (courtFull(st, k.id)) toast(`Your court is full (${courtCap(k)} heroes)`, 'bad'); else if (!act({ type: 'hire', hero: v.id })) toast('Not enough gold'); else { sfx('recruit'); toast(`${v.name} joins you!`, 'good'); } }, 'small good') }));
     }
   }
   if (myHere.length) {
@@ -609,7 +609,7 @@ export function heroModal(id) {
               h('span', { class: 'ellipsis', style: { fontWeight: 700, color: s.s === 3 ? '#ffd86b' : undefined } }, soldierTitle(uf, x.unit, s)),
               h('span', { class: 'muted', style: { fontSize: '12px' } }, `HP ${Math.round(ss.hp)} · ATK ${ss.atk.toFixed(1)} · DEF ${ss.def.toFixed(1)}`),
               s.s === 3 && editable && !canLead(uf, x.unit) ? h('span', { class: 'muted', style: { fontSize: '11px' } }, 'Beasts fight, but cannot lead') : null,
-              s.s === 3 && editable && canLead(uf, x.unit) ? btn(`Raise to hero ${PROMOTE_ELITE_COST}g`, () => { if (act({ type: 'promoteElite', hero: x.id, idx: i })) { sfx('levelup'); toast(`${s.name} now leads their own squad!`, 'good'); render(); } else toast('Not enough gold'); }, 'tiny good') : null));
+              s.s === 3 && editable && canLead(uf, x.unit) ? btn(`Raise to hero ${PROMOTE_ELITE_COST}g`, () => { if (courtFull(st, x.kingdom)) toast(`Your court is full (${courtCap(st.kingdoms[x.kingdom])} heroes)`, 'bad'); else if (act({ type: 'promoteElite', hero: x.id, idx: i })) { sfx('levelup'); toast(`${s.name} now leads their own squad!`, 'good'); render(); } else toast('Not enough gold'); }, 'tiny good') : null));
         })));
     } else if (tab === 'unit') {
       const opts = troopOptions(st, x);
@@ -1001,6 +1001,7 @@ export function showCaptives() {
   const was = x.kingdom >= 0 ? st.kingdoms[x.kingdom] : null;
   let mm;
   const decide = (d) => {
+    if (d === 'recruit' && courtFull(st, k.id)) { toast(`Your court is full (${courtCap(k)} heroes). Release or execute them instead`, 'bad'); return; }
     const r = act({ type: 'captive', hero: x.id, decision: d });
     sfx(d === 'execute' ? 'execute' : d === 'recruit' && r === 'joined' ? 'recruit' : 'click');
     mm.close();

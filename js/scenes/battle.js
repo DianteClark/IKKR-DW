@@ -553,7 +553,7 @@ function draw() {
       if (d.flash > 0.5) { ctx.globalAlpha = 0.5; ctx.fillStyle = '#fff'; ctx.fillRect(d.p.x - 4, d.p.y - 12, 8, 10); ctx.globalAlpha = 1; }
     }
   }
-  ctx.font = '600 6px monospace'; ctx.textBaseline = 'top';
+  ctx.font = '800 7px Nunito, sans-serif'; ctx.textBaseline = 'top';
   for (const s of sim.squads) {
     if (HIDDEN(s) || !seenBy(s)) continue;
     const r = B.render.get(s.id);
@@ -792,7 +792,7 @@ function drawRoutes(list, time, enemy = false) {
       ctx.beginPath(); ctx.moveTo(line[0][0] * TS, line[0][1] * TS); for (const p of line) ctx.lineTo(p[0] * TS, p[1] * TS); ctx.stroke();
       ctx.strokeStyle = '#9fd0ff'; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.moveTo(line[0][0] * TS, line[0][1] * TS); for (const p of line) ctx.lineTo(p[0] * TS, p[1] * TS); ctx.stroke(); ctx.setLineDash([]);
-      q.forEach((p, i) => { ctx.fillStyle = '#0b0a10'; ctx.fillRect(p[0] * TS - 4, p[1] * TS - 4, 8, 8); ctx.fillStyle = '#9fd0ff'; ctx.fillRect(p[0] * TS - 3, p[1] * TS - 3, 6, 6); ctx.fillStyle = '#0b0a10'; ctx.font = '600 6px monospace'; ctx.textBaseline = 'top'; ctx.fillText(String(i + 2), p[0] * TS - 1.5, p[1] * TS - 3); });
+      q.forEach((p, i) => { ctx.fillStyle = '#0b0a10'; ctx.fillRect(p[0] * TS - 4, p[1] * TS - 4, 8, 8); ctx.fillStyle = '#9fd0ff'; ctx.fillRect(p[0] * TS - 3, p[1] * TS - 3, 6, 6); ctx.fillStyle = '#0b0a10'; ctx.font = '800 7px Nunito, sans-serif'; ctx.textBaseline = 'top'; ctx.fillText(String(i + 2), p[0] * TS - 1.5, p[1] * TS - 3); });
     }
     if (!pts || pts.length < 2) continue;
     ctx.lineCap = 'round';

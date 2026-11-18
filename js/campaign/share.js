@@ -43,9 +43,9 @@ export function renderRealmCard(state, T, kid) {
   // title text
   const tx = 54 + BANNER_W * bs + 34;
   x.textBaseline = 'alphabetic';
-  x.fillStyle = '#c9a25a'; x.font = '700 22px Silkscreen, Pixelify, monospace';
+  x.fillStyle = '#c9a25a'; x.font = '800 22px Nunito, sans-serif';
   x.fillText(dateOf(state.turn).toUpperCase(), tx, 118);
-  x.font = '700 54px Pixelify, MiKroll, monospace';
+  x.font = '800 54px Nunito, sans-serif';
   const name = k.landless ? `The Warband` : k.name;
   const words = name.split(' '); let line = '', ly = 182; const lines = [];
   for (const w of words) { const t2 = line ? line + ' ' + w : w; if (x.measureText(t2).width > 470 && line) { lines.push(line); line = w; } else line = t2; }
@@ -59,14 +59,14 @@ export function renderRealmCard(state, T, kid) {
   for (const [v, l] of stats) {
     x.fillStyle = 'rgba(20,14,30,.8)'; x.fillRect(px, OUT_H - 120, 150, 70);
     x.strokeStyle = '#b8894a'; x.lineWidth = 3; x.strokeRect(px + 1.5, OUT_H - 118.5, 147, 67);
-    x.fillStyle = '#ffd86b'; x.font = '700 32px Pixelify, monospace'; x.fillText(String(v), px + 14, OUT_H - 80);
+    x.fillStyle = '#ffd86b'; x.font = '800 32px Nunito, sans-serif'; x.fillText(String(v), px + 14, OUT_H - 80);
     x.fillStyle = '#c9c0ae'; x.font = '700 18px Nunito, sans-serif'; x.fillText(l, px + 14, OUT_H - 58);
     px += 166;
   }
   // ruler + footer flourish
   const ruler = state.heroes.find((x2) => x2.id === k.ruler);
   if (ruler) { x.fillStyle = '#e8dfc8'; x.font = '700 20px Nunito, sans-serif'; x.fillText(`Ruled by ${ruler.name}`, tx, ly + 40); }
-  x.fillStyle = 'rgba(255,216,107,.85)'; x.font = '700 18px Silkscreen, monospace';
+  x.fillStyle = 'rgba(255,216,107,.85)'; x.font = '800 18px Nunito, sans-serif';
   x.textAlign = 'right'; x.fillText('DYNASTY WARS', OUT_W - 34, OUT_H - 30); x.textAlign = 'left';
   x.strokeStyle = '#b8894a'; x.lineWidth = 6; x.strokeRect(3, 3, OUT_W - 6, OUT_H - 6);
   x.strokeStyle = '#1a1420'; x.lineWidth = 2; x.strokeRect(9, 9, OUT_W - 18, OUT_H - 18);

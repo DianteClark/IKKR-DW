@@ -3,7 +3,7 @@
 // shrines, mines and groves scattered through the wilds. Heroes travel into neutral land to claim it by force,
 // plunder it, protect it until it chooses to join, explore sites, or court a wanderer hiding there.
 import { FACTION_IDS } from '../data/art.js';
-import { hero, heroesAt, log, isHumanKingdom, joinKingdom, giveItem, makeHero, gainHeroXp, gainTroopXp } from './world.js';
+import { hero, heroesAt, log, isHumanKingdom, joinKingdom, courtFull, giveItem, makeHero, gainHeroXp, gainTroopXp } from './world.js';
 import { squadPower, newSoldier, squadCap } from './rules.js';
 import { wed } from './family.js';
 
@@ -67,7 +67,7 @@ export function neutralActions(state, h) {
   }
   for (const v of state.heroes) {
     if (v.status !== 'vagabond' || v.loc !== t.id) continue;
-    if (canCourt(state, h, v)) out.push({ type: 'court', target: v.id, label: `Court ${v.name}`, desc: `${v.name} may join your realm and marry ${h.name}.` });
+    if (canCourt(state, h, v) && !courtFull(state, h.kingdom)) out.push({ type: 'court', target: v.id, label: `Court ${v.name}`, desc: `${v.name} may join your realm and marry ${h.name}.` });
   }
   return out;
 }
@@ -129,7 +129,8 @@ export function applyNeutralOrders(state, rng, results) {
       continue; // order persists
     } else if (o.type === 'court') {
       const v = hero(state, o.target);
-      if (canCourt(state, h, v) && rng() < 0.55 + (t.favor[k.id] || 0) / 200 + h.loyalty / 400) {
+      if (courtFull(state, k.id)) note(k.id, `${v ? v.name : 'The wanderer'} would join, but your court is full.`);
+      else if (canCourt(state, h, v) && rng() < 0.55 + (t.favor[k.id] || 0) / 200 + h.loyalty / 400) {
         v.hidden = false; joinKingdom(state, v, k.id, 75); v.loc = h.loc;
         v.level = Math.max(v.level, 3); h.level = Math.max(h.level, 3);
         wed(state, h, v);
@@ -176,7 +177,7 @@ function resolveSite(state, rng, h, s, note) {
   if (s.kind === 'camp') { k.gold += 140; k.food += 40; bits.push('recovered 140g and 40 food'); }
   if (s.kind === 'mine') bits.push('claimed the mine (+35g every month)');
   if (guard && guard.status === 'vagabond') {
-    if (rng() < 0.6) { guard.hidden = false; joinKingdom(state, guard, k.id, 60); guard.loc = h.loc; bits.push(`${guard.name}, who was hiding there, joined ${k.name}`); }
+    if (!courtFull(state, k.id) && rng() < 0.6) { guard.hidden = false; joinKingdom(state, guard, k.id, 60); guard.loc = h.loc; bits.push(`${guard.name}, who was hiding there, joined ${k.name}`); }
     else { guard.hidden = false; bits.push(`${guard.name} fled into the wilds`); }
     s.guard = -1;
   }

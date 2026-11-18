@@ -993,7 +993,7 @@ function pin(ctx, state, lead, px, py, count) {
     const bx = Math.round(px + 9), by = Math.round(py - 8);
     ctx.fillStyle = '#0b0a10'; ctx.beginPath(); ctx.arc(bx, by, 5.5, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#ffd25a'; ctx.beginPath(); ctx.arc(bx, by, 4.5, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#1b1420'; ctx.font = 'bold 7px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#1b1420'; ctx.font = '800 8px Nunito, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(String(count), bx, by + 0.5); ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
   }
 }
@@ -1078,7 +1078,7 @@ export function drawOrders(ctx, state, kid, time) {
     ctx.fillStyle = 'rgba(10,8,16,.85)'; ctx.fillRect(x - 1, y - 1, 26, 12);
     ctx.fillStyle = icon === 'siege' ? '#ff9a3a' : '#57b84a'; ctx.fillRect(x - 1, y + 10, 26, 1);
     drawIcon(ctx, icon, x, y, 10);
-    ctx.font = 'bold 8px monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.font = '800 9px Nunito, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     ctx.fillStyle = '#f4ecd8'; ctx.fillText(`${n}/3`, x + 12, y + 1);
     ctx.textBaseline = 'alphabetic';
   }

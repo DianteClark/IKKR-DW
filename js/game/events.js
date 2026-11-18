@@ -1,6 +1,6 @@
 // World events, bandits, monster outbreaks, civil uprisings, overthrows and wandering heroes.
 import {
-  makeHero, newKingdom, heroesAt, kingdomHeroes, kingdomTerritories, log, clamp, joinKingdom, hero, pickLoadout,
+  makeHero, newKingdom, heroesAt, kingdomHeroes, kingdomTerritories, log, clamp, joinKingdom, hero, pickLoadout, courtFull,
 } from './world.js';
 import { squadPower, garrisonPower, squadCap } from './rules.js';
 
@@ -173,7 +173,7 @@ export function vagabondTick(state, rng, list) {
     // serve a lord with a good name
     if (owner && owner.player < 0 && owner.kind !== 'monster') {
       const appeal = owner.morale / 100 - h.ambition / 250;
-      if (rng() < 0.02 + Math.max(0, appeal) * 0.05) { joinKingdom(state, h, owner.id, 55); log(state, `The vagabond ${h.name} pledged to ${owner.name}.`, owner.id); continue; }
+      if (!courtFull(state, owner.id) && rng() < 0.02 + Math.max(0, appeal) * 0.05) { joinKingdom(state, h, owner.id, 55); log(state, `The vagabond ${h.name} pledged to ${owner.name}.`, owner.id); continue; }
     }
     // wanderers recover and gather a few followers
     h.hp = Math.min(100, h.hp + 15);

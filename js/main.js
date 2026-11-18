@@ -44,7 +44,7 @@ async function boot() {
   attachGestures(canvas, () => game.scene);
   const bootEl = document.getElementById('boot');
   const list = [...allArt(), ...SPELLS.map((s) => s.src)];
-  await Promise.all(['16px MiKroll', '800 16px Nunito', '600 16px Nunito', '700 16px Pixelify'].map((f) => document.fonts.load(f).catch(() => {})));
+  await Promise.all(['800 16px Nunito', '700 16px Nunito', '600 16px Nunito', '500 16px Nunito'].map((f) => document.fonts.load(f).catch(() => {})));
   await loadAll(list, (p) => { bootEl.textContent = `Loading art… ${Math.round(p * 100)}%`; });
   bootEl.classList.add('hidden');
   // scenes register themselves on import

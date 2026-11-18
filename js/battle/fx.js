@@ -98,7 +98,7 @@ export function createFx() {
         const k = t.age / t.life;
         ctx.globalAlpha = k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3;
         const pop = k < 0.12 ? 1 + (0.12 - k) * 5 : 1;
-        ctx.font = `${t.bold ? 700 : 600} ${Math.round(t.size * pop)}px Pixelify, monospace`;
+        ctx.font = `${t.bold ? 800 : 700} ${Math.round(t.size * pop)}px Nunito, sans-serif`;
         const x = Math.round(t.x), y = Math.round(t.y);
         ctx.fillStyle = '#0b0a10';
         ctx.fillText(t.text, x + 1, y + 1); ctx.fillText(t.text, x - 1, y + 1); ctx.fillText(t.text, x, y + 2);

@@ -2,7 +2,7 @@
 // Married heroes of the same realm can have a child. The child is born a year (4 months) after the news,
 // joins a parent's squad as a named recruit who starts stronger than ordinary soldiers, trains each month,
 // and when they reach Elite they come of age as a hero with a subtle mix of their parents' strengths.
-import { hero, makeHero, log, isHumanKingdom } from './world.js';
+import { hero, makeHero, log, isHumanKingdom, courtFull } from './world.js';
 import { EVOLVE_XP, canLead, squadCap } from './rules.js';
 // heirs live in a parent's squad, or as a ward at their side when that squad is made of beasts
 const kin = (x) => [...(x.troops || []), ...(x.wards || [])];
@@ -21,7 +21,7 @@ export const shortDate = (turn) => `${seasonOf(turn).slice(0, 3)} ${['I', 'II', 
 export const SEASON_FOOD = { Spring: 1, Summer: 1.1, Autumn: 1.3, Winter: 0.7 };
 export const MARRY_LEVEL = 3;
 const GESTATION = 9; // months
-const MAX_CHILDREN = 3;
+const MAX_CHILDREN = 2;
 
 export function childrenOf(state, h) {
   const kids = [];
@@ -152,7 +152,8 @@ export function familyTick(state, rng, notes) {
     const sp = hero(state, h.spouse);
     if (!sp || sp.status !== 'active' || sp.kingdom !== h.kingdom) continue;
     if (childrenOf(state, h).length >= MAX_CHILDREN) continue;
-    if (rng() < 0.22) {
+    if (courtFull(state, h.kingdom)) continue; // no seat at court for another heir
+    if (rng() < 0.035) { // about one child every two to three years
       h.expecting = state.turn;
       const text = `${h.name} and ${sp.name} are expecting a child, due in ${seasonOf(state.turn + GESTATION).toLowerCase()} of year ${yearOf(state.turn + GESTATION)}.`;
       log(state, text, h.kingdom, 'family');
@@ -185,7 +186,8 @@ export function familyTick(state, rng, notes) {
           if (!s.r && s.xp >= rx) s.r = 1;
           if (s.xp >= ex) { s.xp = 0; s.r = 0; s.s++; }
         }
-        if (s.s === 3 && h.status === 'active' && h.kingdom >= 0) comeOfAge(state, rng, h, { i, ward }, notes);
+        // a grown heir takes a seat at court when one is free; until then they serve as an Elite in the squad
+        if (s.s === 3 && h.status === 'active' && h.kingdom >= 0 && !courtFull(state, h.kingdom)) comeOfAge(state, rng, h, { i, ward }, notes);
       }
     }
   }

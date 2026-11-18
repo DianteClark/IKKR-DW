@@ -16,7 +16,7 @@ import { applySieges, canBesiege } from './siege.js';
 import { makeItem, SLOTS } from './items.js';
 import {
   squadCap, recruitCost, squadPower, garrisonPower, unitLevel, HIRE_COST, EVOLVE_XP, LEVEL_XP, MAX_LEVEL,
-  newSoldier, TIERS, tierIndex, PROMOTE_ELITE_COST, STRATAGEMS, STRATAGEM_IDS, unitClass, CLASS_INFO, ROLE_LEVEL, canLead, FORMATIONS, TEMPER_IDS,
+  newSoldier, TIERS, tierIndex, courtCap, PROMOTE_ELITE_COST, STRATAGEMS, STRATAGEM_IDS, unitClass, CLASS_INFO, ROLE_LEVEL, canLead, FORMATIONS, TEMPER_IDS,
 } from './rules.js';
 
 export const SIZES = {
@@ -412,13 +412,16 @@ export function changeUnit(state, heroId, ufid, unit) {
 }
 export function hireVagabond(state, kid, heroId) {
   const h = hero(state, heroId), k = state.kingdoms[kid];
-  if (!h || h.status !== 'vagabond' || k.gold < HIRE_COST) return false;
+  if (!h || h.status !== 'vagabond' || k.gold < HIRE_COST || courtFull(state, kid)) return false;
   const ok = k.landless ? kingdomHeroes(state, kid).some((x) => x.loc === h.loc) : state.territories[h.loc].owner === kid;
   if (!ok) return false;
   k.gold -= HIRE_COST; joinKingdom(state, h, kid, 60);
   log(state, `${h.name} swore loyalty to ${k.name}.`, kid);
   return true;
 }
+// heroes serving a realm (captives held elsewhere don't count)
+export function courtSize(state, kid) { return state.heroes.filter((x) => x.kingdom === kid && (x.status === 'active' || x.status === 'lent')).length; }
+export function courtFull(state, kid) { const k = state.kingdoms[kid]; return !!k && k.kind === 'realm' && courtSize(state, kid) >= courtCap(k); }
 export function joinKingdom(state, h, kid, loyalty = 55) {
   const k = state.kingdoms[kid];
   h.status = 'active'; h.kingdom = kid; h.loyalty = loyalty; h.order = null; h.captor = -1; h.secret = -1; h.lentTo = -1;
@@ -430,6 +433,7 @@ export function joinKingdom(state, h, kid, loyalty = 55) {
 export function promoteElite(state, kid, heroId, troopIdx) {
   const h = hero(state, heroId), k = state.kingdoms[kid];
   if (!h || h.kingdom !== kid || k.gold < PROMOTE_ELITE_COST) return null;
+  if (courtFull(state, kid)) return null;
   const s = h.troops[troopIdx];
   if (!s || s.s !== 3 || !canLead(h.ufid || h.fid, h.unit)) return null;
   const rng = rngFor(state, heroId * 3 + troopIdx);
@@ -705,6 +709,7 @@ export function decideCaptive(state, heroId, decision) {
     const isRuler = homeK && homeK.ruler === h.id && homeK.alive;
     const traitMod = { loyal: -0.15, proud: -0.1, honorable: -0.05, greedy: 0.1, ambitious: 0.08, cunning: 0.05 }[h.trait] || 0;
     const chance = (isRuler ? 0.1 : 0.28) + (1 - h.loyalty / 100) * 0.5 + traitMod + (captor.morale - 50) / 300;
+    if (courtFull(state, captor.id)) return 'full';
     if (rng() < chance) {
       if (isRuler) homeK.ruler = -1;
       joinKingdom(state, h, captor.id, 50);

@@ -2,14 +2,9 @@
    IKKR Dynasty Wars — UI design system
    Frames are 9-slices cut from the HAS UI atlas (assets/ui/*).
    ============================================================ */
-@font-face { font-family: "Pixelify"; src: url("../assets/fonts/pixelify-sans-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-display: swap; }
-@font-face { font-family: "Pixelify"; src: url("../assets/fonts/pixelify-sans-latin-500-normal.woff2") format("woff2"); font-weight: 500; font-display: swap; }
-@font-face { font-family: "Pixelify"; src: url("../assets/fonts/pixelify-sans-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-display: swap; }
-@font-face { font-family: "Pixelify"; src: url("../assets/fonts/pixelify-sans-latin-700-normal.woff2") format("woff2"); font-weight: 700; font-display: swap; }
 @font-face { font-family: "Nunito"; src: url("../assets/fonts/nunito-latin-500-normal.woff2") format("woff2"); font-weight: 500; font-display: swap; }
 @font-face { font-family: "Nunito"; src: url("../assets/fonts/nunito-latin-700-normal.woff2") format("woff2"); font-weight: 600 700; font-display: swap; }
 @font-face { font-family: "Nunito"; src: url("../assets/fonts/nunito-latin-800-normal.woff2") format("woff2"); font-weight: 800; font-display: swap; }
-@font-face { font-family: "MiKroll"; src: url("../assets/has2020/UI/Separate/Font/MiKrollFantasy.ttf") format("truetype"); font-display: block; }
 
 :root {
   --bg: #14121c;
@@ -50,7 +45,7 @@ canvas#view { position: fixed; inset: 0; width: 100%; height: 100%; display: blo
   font-size: 18px; background: radial-gradient(ellipse at 50% 40%, #2a2338, var(--bg)); z-index: 50; transition: opacity .4s;
 }
 #boot.hidden { opacity: 0; pointer-events: none; }
-#boot .boot-logo { font-family: "MiKroll"; font-size: 34px; color: var(--gold); text-shadow: 0 3px 0 #6b3c12, 0 6px 0 #0b0a10; }
+#boot .boot-logo { font-family: "Nunito", system-ui, sans-serif; font-weight: 800; letter-spacing: 1px; font-size: 32px; color: var(--gold); text-shadow: 0 3px 0 #6b3c12, 0 6px 0 #0b0a10; }
 #boot .boot-bar { width: 220px; height: 12px; border: 6px solid transparent; border-image: url("../assets/ui/bar_frame.png") 3 fill / 6px stretch; image-rendering: pixelated; }
 #boot .boot-bar > i { display: block; height: 100%; width: 0; background: linear-gradient(#ffe48a, #e0a43a); transition: width .15s; }
 
@@ -132,7 +127,7 @@ img, .spr { image-rendering: pixelated; }
 /* ---------- screens ---------- */
 .screen { position: absolute; inset: 0; padding: calc(8px + var(--sat)) calc(10px + var(--sar)) calc(8px + var(--sab)) calc(10px + var(--sal)); display: flex; }
 .center { align-items: center; justify-content: center; }
-.title { font-family: "MiKroll", "Pixelify"; font-size: 42px; color: var(--gold); margin: 0; text-align: center; line-height: 1; text-shadow: 0 3px 0 #8a4b14, 0 6px 0 #2a160a, 0 9px 12px rgba(0,0,0,.5); }
+.title { font-family: "Nunito", system-ui, sans-serif; font-weight: 800; letter-spacing: 1px; font-size: 38px; color: var(--gold); margin: 0; text-align: center; line-height: 1; text-shadow: 0 3px 0 #8a4b14, 0 6px 0 #2a160a, 0 9px 12px rgba(0,0,0,.5); }
 .subtitle { color: var(--ink-dim); text-align: center; margin: 6px 0 12px; font-size: 16px; text-shadow: var(--shadow); }
 .fade-in { animation: fadeIn .35s ease both; }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -250,7 +245,7 @@ img, .spr { image-rendering: pixelated; }
 #banners { position: fixed; inset: 0; z-index: 45; pointer-events: none; display: flex; align-items: center; justify-content: center; }
 .banner { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 2px; animation: banner 2.1s var(--ease) forwards; }
 .banner .ribbon { position: absolute; left: 50%; top: 50%; width: 140vw; height: 64px; transform: translate(-50%, -50%); background: linear-gradient(90deg, transparent, rgba(12,9,20,.85) 20%, rgba(12,9,20,.85) 80%, transparent); border-top: 2px solid var(--gold-deep); border-bottom: 2px solid var(--gold-deep); z-index: -1; animation: ribbon 2.1s ease forwards; }
-.banner .txt { font-family: "Pixelify", "MiKroll"; font-weight: 700; font-size: 58px; color: var(--gold); letter-spacing: 4px; text-shadow: 0 3px 0 #8a4b14, 0 6px 0 #1a0e06, 0 0 24px rgba(255,200,90,.5); }
+.banner .txt { font-family: "Nunito", system-ui, sans-serif; font-weight: 800; font-size: 52px; color: var(--gold); letter-spacing: 3px; text-shadow: 0 3px 0 #8a4b14, 0 6px 0 #1a0e06, 0 0 24px rgba(255,200,90,.5); }
 .banner .sub { font-size: 17px; font-weight: 600; color: var(--ink); text-shadow: var(--shadow); }
 .banner.good .txt { color: #b6f58d; text-shadow: 0 3px 0 #2d6629, 0 6px 0 #0b1a08, 0 0 24px rgba(140,240,110,.45); }
 .banner.bad .txt { color: #ff8a78; text-shadow: 0 3px 0 #7c2420, 0 6px 0 #1a0606, 0 0 24px rgba(255,100,80,.45); }
@@ -291,7 +286,7 @@ input.text:focus { outline: none; box-shadow: 0 0 0 2px var(--gold); }
 .menu .btn { width: 100%; }
 .logo-wrap { display: flex; flex-direction: column; align-items: center; gap: 2px; margin-bottom: 8px; }
 .logo-kicker { font-size: 14px; font-weight: 700; letter-spacing: 3px; background: rgba(12,9,20,.55); padding: 3px 10px; border-radius: 3px; color: var(--ink-dim); text-shadow: var(--shadow); }
-.logo { font-family: "MiKroll", "Pixelify"; font-size: 68px; line-height: .78; color: var(--gold); text-align: center; text-shadow: 0 3px 0 #b8742e, 0 6px 0 #6b3c12, 0 9px 0 #1a0e06, 0 12px 18px rgba(0,0,0,.6); animation: logoIn .9s var(--ease) both; }
+.logo { font-family: "Nunito", system-ui, sans-serif; font-weight: 800; letter-spacing: 2px; font-size: 60px; line-height: .9; color: var(--gold); text-align: center; text-shadow: 0 3px 0 #b8742e, 0 6px 0 #6b3c12, 0 9px 0 #1a0e06, 0 12px 18px rgba(0,0,0,.6); animation: logoIn .9s var(--ease) both; }
 @keyframes logoIn { from { opacity: 0; transform: translateY(-20px) scale(1.15); } to { opacity: 1; transform: none; } }
 .faction-card { flex-direction: column; align-items: stretch; gap: 4px; text-align: center; padding: 2px; }
 .faction-card .town { height: 66px; display: flex; align-items: flex-end; justify-content: center; }
@@ -415,7 +410,7 @@ body.side-open #toasts { left: calc(26vw + 6px); max-width: 48vw; }
 .stat-legend b { color: var(--gold); }
 
 /* clean type: Nunito for all reading and buttons; the pixel fonts stay for the logo, titles and banners */
-h1, h2, h3 { font-family: "Pixelify", "Nunito", sans-serif; letter-spacing: .5px; }
+h1, h2, h3 { font-family: "Nunito", system-ui, sans-serif; font-weight: 800; letter-spacing: .3px; }
 .btn, .chip, .tag, .tabs .tab, .seg button { font-family: "Nunito", system-ui, sans-serif; font-weight: 800; }
 .muted, .small-text, .howto-line, .stat-legend { font-weight: 600; }
 

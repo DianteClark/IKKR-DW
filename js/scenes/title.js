@@ -159,7 +159,7 @@ function credits() {
     h('div', {}, h('span', { class: 'gold' }, 'Art: '), 'Aleksandr Makarov (IKnowKingRabbit) — HAS asset packs'),
     h('div', { class: 'muted small-text' }, 'patreon.com/iknowkingrabbit · @IKnowKingRabbit'),
     h('div', {}, h('span', { class: 'gold' }, 'Game design: '), 'Diante Clark'),
-    h('div', {}, h('span', { class: 'gold' }, 'Fonts: '), 'Pixelify Sans, MiKroll Fantasy (SIL OFL)'),
+    h('div', {}, h('span', { class: 'gold' }, 'Fonts: '), 'Nunito (SIL OFL)'),
     h('div', {}, h('span', { class: 'gold' }, 'Networking: '), 'PeerJS'),
   ), [['Close', null, 'primary']], { dismiss: true });
 }

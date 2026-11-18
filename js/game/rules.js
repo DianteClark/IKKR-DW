@@ -189,10 +189,12 @@ export function commandPool(heroes, tierIdx, academy) {
 
 // ---------------- kingdoms ----------------
 export const TIERS = [
-  { id: 'village', name: 'Village', maxUnitLevel: 2, stratSlots: 1, stratTier: 0, desc: 'A young holding. Weak troops only, one stratagem.' },
-  { id: 'kingdom', name: 'Kingdom', maxUnitLevel: 4, stratSlots: 3, stratTier: 1, desc: 'Three stratagems per battle, buildings, alliances and spies.' },
-  { id: 'empire', name: 'Empire', maxUnitLevel: 6, stratSlots: 3, stratTier: 2, desc: 'All troop tiers, grand stratagems, demand vassals.' },
+  { id: 'village', name: 'Village', court: 5, maxUnitLevel: 2, stratSlots: 1, stratTier: 0, desc: 'A young holding. Weak troops only, one stratagem.' },
+  { id: 'kingdom', name: 'Kingdom', court: 8, maxUnitLevel: 4, stratSlots: 3, stratTier: 1, desc: 'Three stratagems per battle, buildings, alliances and spies.' },
+  { id: 'empire', name: 'Empire', court: 12, maxUnitLevel: 6, stratSlots: 3, stratTier: 2, desc: 'All troop tiers, grand stratagems, demand vassals.' },
 ];
+// how many heroes a realm can keep: 5 for a village, 8 for a kingdom, 12 for an empire
+export const courtCap = (k) => TIERS[tierIndex(k)].court;
 export function tierIndex(k) { return Math.max(0, TIERS.findIndex((t) => t.id === (k.tier || 'village'))); }
 export const PROMOTE = [
   null,

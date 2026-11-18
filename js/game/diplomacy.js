@@ -1,6 +1,6 @@
 // Alliances, vassals (allegiance by fear), coalitions against a dominant realm, lending heroes, loyalty and defection.
 import {
-  treaty, allied, friendly, kingdomHeroes, kingdomTerritories, log, clamp, hero, joinKingdom, isHumanKingdom, rngFor,
+  treaty, allied, friendly, kingdomHeroes, kingdomTerritories, log, clamp, hero, joinKingdom, isHumanKingdom, rngFor, courtFull,
 } from './world.js';
 import { squadPower, tierIndex, temper } from './rules.js';
 
@@ -162,7 +162,7 @@ export function diplomacyTick(state, rng, notes) {
     const host = state.kingdoms[h.lentTo];
     if (!host || !host.alive || !allied(state, h.kingdom, h.lentTo)) { recallHero(state, h.kingdom, h.id); continue; }
     h.loyalty = clamp(h.loyalty - 1);
-    if (h.loyalty < 40 && host.morale > state.kingdoms[h.kingdom].morale && rng() < 0.1) {
+    if (h.loyalty < 40 && host.morale > state.kingdoms[h.kingdom].morale && !courtFull(state, host.id) && rng() < 0.1) {
       const from = state.kingdoms[h.kingdom];
       joinKingdom(state, h, host.id, 70);
       notes.push({ kid: from.id, kind: 'defect', text: `${h.name}, lent to ${host.name}, chose to stay and serve them instead!` });
@@ -190,6 +190,7 @@ export function diplomacyTick(state, rng, notes) {
       if (!suitors.length) continue;
       suitors.sort((a, b) => realmPower(state, b.id) - realmPower(state, a.id));
       const to = suitors[0];
+      if (courtFull(state, to.id)) continue;
       if (!allied(state, k.id, to.id) && rng() < 0.5) {
         h.secret = to.id; // stays, waiting to strike in battle
         if (isHumanKingdom(state, to.id)) notes.push({ kid: to.id, kind: 'plot', text: `${h.name} of ${k.name} secretly offered you their sword. They will turn when you face them in battle.` });
