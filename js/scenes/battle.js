@@ -10,11 +10,11 @@ import { img } from '../engine/assets.js';
 import { hashStr } from '../engine/rng.js';
 import { drawUnit, drawHero, drawSpriteRef, DUNGEON_TILES } from '../data/art.js';
 import { SPELLS } from '../data/spells.js';
-import { serializeSim, deserializeSim, createBattle, step, command, aiThink, battleResult, snapshot, applySnapshot, liveCount, DT, stratagemTargets, planRoute, routeProblem, SKILLS, queuePoints, canClimb, ladderSpot, ABILITIES, DUEL_PICKS, DUEL_PICK_TIME, CHARGE_LEN, visibleTo, campOf } from '../battle/sim.js';
+import { serializeSim, deserializeSim, createBattle, step, command, aiThink, battleResult, snapshot, applySnapshot, liveCount, DT, stratagemTargets, planRoute, routeProblem, SKILLS, queuePoints, canClimb, ladderSpot, ABILITIES, DUEL_PICKS, DUEL_PICK_TIME, CHARGE_LEN, visibleTo } from '../battle/sim.js';
 const FORMS = ['wedge', 'line', 'square']; // Loose was retired: three formations, one clear cycle
 import { renderGround, drawFieldOverlay, postRef, TS, nearestPost, nearestRoadPoint, terrainAt, TERRAIN } from '../battle/field.js';
 import { createFx } from '../battle/fx.js';
-import { formationSlots, FORMATIONS, FORMATION_IDS, STRATAGEMS, commandPool, tierIndex, formationEdge } from '../game/rules.js';
+import { formationSlots, FORMATIONS, STRATAGEMS, commandPool, tierIndex, formationEdge } from '../game/rules.js';
 import { hero, hasIntel, terrainOf } from '../game/world.js';
 import { alliesOf } from '../game/diplomacy.js';
 import { line } from '../game/dialogue.js';
@@ -25,6 +25,7 @@ import { saveBattle, clearBattle } from '../game/save.js';
 import { net } from '../net/net.js';
 
 const cam = new Camera();
+const DRAW_POOL = [], DRAW_LIST = [];
 const HIDDEN = (s) => s.state === 'dead' || s.state === 'reserve' || s.state === 'reinforce';
 
 // what the land itself looks like, so the battlefield matches the place on the campaign map
@@ -228,9 +229,8 @@ function updateRender(dt) {
       if (p) B.juice.dust(p.x, p.y);
     }
     r.flash = Math.max(0, r.flash - dt * 4);
-    const alive = s.soldiers.filter((x) => x.alive);
     const f = s.reform && s.reform.t / (s.reform.total || 1) > 0.5 ? s.reform.to : s.formation;
-    const slots = formationSlots(f, alive.length);
+    const slots = slotsFor(f, liveCount(s));
     const c = Math.cos(s.dir), sn = Math.sin(s.dir);
     const jit = s.reform ? 0.25 : 0;
     let j = 0;
@@ -249,6 +249,14 @@ function updateRender(dt) {
   B.fx = B.fx.filter((f) => (f.age += dt) < f.life);
 }
 
+// formation layouts are the same for every squad of a shape and size: build each once, not every frame
+const SLOT_CACHE = new Map();
+function slotsFor(f, n) {
+  const k = f + n;
+  let v = SLOT_CACHE.get(k);
+  if (!v) { v = formationSlots(f, n); SLOT_CACHE.set(k, v); }
+  return v;
+}
 function consumeEvents() {
   const sim = B.sim, J = B.juice;
   for (const e of sim.events) {
@@ -441,17 +449,18 @@ function tacticEvent(e, sq, mineSide) {
 const seenBy = (s) => !B.side || s.side === B.side || visibleTo(B.sim, B.side, s);
 // a duel my hero is in, and whether it waits on my choice
 function myDuel() {
-  const d = B.sim && B.sim.duel; if (!d || !B.side || B.auto) return null;
+  const d = B.sim && B.sim.duel; if (!d || !B.side || B.auto || (!B.client && B.sim.ai[B.side])) return null; // the generals pick for you
   const a = B.sim.squads.find((q) => q.id === d.a), b = B.sim.squads.find((q) => q.id === d.b);
   const mineA = !!(a && a.side === B.side && !a.ally), mineB = !!(b && b.side === B.side && !b.ally);
   if (!mineA && !mineB) return null;
   const key = `${d.a}:${d.b}:${d.round}`;
-  const picked = !!(mineA ? d.pa : d.pb) || B.duelPicked === key;
+  // (the same two heroes can meet again: a pick belongs to this duel object and round, not just to the pair)
+  const picked = !!(mineA ? d.pa : d.pb) || (B.duelPicked && B.duelPicked.d === d && B.duelPicked.round === d.round);
   return { d, me: mineA ? a : b, foe: mineA ? b : a, key, pending: d.rt >= 0 && !picked, left: Math.max(0, DUEL_PICK_TIME - d.rt), wins: mineA ? d.wins : [d.wins[1], d.wins[0]] };
 }
 function pickDuel(k) {
   const m = myDuel(); if (!m || !m.pending) return;
-  B.duelPicked = m.key; send({ type: 'duel', pick: k }); sfx('duelPick'); buzz('tap'); refreshHUD(true);
+  B.duelPicked = { d: m.d, round: m.d.round }; send({ type: 'duel', pick: k }); sfx('duelPick'); buzz('tap'); refreshHUD(true);
 }
 
 // ---------- drawing ----------
@@ -515,14 +524,19 @@ function draw() {
   drawSiege(time);
   drawTactics(time);
   if (B.coach) drawCoach(time);
-  const list = [];
-  for (const f of B.fx) if (f.k === 'corpse') list.push({ y: f.y - 1, f });
+  // depth-sorted sprites: the entries are pooled and reused every frame (big battles draw hundreds)
+  const pool = DRAW_POOL, list = DRAW_LIST; list.length = 0; let pi = 0;
+  const item = (y, px, py) => { let o = pool[pi]; if (!o) pool[pi] = o = {}; pi++; o.y = y; o.px = px; o.py = py; o.f = null; o.s = null; o.so = null; o.hero = false; list.push(o); return o; };
+  for (const f of B.fx) if (f.k === 'corpse') item(f.y - 1, f.x, f.y).f = f;
   for (const s of sim.squads) {
     const r = B.render.get(s.id); if (!r || HIDDEN(s) || !seenBy(s)) continue;
     const anim = s.state === 'fight' || s.state === 'shoot' || s.state === 'siege' ? 'attack' : s.state === 'move' || s.state === 'rout' || s.state === 'climb' || s.state === 'charge' ? 'walk' : s.state === 'confused' ? 'hit' : 'idle';
     const flip = Math.cos(s.dir) < 0;
-    s.soldiers.forEach((so, i) => { if (so.alive) list.push({ y: r.soldiers[i].y, s, so, p: r.soldiers[i], anim, flip, i, flash: r.flash }); });
-    if (s.heroAlive) list.push({ y: r.hy, s, hero: true, p: { x: r.hx, y: r.hy }, anim, flip });
+    for (let i = 0; i < s.soldiers.length; i++) {
+      const so = s.soldiers[i], rp = r.soldiers[i]; if (!so.alive || !rp) continue;
+      const o = item(rp.y, rp.x, rp.y); o.s = s; o.so = so; o.anim = anim; o.flip = flip; o.i = i; o.flash = r.flash;
+    }
+    if (s.heroAlive) { const o = item(r.hy, r.hx, r.hy); o.s = s; o.hero = true; o.anim = anim; o.flip = flip; }
   }
   for (const s of sim.squads) {
     if (HIDDEN(s) || !seenBy(s)) continue;
@@ -550,13 +564,13 @@ function draw() {
     if (d.f) { const f = d.f; drawUnit(ctx, f.fid, f.unit, f.stage, 'death', Math.min(3, f.age * 7), f.x, f.y, f.flip, Math.max(0, 1 - Math.max(0, f.age - 3) / 3)); continue; }
     const s = d.s;
     if (d.hero) {
-      drawHero(ctx, s.hfid, s.gender, 1, d.anim === 'idle' ? 'walk' : d.anim === 'hit' ? 'hit' : d.anim, d.anim === 'idle' ? 0 : time * 7 + s.id, d.p.x, d.p.y, d.flip);
-      ctx.fillStyle = '#0b0a10'; ctx.fillRect(d.p.x - 1 + (d.flip ? 5 : -5), d.p.y - 22, 1, 10);
-      ctx.fillStyle = B.colors[s.side]; ctx.fillRect(d.p.x + (d.flip ? 5 : -5), d.p.y - 22, 5, 4);
+      drawHero(ctx, s.hfid, s.gender, 1, d.anim === 'idle' ? 'walk' : d.anim === 'hit' ? 'hit' : d.anim, d.anim === 'idle' ? 0 : time * 7 + s.id, d.px, d.py, d.flip);
+      ctx.fillStyle = '#0b0a10'; ctx.fillRect(d.px - 1 + (d.flip ? 5 : -5), d.py - 22, 1, 10);
+      ctx.fillStyle = B.colors[s.side]; ctx.fillRect(d.px + (d.flip ? 5 : -5), d.py - 22, 5, 4);
     } else {
-      drawUnit(ctx, s.fid, s.unit, d.so.s, d.anim, time * (d.anim === 'idle' ? 4 : 8) + d.i * 0.7, d.p.x, d.p.y, d.flip, s.state === 'rout' ? 0.7 : 1);
-      if (d.so.s === 3) { ctx.fillStyle = '#ffd86b'; ctx.fillRect(d.p.x - 1, d.p.y - 17, 2, 2); }
-      if (d.flash > 0.5) { ctx.globalAlpha = 0.5; ctx.fillStyle = '#fff'; ctx.fillRect(d.p.x - 4, d.p.y - 12, 8, 10); ctx.globalAlpha = 1; }
+      drawUnit(ctx, s.fid, s.unit, d.so.s, d.anim, time * (d.anim === 'idle' ? 4 : 8) + d.i * 0.7, d.px, d.py, d.flip, s.state === 'rout' ? 0.7 : 1);
+      if (d.so.s === 3) { ctx.fillStyle = '#ffd86b'; ctx.fillRect(d.px - 1, d.py - 17, 2, 2); }
+      if (d.flash > 0.5) { ctx.globalAlpha = 0.5; ctx.fillStyle = '#fff'; ctx.fillRect(d.px - 4, d.py - 12, 8, 10); ctx.globalAlpha = 1; }
     }
   }
   ctx.font = '600 6px monospace'; ctx.textBaseline = 'top';
@@ -928,6 +942,7 @@ function tap(sx, sy, fromDrag = false) {
   const wx = w.x / TS, wy = w.y / TS;
   const sim = B.sim, R = hitR();
   if (B.aim) {
+    B.aim.targets = stratagemTargets(sim, B.side, B.aim.id); // targets that died or left the fight since aiming began don't count
     let best = null, bd = Math.max(3.2, R * 1.4);
     for (const t of B.aim.targets) {
       let x, y;
@@ -940,7 +955,7 @@ function tap(sx, sy, fromDrag = false) {
     else toast('Tap one of the glowing targets');
     return;
   }
-  if (B.mode) { modeOrder(wx, wy, null); return; }
+  if (B.mode) { if (selSquads().length) modeOrder(wx, wy, null); else { B.mode = null; refreshHUD(true); } return; }
   const sel = selSquads();
   const now = performance.now();
   // with squads selected, only a tap right on another squad's body selects it; a looser tap near friends is an order
@@ -1043,6 +1058,7 @@ function setMode(k) {
 function modeOrder(x, y, r) {
   const M = B.mode; B.mode = null;
   const sel = selSquads();
+  if (!sel.length) { refreshHUD(true); return; } // the squads it was for are gone
   if (M.k === 'lane') {
     const riders = sel.filter((q) => q.abil === 'charge' && (q.abCd || 0) <= 0 && q.state !== 'rout');
     if (!riders.length) { toast('No riders ready to charge', 'bad'); refreshHUD(true); return; }
@@ -1200,6 +1216,10 @@ function refreshHUD(full) {
         hud.right.appendChild(h('div', { class: 'strat-mini' + (off ? ' disabled' : '') + (B.aim && B.aim.id === x.id ? ' aiming' : '') }, stratagemCard({ name: S.name, icon: stratIcon(x.id, 1.5), cost: S.cost, disabled: off, onClick: () => { if (!off) startAim(x.id); } })));
       }
     }
+  }
+  if (B.aim) {
+    B.aim.targets = stratagemTargets(sim, B.side, B.aim.id);
+    if (!B.aim.targets.length) { toast(`${STRATAGEMS[B.aim.id].name}: no target left`); B.aim = null; }
   }
   const md = myDuel();
   const key = sels.map((q) => q.id + q.formation + (q.reform ? q.reform.to : '') + (q.special >= 1 ? '*' : '') + (q.holdFast ? 'h' : '') + Math.ceil(q.skillCd || 0) + terrainAt(sim.field, q.x, q.y) + 'a' + Math.ceil(q.abCd || 0) + (q.guard ? 'g' : '') + (q.regroup || '') + (q.state === 'rout' ? 'r' : '')).join() + '|' + (B.aim ? B.aim.id : '') + B.started + B.queue + '|' + (B.mode ? B.mode.k : '') + '|' + (md ? `${md.key}${md.pending}${Math.ceil(md.left)}${md.wins}` : '');
@@ -1412,7 +1432,7 @@ function endBattle(result) {
 
 // ---------- guided practice battle ----------
 const PRACTICED = 'ikkr-dw-practiced';
-export function practiced() { try { return !!localStorage.getItem(PRACTICED); } catch { return true; } }
+function practiced() { try { return !!localStorage.getItem(PRACTICED); } catch { return true; } }
 function setPracticed() { try { localStorage.setItem(PRACTICED, '1'); } catch {} }
 // opts.back: scene to return to afterwards ('title' by default), opts.backArgs: its args
 export function startPractice(opts = {}) {

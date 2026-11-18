@@ -2,13 +2,13 @@
 // Squads move along post-to-post routes, fight in formations, use stratagems; the land itself can change mid-battle.
 import { makeRng } from '../engine/rng.js';
 import {
-  soldierStats, isRanged, heroTotals, formationEdge, FORMATIONS, unitName, formationChangeTime, STRATAGEMS, unitClass,
+  soldierStats, isRanged, heroTotals, formationEdge, FORMATIONS, formationChangeTime, STRATAGEMS, unitClass,
 } from '../game/rules.js';
 import { makeField, shortestPath, nearestPost, terrainAt, passable, nearestRoadPoint, BW, BH, TERRAIN } from './field.js';
 
 // pikes and spears: stop charges cold and punish horsemen
 const PIKES = { castle: [0], orcs: [3], dwarves: [2], rampart: [1], stronghold: [3] };
-export const isPike = (fid, ui) => (PIKES[fid] || []).includes(ui);
+const isPike = (fid, ui) => (PIKES[fid] || []).includes(ui);
 // hero callings in battle: an active skill on a cooldown
 export const SKILLS = {
   commander: { name: 'Rally Cry', cd: 40, desc: 'Morale +25 for this squad and nearby allies; routing squads recover.' },
@@ -27,7 +27,7 @@ export const ABILITIES = {
   roar: { name: 'Roar', btn: 'Roar', cd: 28, desc: 'Terrify enemies close by: their morale drops and the faint-hearted panic.' },
   dive: { name: 'Dive', btn: 'Dive', cd: 24, desc: 'Swoop over walls and rivers onto the nearest archers (or nearest foe) and hit hard.' },
 };
-export function abilityOf(s) {
+function abilityOf(s) {
   if (s.mounted) return 'charge';
   if (s.pike) return 'brace';
   const c = unitClass(s.fid, s.unit);
@@ -37,7 +37,7 @@ export function abilityOf(s) {
   if (c === 'flying') return 'dive';
   return 'shields';
 }
-export const AMMO = 24; // volleys in the quiver; refilled at your bases
+const AMMO = 24; // volleys in the quiver; refilled at your bases
 export const CHARGE_LEN = 10; // longest charge lane, in tiles
 
 export const DT = 0.05;
@@ -95,7 +95,7 @@ export function createBattle(setup) {
     const enemyKid = side === 'att' ? sim.kids.def : sim.kids.att;
     const sq = {
       id: sid++, side, hero: hero ? hero.id : null, name: hero ? hero.name : 'Town Guard', fid, unit, hfid: hero ? hero.fid : fid, gender: hero ? hero.gender : 'm',
-      formation: formation && formation !== 'loose' && FORMATIONS[formation] ? formation : 'line', /* Loose was retired */ x: p.x + Math.cos(ang) * slot, y: p.y + Math.sin(ang) * slot, dir: side === 'att' ? 0 : Math.PI,
+      formation: FORMATIONS[formation] ? formation : 'line', /* old saves' Loose becomes Line */ x: p.x + Math.cos(ang) * slot, y: p.y + Math.sin(ang) * slot, dir: side === 'att' ? 0 : Math.PI,
       soldiers, ranged: isRanged(fid, unit), lead: t.lead, tags, loyalty: hero ? hero.loyalty : 100,
       heroHp: hero ? 40 + hero.level * 8 + t.def * 3 : 0, heroMax: hero ? 40 + hero.level * 8 + t.def * 3 : 0, heroAlive: !!hero,
       atkMul: (1 + t.atk * 0.045) * bonus, defMul: (1 + t.def * 0.04) * bonus, heroAtk: hero ? 2.5 + t.atk * 0.6 : 0, int: t.int,
@@ -135,7 +135,6 @@ export function createBattle(setup) {
 }
 
 const alive = (s) => s.state !== 'dead' && s.state !== 'reserve' && s.state !== 'reinforce';
-export const onField = alive;
 const fighting = (s) => alive(s) && s.state !== 'rout';
 // the nearest enemy that is locked in melee with one of s's friends, within r: squads jump into fights they come upon
 function brawlNear(sim, s, r) {
@@ -194,7 +193,7 @@ export function command(sim, side, c) {
     s.chase = c.target; s.path = []; s.goal = null; s.forced = true; s.holdFast = false; s.state = 'move'; return true;
   }
   if (c.type === 'hold') { s.path = []; s.goal = null; s.chase = null; s.forced = false; s.holdFast = true; if (s.state !== 'fight') s.state = 'hold'; return true; }
-  if (c.type === 'formation' && FORMATIONS[c.formation] && c.formation !== 'loose') return changeFormation(sim, s, c.formation);
+  if (c.type === 'formation' && FORMATIONS[c.formation]) return changeFormation(sim, s, c.formation);
   if (c.type === 'special') return castSpecial(sim, s);
   return false;
 }
@@ -325,7 +324,7 @@ function disengage(sim, s) {
   ev(sim, { k: 'disengage', id: s.id });
 }
 
-export function changeFormation(sim, s, f) {
+function changeFormation(sim, s, f) {
   if (s.formation === f && !s.reform) return false;
   if (s.reform && s.reform.to === f) return false;
   const total = formationChangeTime(s.reform ? s.reform.from : s.formation, f, liveCount(s), s.lead || 8);
@@ -397,7 +396,7 @@ function startRegroup(sim, s) {
   ev(sim, { k: 'regroup', id: s.id, side: s.side });
   return true;
 }
-export function useAbility(sim, s, c = {}) {
+function useAbility(sim, s, c = {}) {
   const k = s.abil, A = ABILITIES[k];
   if (!A || s.abCd > 0 || !alive(s) || s.state === 'rout' || s.state === 'climb' || s.charge || s.dive || liveCount(s) === 0) return false;
   const foes = sim.squads.filter((e) => e.side !== s.side && alive(e) && e.state !== 'climb' && visibleTo(sim, s.side, e));
@@ -676,7 +675,7 @@ export function stratagemTargets(sim, side, id) {
   return [];
 }
 
-export function useStratagem(sim, side, id, target) {
+function useStratagem(sim, side, id, target) {
   const S = sim.strat[side];
   const slot = S.list.find((x) => x.id === id && !x.used);
   const st = STRATAGEMS[id];
@@ -1546,4 +1545,3 @@ export function deserializeSim(setup, data) {
   return sim;
 }
 
-export { unitName };
