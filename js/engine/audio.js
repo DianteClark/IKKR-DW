@@ -63,7 +63,7 @@ const N = (semi) => 440 * Math.pow(2, (semi - 9) / 12); // semitones from C4
 const arp = (notes, step, opts) => notes.forEach((n, i) => tone(N(n), opts.dur || step * 1.6, { ...opts, at: (opts.at || 0) + i * step }));
 
 // ---------- effects ----------
-const LIMIT = { heavy: 0.18, flank: 0.4, volley: 0.12, ladder: 0.35, charge: 0.3, rout: 0.8, duel: 0.4, gate: 0.4, hit: 0.06, death: 0.07, arrow: 0.09, clash: 0.12, march: 0.25, click: 0.03, coin: 0.05, fire: 0.2, spell: 0.15 };
+const LIMIT = { heavy: 0.18, flank: 0.4, volley: 0.12, ladder: 0.35, charge: 0.3, rout: 0.8, duel: 0.4, gate: 0.4, hit: 0.06, death: 0.07, arrow: 0.09, clash: 0.12, march: 0.25, click: 0.03, coin: 0.05, fire: 0.2, spell: 0.15, roar: 0.4, brace: 0.3, shields: 0.3, dive: 0.3, duelPick: 0.1, panic: 0.6, rejoin: 0.5, trample: 0.12 };
 const SFX = {
   click: () => tone(1320, 0.05, { type: 'square', vol: 0.12, slide: 0.7 }),
   open: () => { tone(520, 0.08, { vol: 0.14, slide: 1.5 }); tone(780, 0.1, { vol: 0.1, at: 0.05 }); },
@@ -107,6 +107,16 @@ const SFX = {
   stratagem: () => { arp([0, 7, 12, 19], 0.06, { type: 'square', vol: 0.12 }); tone(N(24), 0.4, { type: 'triangle', vol: 0.16, at: 0.24, vibrato: 6 }); },
   ambush: () => { tone(N(1), 0.12, { type: 'sawtooth', vol: 0.16 }); tone(N(1), 0.12, { type: 'sawtooth', vol: 0.16, at: 0.14 }); tone(N(-11), 0.5, { type: 'sawtooth', vol: 0.18, at: 0.28, slide: 0.9 }); noise(0.3, { vol: 0.2, freq: 2000, at: 0.28 }); },
   recruit: () => { arp([0, 4, 7, 12], 0.07, { type: 'triangle', vol: 0.2 }); },
+  // battle tactics
+  roar: () => { noise(0.7, { vol: 0.34, freq: 180, q: 0.8, type: 'lowpass', slide: 0.6 }); tone(70, 0.7, { type: 'sawtooth', vol: 0.2, slide: 0.7, vibrato: 11 }); tone(110, 0.5, { type: 'sawtooth', vol: 0.12, at: 0.05, slide: 0.6, vibrato: 13 }); },
+  brace: () => { [0, 0.06, 0.12].forEach((t) => { noise(0.06, { vol: 0.2, freq: 1600, q: 3, at: t }); tone(160, 0.08, { type: 'triangle', vol: 0.14, at: t, slide: 0.5 }); }); },
+  shields: () => { for (let i = 0; i < 4; i++) noise(0.07, { vol: 0.2, freq: 900 + i * 70, q: 2.5, at: i * 0.05 }); tone(N(-5), 0.25, { type: 'triangle', vol: 0.12, at: 0.18 }); },
+  dive: () => { noise(0.5, { vol: 0.24, freq: 3000, q: 1.5, slide: 0.25 }); tone(N(24), 0.4, { type: 'triangle', vol: 0.1, slide: 0.4 }); },
+  trample: () => { for (let i = 0; i < 3; i++) noise(0.06, { vol: 0.24, freq: 300 + Math.random() * 200, q: 1.2, at: i * 0.05 }); },
+  duelPick: () => tone(N(19), 0.07, { type: 'square', vol: 0.12, slide: 1.3 }),
+  panic: () => { tone(N(13), 0.18, { type: 'sawtooth', vol: 0.09, vibrato: 9 }); tone(N(8), 0.3, { type: 'sawtooth', vol: 0.09, at: 0.15, slide: 0.8 }); },
+  rejoin: () => arp([7, 12], 0.08, { type: 'triangle', vol: 0.14 }),
+  objective: () => { arp([0, 4, 7, 12, 16], 0.06, { type: 'square', vol: 0.12 }); tone(N(19), 0.5, { type: 'triangle', vol: 0.16, at: 0.3, vibrato: 5 }); },
   execute: () => { noise(0.25, { vol: 0.3, freq: 1800, q: 2, slide: 0.2 }); tone(80, 0.5, { type: 'sine', vol: 0.3, slide: 0.5, at: 0.05 }); },
 };
 

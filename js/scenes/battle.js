@@ -1,4 +1,4 @@
-import { picon } from '../engine/icons.js';
+import { picon, drawIcon } from '../engine/icons.js';
 import { showChat } from './campaign.js';
 import { weatherAtId } from '../game/weather.js';
 import { autumnizeCanvas } from '../campaign/mapview.js';
@@ -10,7 +10,7 @@ import { img } from '../engine/assets.js';
 import { hashStr } from '../engine/rng.js';
 import { drawUnit, drawHero, drawSpriteRef, DUNGEON_TILES } from '../data/art.js';
 import { SPELLS } from '../data/spells.js';
-import { serializeSim, deserializeSim, createBattle, step, command, aiThink, battleResult, snapshot, applySnapshot, liveCount, DT, stratagemTargets, planRoute, routeProblem, SKILLS, queuePoints, canClimb, ladderSpot } from '../battle/sim.js';
+import { serializeSim, deserializeSim, createBattle, step, command, aiThink, battleResult, snapshot, applySnapshot, liveCount, DT, stratagemTargets, planRoute, routeProblem, SKILLS, queuePoints, canClimb, ladderSpot, ABILITIES, DUEL_PICKS, DUEL_PICK_TIME, CHARGE_LEN, visibleTo, campOf } from '../battle/sim.js';
 const FORMS = ['wedge', 'line', 'square']; // Loose was retired: three formations, one clear cycle
 import { renderGround, drawFieldOverlay, postRef, TS, nearestPost, nearestRoadPoint, terrainAt, TERRAIN } from '../battle/field.js';
 import { createFx } from '../battle/fx.js';
@@ -77,7 +77,7 @@ registerScene('battle', {
   enter(args) {
     const R = args.resumeBattle || null;
     if (R) args = { ...args, setup: R.setup, battle: R.b, saveCtx: R.ctx, me: args.me ?? R.me ?? 0 };
-    Object.assign(B, { practice: args.practice || null, coach: null, origArgs: args.practice ? null : args, resumed: !!R, battle: args.battle || null, saveCtx: args.saveCtx ?? null, key: args.key ?? null, _savedAt: 0, kills: new Map(), sel: null, selected: [], box: false, drag: null, pick: null, freeze: 0, slow: 0, duel: null, acc: 0, render: new Map(), fx: [], seenEv: 0, paused: false, speed: 1, ended: false, started: false, aim: null, queue: false, auto: false });
+    Object.assign(B, { practice: args.practice || null, coach: null, origArgs: args.practice ? null : args, resumed: !!R, battle: args.battle || null, saveCtx: args.saveCtx ?? null, key: args.key ?? null, _savedAt: 0, kills: new Map(), sel: null, selected: [], box: false, drag: null, pick: null, freeze: 0, slow: 0, duel: null, acc: 0, render: new Map(), fx: [], seenEv: 0, paused: false, speed: 1, ended: false, started: false, aim: null, queue: false, auto: false, mode: null, duelPicked: null });
     let setup = args.setup;
     if (!setup) {
       const st = args.state, b = args.battle;
@@ -144,7 +144,7 @@ registerScene('battle', {
     B.freeze = prefs.lowFx ? 0 : Math.max(0, B.freeze - dt); // low effects: no hit-stop
     B.slow = Math.max(0, B.slow - dt);
     if (!B.client && B.started && !B.paused && !B.ended && B.freeze <= 0) {
-      B.acc += dt * B.speed * (B.slow > 0 ? 0.3 : 1);
+      B.acc += dt * (myDuel() && myDuel().pending ? 1 : B.speed) * (B.slow > 0 ? 0.3 : 1); // a duel choice waits for you at normal speed
       let n = 0;
       while (B.acc >= DT && n++ < 10) {
         B.acc -= DT;
@@ -163,6 +163,7 @@ registerScene('battle', {
     if ((game.time * 4 | 0) !== B._uiTick) { B._uiTick = game.time * 4 | 0; refreshHUD(); }
   },
   render() { draw(); },
+  get sim() { return B.sim; }, // for tests and tools
   onTap(sx, sy) { tap(sx, sy); },
   onPanStart(sx, sy) { dragStart(sx, sy); },
   onPan(dx, dy, x, y) {
@@ -327,7 +328,8 @@ function consumeEvents() {
       if (e.id === 'ambush') J.shake(5, 0.4);
     } else if (e.k === 'duelStart') {
       const a = sq(e.a), b = sq(e.b);
-      B.duel = { a: e.a, b: e.b, age: 0, life: 3.6 };
+      B.duel = { a: e.a, b: e.b, age: 0, life: 99 };
+      if (B.side && !B.auto && (mineSide(a && a.side) || mineSide(b && b.side))) toast('Duel! Choose Strike, Guard or Feint below each round', 'gold');
       B.slow = Math.max(B.slow, 1.1); // heroes meet: a breath of slow motion
       sfx('duel'); J.shake(3, 0.25);
       banner(e.challenge ? 'CHALLENGE!' : 'DUEL!', mineSide(a && a.side) || mineSide(b && b.side) ? '' : 'blue', `${a ? a.name : '?'} vs ${b ? b.name : '?'}`);
@@ -338,7 +340,8 @@ function consumeEvents() {
         B.freeze = Math.max(B.freeze, 0.15); J.shake(5, 0.4);
         if (e.x != null) { J.shockwave(e.x * TS, e.y * TS, '#ffd86b'); J.sparks(e.x * TS, e.y * TS - 8, '#ffd86b'); }
         sfx(mineSide(w && w.side) ? 'capture' : 'lost');
-        if (w) banner(`${w.name.toUpperCase()} WINS THE DUEL`, mineSide(w.side) ? 'good' : B.side ? 'bad' : '', l ? `${l.name} is wounded` : '');
+        if (w) banner(`${w.name.toUpperCase()} WINS THE DUEL`, mineSide(w.side) ? 'good' : B.side ? 'bad' : '', (e.wins ? `${Math.max(...e.wins)}–${Math.min(...e.wins)} · ` : '') + (l ? `${l.name} is wounded` : ''));
+        if (B.side && w) buzz(mineSide(w.side) ? 'heavy' : 'lose');
       }
     } else if (e.k === 'gateHit') {
       if ((B._gateT || 0) < game.time) { B._gateT = game.time + 0.45; J.sparks(e.x * TS, e.y * TS, '#ffd86b'); J.shake(1.5, 0.12); sfx('hit'); }
@@ -366,8 +369,80 @@ function consumeEvents() {
       const s = sq(e.id); if (s && mineSide(s.side)) toast(`${s.name} breaks off the fight`);
     } else if (e.k === 'reform') {
       const s = sq(e.id); if (s && mineSide(s.side)) sfx('march');
+    } else tacticEvent(e, sq, mineSide);
+  }
+}
+
+const PICK_NAME = { strike: 'Strike', guard: 'Guard', feint: 'Feint' };
+function tacticEvent(e, sq, mineSide) {
+  const J = B.juice;
+  if (e.k === 'ability') {
+    const s = sq(e.id), A = ABILITIES[e.a]; if (!s || !A) return;
+    const r = B.render.get(s.id), px = (r ? r.x : s.x) * TS, py = (r ? r.y : s.y) * TS, vis = seenBy(s);
+    if (vis) J.floatText(px, py - 30, A.name.toUpperCase() + '!', mineSide(s.side) ? '#9fd0ff' : '#ff9a7a');
+    if (e.a === 'charge') { sfx('charge'); J.shake(3, 0.25); if (mineSide(s.side)) buzz('heavy'); }
+    else if (e.a === 'brace') sfx('brace');
+    else if (e.a === 'shields') sfx('shields');
+    else if (e.a === 'fire') sfx('fire');
+    else if (e.a === 'blast') { const sp = SPELL[s.spell] || SPELLS[0]; B.fx.push({ k: 'spell', spell: sp, x: e.x * TS, y: e.y * TS, age: 0, life: 1.1 }); J.shockwave(e.x * TS, e.y * TS, '#c48bff'); J.shake(3, 0.3); sfx('spell'); }
+    else if (e.a === 'roar') { if (vis) J.shockwave(px, py, '#ff9a3a'); J.shake(4, 0.35); sfx('roar'); if (B.side && !mineSide(s.side)) buzz('alert'); }
+    else if (e.a === 'dive') sfx('dive');
+  } else if (e.k === 'chargeHit' || e.k === 'diveHit') {
+    J.shockwave(e.x * TS, e.y * TS, '#ffd86b'); J.sparks(e.x * TS, e.y * TS - 6, '#ffd86b'); J.shake(3, 0.2);
+    B.freeze = Math.max(B.freeze, 0.05); sfx(e.k === 'diveHit' ? 'heavy' : 'trample');
+    J.floatText(e.x * TS, e.y * TS - 20, e.k === 'diveHit' ? 'SWOOP!' : 'TRAMPLED!', '#ffd86b');
+    const t = sq(e.to); if (t && mineSide(t.side)) buzz('hit');
+  } else if (e.k === 'chargeEnd') {
+    const s = sq(e.id); if (s && mineSide(s.side)) toast(`${s.name}'s riders are disordered for a moment`);
+  } else if (e.k === 'ammoOut') {
+    const s = sq(e.id); if (s && mineSide(s.side)) { toast(`${s.name} is out of arrows · send them to a base or Camp to resupply`, 'bad'); sfx('alert'); }
+  } else if (e.k === 'guard') {
+    const s = sq(e.id); if (s && mineSide(s.side)) B.fx.push({ k: 'ring', x: e.x * TS, y: e.y * TS, age: 0, life: 0.6, col: '#9fd0ff' });
+  } else if (e.k === 'regroup') {
+    const s = sq(e.id); if (s && mineSide(s.side)) toast(`${s.name} falls back to regroup`);
+  } else if (e.k === 'regrouped') {
+    const s = sq(e.id); if (s && mineSide(s.side)) toast(`${s.name} regroups at camp · any order sends them back out`, 'good');
+  } else if (e.k === 'rejoin') {
+    const s = sq(e.id), r = B.render.get(e.id);
+    if (s && r && seenBy(s)) { J.floatText(r.x * TS, r.y * TS - 26, '+1', '#8fd06b'); if (mineSide(s.side)) sfx('rejoin'); }
+  } else if (e.k === 'panic') {
+    const s = sq(e.id), r = B.render.get(e.id);
+    if (s && r && seenBy(s)) J.floatText(r.x * TS, r.y * TS - 24, e.calm ? 'STEADY!' : 'PANIC!', e.calm ? '#9fd0ff' : '#ff9a7a');
+    if (s && mineSide(s.side) && !e.calm) sfx('panic');
+  } else if (e.k === 'hill') {
+    J.shockwave(e.x * TS, e.y * TS, B.colors[e.side]); sfx(mineSide(e.side) ? 'capture' : 'lost');
+    if (B.side) toast(mineSide(e.side) ? 'High ground taken · squads up there shoot farther and take less harm' : 'The enemy holds the high ground', mineSide(e.side) ? 'good' : 'bad');
+  } else if (e.k === 'objective') {
+    const mine = mineSide(e.side);
+    const T = { caravan: ['CARAVAN DELIVERED', 'Fresh supplies: morale and command points'], supplies: ['SUPPLIES BURNED', 'Enemy arrows and morale run short'], captive: ['CAPTIVE FREED', 'The rescued captive joins the cheering'] }[e.kind] || ['OBJECTIVE', ''];
+    banner(T[0], B.side ? (mine ? 'good' : 'bad') : '', T[1]);
+    sfx(mine || !B.side ? 'objective' : 'lost'); if (B.side) buzz(mine ? 'heavy' : 'alert');
+    J.shockwave(e.x * TS, e.y * TS, '#ffd86b'); if (mine && !prefs.lowFx) J.confetti(e.x * TS, e.y * TS - 16);
+    if (e.kind === 'supplies') for (let i = 0; i < 6; i++) J.fire(e.x * TS + (Math.random() - 0.5) * 24, e.y * TS + (Math.random() - 0.5) * 14);
+  } else if (e.k === 'duelRound') {
+    const a = sq(e.a), b = sq(e.b), w = sq(e.win);
+    J.floatText(e.x * TS, e.y * TS - 34, `${PICK_NAME[e.pa]} vs ${PICK_NAME[e.pb]}`, '#f7efe0');
+    J.sparks(e.x * TS, e.y * TS - 8, '#ffd86b'); J.shake(2, 0.15); sfx('duelClash');
+    if (w && B.side && (mineSide(a && a.side) || mineSide(b && b.side))) {
+      const won = mineSide(w.side);
+      toast(`Round ${e.round}: ${won ? 'your' : 'their'} ${PICK_NAME[w.id === e.a ? e.pa : e.pb]} wins`, won ? 'good' : 'bad'); buzz(won ? 'tap' : 'hit');
     }
   }
+}
+const seenBy = (s) => !B.side || s.side === B.side || visibleTo(B.sim, B.side, s);
+// a duel my hero is in, and whether it waits on my choice
+function myDuel() {
+  const d = B.sim && B.sim.duel; if (!d || !B.side || B.auto) return null;
+  const a = B.sim.squads.find((q) => q.id === d.a), b = B.sim.squads.find((q) => q.id === d.b);
+  const mineA = !!(a && a.side === B.side && !a.ally), mineB = !!(b && b.side === B.side && !b.ally);
+  if (!mineA && !mineB) return null;
+  const key = `${d.a}:${d.b}:${d.round}`;
+  const picked = !!(mineA ? d.pa : d.pb) || B.duelPicked === key;
+  return { d, me: mineA ? a : b, foe: mineA ? b : a, key, pending: d.rt >= 0 && !picked, left: Math.max(0, DUEL_PICK_TIME - d.rt), wins: mineA ? d.wins : [d.wins[1], d.wins[0]] };
+}
+function pickDuel(k) {
+  const m = myDuel(); if (!m || !m.pending) return;
+  B.duelPicked = m.key; send({ type: 'duel', pick: k }); sfx('duelPick'); buzz('tap'); refreshHUD(true);
 }
 
 // ---------- drawing ----------
@@ -429,18 +504,19 @@ function draw() {
     }
   }
   drawSiege(time);
+  drawTactics(time);
   if (B.coach) drawCoach(time);
   const list = [];
   for (const f of B.fx) if (f.k === 'corpse') list.push({ y: f.y - 1, f });
   for (const s of sim.squads) {
-    const r = B.render.get(s.id); if (!r || HIDDEN(s)) continue;
-    const anim = s.state === 'fight' || s.state === 'shoot' || s.state === 'siege' ? 'attack' : s.state === 'move' || s.state === 'rout' || s.state === 'climb' ? 'walk' : s.state === 'confused' ? 'hit' : 'idle';
+    const r = B.render.get(s.id); if (!r || HIDDEN(s) || !seenBy(s)) continue;
+    const anim = s.state === 'fight' || s.state === 'shoot' || s.state === 'siege' ? 'attack' : s.state === 'move' || s.state === 'rout' || s.state === 'climb' || s.state === 'charge' ? 'walk' : s.state === 'confused' ? 'hit' : 'idle';
     const flip = Math.cos(s.dir) < 0;
     s.soldiers.forEach((so, i) => { if (so.alive) list.push({ y: r.soldiers[i].y, s, so, p: r.soldiers[i], anim, flip, i, flash: r.flash }); });
     if (s.heroAlive) list.push({ y: r.hy, s, hero: true, p: { x: r.hx, y: r.hy }, anim, flip });
   }
   for (const s of sim.squads) {
-    if (HIDDEN(s)) continue;
+    if (HIDDEN(s) || !seenBy(s)) continue;
     const r = B.render.get(s.id);
     const rad = 1.1 + Math.sqrt(liveCount(s)) * 0.12;
     const isSel = B.selected.includes(s.id);
@@ -476,7 +552,7 @@ function draw() {
   }
   ctx.font = '600 6px monospace'; ctx.textBaseline = 'top';
   for (const s of sim.squads) {
-    if (HIDDEN(s)) continue;
+    if (HIDDEN(s) || !seenBy(s)) continue;
     const r = B.render.get(s.id);
     const n = liveCount(s), max = s.soldiers.length;
     const x = r.x * TS - 10, y = r.y * TS - 28;
@@ -496,6 +572,8 @@ function draw() {
     ctx.fillStyle = B.colors[s.side]; ctx.fillRect(x, y, 20 * (max ? n / max : 0), 2);
     ctx.fillStyle = s.morale < 25 ? '#ff6a5a' : '#6bb6ff'; ctx.fillRect(x, y + 2, 20 * Math.max(0, s.morale) / 100, 2);
     if (s.reform) { ctx.fillStyle = '#ffd86b'; ctx.fillRect(x, y + 4, 20 * Math.min(1, s.reform.t / (s.reform.total || 1)), 1); }
+    if (s.ammoMax) { ctx.fillStyle = s.ammo > 0 ? '#e8d070' : (Math.floor(time * 4) % 2 ? '#ff6a5a' : '#0b0a10'); ctx.fillRect(x, y + 5, s.ammo > 0 ? 20 * s.ammo / s.ammoMax : 20, 1); }
+    tacticMarks(s, x + 21 + String(n).length * 4 + 4, y - 1, time);
     if (s.special >= 1 && s.side === B.side && s.heroAlive) { ctx.fillStyle = '#ffd25a'; ctx.fillRect(x - 3, y - 1, 2, 7); }
     if (s.ally) { ctx.fillStyle = '#6bb6ff'; ctx.fillRect(x, y - 3, 20, 1); }
     if (s.buffs && (s.buffs.confused > 0 || s.state === 'confused')) { ctx.fillStyle = '#c48bff'; ctx.fillRect(x + 6 + Math.sin(time * 8) * 4, y - 5, 3, 3); }
@@ -536,11 +614,122 @@ function draw() {
       if (k >= 1) { const wv = Math.sin(f.age * 10) * 1.5; ctx.fillStyle = '#0b0a10'; ctx.fillRect(f.x + 1, top - 1, 12, 9); ctx.fillStyle = f.col; ctx.fillRect(f.x + 1, top, 11, 7 + wv * 0.3); ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.fillRect(f.x + 1, top, 11, 2); }
     }
   }
+  drawNight(time);
   drawDuel(time);
   B.juice.draw(ctx);
   if (sim.fog > 0) { ctx.fillStyle = `rgba(200,210,225,${Math.min(0.28, sim.fog / 30 * 0.28)})`; ctx.fillRect(0, 0, sim.field.W * TS, sim.field.H * TS); }
 }
 
+// battle tactics on the ground: hilltop flags, the side objective, guard zones, charge lanes
+function drawTactics(time) {
+  const sim = B.sim;
+  for (const h of sim.hills || []) {
+    const x = h.x * TS, y = h.y * TS, col = h.owner ? B.colors[h.owner] : '#d6d0c4';
+    ctx.strokeStyle = col; ctx.globalAlpha = 0.55; ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
+    ctx.beginPath(); ctx.ellipse(x, y, 1.9 * TS, 1.3 * TS, 0, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+    ctx.fillStyle = '#0b0a10'; ctx.fillRect(x - 1, y - 16, 2, 16); ctx.fillRect(x + 1, y - 17, 8, 7);
+    ctx.fillStyle = col; ctx.fillRect(x + 1, y - 16 + Math.round(Math.sin(time * 4 + h.x)), 7, 5);
+    if (h.prog > 0 && h.by) {
+      ctx.strokeStyle = '#0b0a10'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(x, y - 23, 4, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = B.colors[h.by]; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y - 23, 4, -Math.PI / 2, -Math.PI / 2 + h.prog * Math.PI * 2); ctx.stroke();
+    }
+  }
+  const O = sim.obj;
+  if (O) {
+    const x = O.x * TS, y = O.y * TS;
+    if (!O.done) { const k = (time * 1.2) % 1; ctx.strokeStyle = `rgba(255,216,107,${0.7 * (1 - k)})`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(x, y, (1 + k * 1.2) * TS, (0.7 + k * 0.8) * TS, 0, 0, Math.PI * 2); ctx.stroke(); }
+    ctx.globalAlpha = O.done ? 0.55 : 1;
+    if (O.kind === 'caravan') {
+      if (!O.done || O.by) drawIcon(ctx, 'wagon', x - 8, y - 14 + (O.pby && !O.done ? Math.round(Math.sin(time * 10)) : 0), 16);
+    } else if (O.kind === 'supplies') {
+      ctx.fillStyle = '#0b0a10'; ctx.fillRect(x - 9, y - 9, 18, 11);
+      ctx.fillStyle = O.done ? '#3a3036' : '#9a6a36'; ctx.fillRect(x - 8, y - 8, 7, 9); ctx.fillRect(x + 1, y - 8, 7, 9);
+      ctx.fillStyle = O.done ? '#241e22' : '#c48a48'; ctx.fillRect(x - 8, y - 5, 7, 1); ctx.fillRect(x + 1, y - 5, 7, 1); ctx.fillRect(x - 5, y - 8, 1, 9); ctx.fillRect(x + 4, y - 8, 1, 9);
+    } else {
+      ctx.fillStyle = '#0b0a10'; ctx.beginPath(); ctx.moveTo(x - 10, y - 6); ctx.lineTo(x, y - 15); ctx.lineTo(x + 10, y - 6); ctx.fill();
+      ctx.fillStyle = '#b08a4a'; ctx.beginPath(); ctx.moveTo(x - 8, y - 7); ctx.lineTo(x, y - 13); ctx.lineTo(x + 8, y - 7); ctx.fill();
+      ctx.fillStyle = '#0b0a10'; ctx.fillRect(x - 7, y - 7, 14, 9); ctx.fillStyle = '#7a5a34'; ctx.fillRect(x - 6, y - 6, 12, 7);
+      ctx.fillStyle = O.done ? '#0b0a10' : '#3a3036'; ctx.fillRect(x - 2, y - 4, 4, 5);
+      if (!O.done) { ctx.fillStyle = '#8a96a8'; for (let i = 0; i < 3; i++) ctx.fillRect(x - 2 + i * 1.5, y - 4, 0.6, 5); }
+    }
+    ctx.globalAlpha = 1;
+    if (!O.done && O.prog > 0 && O.pby && O.kind !== 'caravan') {
+      ctx.strokeStyle = '#0b0a10'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(x, y - 22, 4, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = B.colors[O.pby]; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y - 22, 4, -Math.PI / 2, -Math.PI / 2 + O.prog * Math.PI * 2); ctx.stroke();
+    }
+  }
+  for (const q of sim.squads) {
+    if (HIDDEN(q)) continue;
+    if (q.guard && (q.side === B.side || !B.side)) {
+      const sel = B.selected.includes(q.id);
+      ctx.strokeStyle = sel ? 'rgba(159,208,255,.9)' : 'rgba(159,208,255,.35)'; ctx.lineWidth = sel ? 1.5 : 1; ctx.setLineDash([3, 3]); ctx.lineDashOffset = -time * 6;
+      ctx.beginPath(); ctx.ellipse(q.guard.x * TS, q.guard.y * TS, q.guard.r * TS, q.guard.r * 0.72 * TS, 0, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+    }
+    if (q.charge && seenBy(q)) {
+      const C = q.charge;
+      ctx.strokeStyle = B.colors[q.side]; ctx.globalAlpha = 0.55; ctx.lineWidth = 3; ctx.setLineDash([6, 4]); ctx.lineDashOffset = -time * 40;
+      ctx.beginPath(); ctx.moveTo(C.x0 * TS, C.y0 * TS); ctx.lineTo(C.x * TS, C.y * TS); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+      drawArrowHead(C.x0, C.y0, C.x, C.y, B.colors[q.side]);
+    }
+  }
+}
+function drawArrowHead(x0, y0, x1, y1, col) {
+  const a = Math.atan2(y1 - y0, x1 - x0), x = x1 * TS, y = y1 * TS;
+  ctx.fillStyle = '#0b0a10'; ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * 6, y + Math.sin(a) * 6); ctx.lineTo(x + Math.cos(a + 2.5) * 7, y + Math.sin(a + 2.5) * 7); ctx.lineTo(x + Math.cos(a - 2.5) * 7, y + Math.sin(a - 2.5) * 7); ctx.fill();
+  ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * 4, y + Math.sin(a) * 4); ctx.lineTo(x + Math.cos(a + 2.5) * 5, y + Math.sin(a + 2.5) * 5); ctx.lineTo(x + Math.cos(a - 2.5) * 5, y + Math.sin(a - 2.5) * 5); ctx.fill();
+}
+// tiny markers beside a squad's bars: shield wall, braced pikes, fire arrows, guarding, regrouping, disordered
+function tacticMarks(s, x, y, time) {
+  const b = s.buffs || {}, m = [];
+  if (b.shields > 0) m.push('shield');
+  if (b.brace > 0) m.push('lock');
+  if (b.fire > 0) m.push('sun');
+  if (b.disordered > 0) m.push('broken');
+  if (s.regroup) m.push('camp');
+  else if (s.guard && s.side === B.side) m.push('guard');
+  m.slice(0, 3).forEach((k, i) => drawIcon(ctx, k, x + i * 7, y, 6));
+}
+// night: darkness with holes of torchlight around what your side can see
+function drawNight(time) {
+  const sim = B.sim; if (!sim.night) return;
+  const F = sim.field, W = F.W * TS, H = F.H * TS, S = 0.5;
+  if (!B.nightCv || B.nightCv.width !== Math.ceil(W * S)) { B.nightCv = document.createElement('canvas'); B.nightCv.width = Math.ceil(W * S); B.nightCv.height = Math.ceil(H * S); }
+  const c = B.nightCv, x = c.getContext('2d');
+  x.globalCompositeOperation = 'source-over'; x.clearRect(0, 0, c.width, c.height);
+  x.fillStyle = 'rgba(8,10,34,0.62)'; x.fillRect(0, 0, c.width, c.height);
+  x.globalCompositeOperation = 'destination-out';
+  const lights = [];
+  const flick = (i) => 1 + Math.sin(time * 7 + i * 1.7) * 0.04;
+  for (const q of sim.squads) {
+    if (HIDDEN(q)) continue;
+    const r = B.render.get(q.id) || q;
+    if (!B.side || q.side === B.side) lights.push([r.x, r.y, q.role === 'scout' && q.heroAlive ? 8 : 4.4, 1]);
+    else if (seenBy(q)) lights.push([r.x, r.y, 2.2, 0.75]);
+  }
+  for (const p of F.posts) if (p.owner === B.side || (!B.side && p.owner !== 'none')) lights.push([p.x, p.y, 4, 0.9]); else lights.push([p.x, p.y, 1.6, 0.5]);
+  for (const f of sim.fires) lights.push([f.x, f.y, f.r + 2.4, 1]);
+  if (sim.obj && !sim.obj.done) lights.push([sim.obj.x, sim.obj.y, 1.4, 0.6]);
+  lights.forEach(([lx, ly, lr, a], i) => {
+    const px = lx * TS * S, py = ly * TS * S, rr = lr * TS * S * flick(i);
+    if (prefs.lowFx) { x.fillStyle = `rgba(0,0,0,${a * 0.85})`; x.beginPath(); x.arc(px, py, rr * 0.8, 0, Math.PI * 2); x.fill(); return; }
+    const g = x.createRadialGradient(px, py, rr * 0.25, px, py, rr);
+    g.addColorStop(0, `rgba(0,0,0,${a})`); g.addColorStop(1, 'rgba(0,0,0,0)');
+    x.fillStyle = g; x.beginPath(); x.arc(px, py, rr, 0, Math.PI * 2); x.fill();
+  });
+  x.globalCompositeOperation = 'source-over';
+  ctx.drawImage(c, 0, 0, W, H);
+  if (prefs.lowFx) return;
+  // warm torch glow on your own squads and bases
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  for (const [lx, ly, lr, a] of lights.slice(0, 40)) {
+    if (a < 0.9) continue;
+    const px = lx * TS, py = ly * TS, rr = Math.min(lr, 4) * TS * 0.55;
+    const g = ctx.createRadialGradient(px, py - 4, 0, px, py - 4, rr);
+    g.addColorStop(0, `rgba(255,170,70,${0.16 + Math.sin(time * 9 + lx) * 0.03})`); g.addColorStop(1, 'rgba(255,140,40,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(px, py - 4, rr, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
 // siege works: gate strength, broken gates, ladders against the wall
 function drawSiege(time) {
   const sim = B.sim, F = sim.field;
@@ -653,6 +842,16 @@ function drawOverlays(time) {
     }
     ctx.fillStyle = 'rgba(255,210,90,.9)'; ctx.beginPath(); ctx.arc(w.x, w.y, 4, 0, Math.PI * 2); ctx.fill();
   }
+  if (d && d.mode === 'lane' && B.mode) {
+    const w = cam.toWorld(d.x, d.y);
+    for (const s of laneSquads()) { const e = laneEnd(s, w.x / TS, w.y / TS); ctx.strokeStyle = 'rgba(255,216,107,.9)'; ctx.lineWidth = 3; ctx.setLineDash([6, 4]); ctx.beginPath(); ctx.moveTo(s.x * TS, s.y * TS); ctx.lineTo(e.x * TS, e.y * TS); ctx.stroke(); ctx.setLineDash([]); drawArrowHead(s.x, s.y, e.x, e.y, '#ffd86b'); }
+  }
+  if (d && d.mode === 'guard' && B.mode) {
+    const a = cam.toWorld(d.sx, d.sy), b = cam.toWorld(d.x, d.y);
+    const r = Math.max(1.5, Math.min(6, Math.hypot(b.x - a.x, b.y - a.y) / TS));
+    ctx.fillStyle = 'rgba(159,208,255,.12)'; ctx.strokeStyle = '#9fd0ff'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.ellipse(a.x, a.y, r * TS, r * 0.72 * TS, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.setLineDash([]);
+  }
   if (d && d.mode === 'box') {
     const a = cam.toWorld(d.sx, d.sy), b = cam.toWorld(d.x, d.y);
     ctx.fillStyle = 'rgba(255,210,90,.12)'; ctx.fillRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
@@ -685,11 +884,11 @@ function selSquads() {
   B.sel = B.selected[0] ?? null;
   return B.selected.map((id) => sim.squads.find((q) => q.id === id));
 }
-function setSel(ids) { B.selected = ids.slice(); B.sel = ids[0] ?? null; refreshHUD(true); }
+function setSel(ids) { B.selected = ids.slice(); B.sel = ids[0] ?? null; if (!ids.length) B.mode = null; refreshHUD(true); }
 function squadAt(wx, wy, side, r) {
   let best = null, bd = r;
   for (const s of B.sim.squads) {
-    if (HIDDEN(s) || (side && s.side !== side)) continue;
+    if (HIDDEN(s) || (side && s.side !== side) || !seenBy(s)) continue;
     const rr = B.render.get(s.id) || s;
     const d = Math.hypot(rr.x - wx, rr.y - 0.35 - wy);
     if (d < bd) { bd = d; best = s; }
@@ -719,6 +918,7 @@ function tap(sx, sy) {
     else toast('Tap one of the glowing targets');
     return;
   }
+  if (B.mode) { modeOrder(wx, wy, null); return; }
   const own = squadAt(wx, wy, B.side, R);
   const sel = selSquads();
   const now = performance.now();
@@ -748,6 +948,14 @@ function tap(sx, sy) {
     for (const q of climbers) send({ type: 'ladder', squad: q.id, x: wx, y: wy });
     B.pick = { x: spot.wx, y: spot.wy, t: 0.8 }; sfx('march');
     toast(`${climbers.length > 1 ? 'Squads raise' : climbers[0].name + ' raises'} ladders · exposed while climbing`); return;
+  }
+  // a hilltop flag or the side objective: march straight there
+  const spot = (sim.hills || []).find((q) => Math.hypot(q.x - wx, q.y - wy) < 1.7) || (sim.obj && !sim.obj.done && Math.hypot(sim.obj.x - wx, sim.obj.y - wy) < 1.6 ? sim.obj : null);
+  if (spot) {
+    for (const q of sel) send({ type: 'spot', squad: q.id, x: +spot.x.toFixed(2), y: +spot.y.toFixed(2) });
+    B.pick = { x: spot.x, y: spot.y, t: 0.8 }; sfx('march');
+    toast(spot.kind ? { caravan: 'Escort the caravan: stay beside it and it rolls toward your lines', supplies: B.side === 'att' ? 'Burn the supplies: hold beside them, unopposed' : 'Guard your supplies from the raiders', captive: 'Free the captive: hold the hut with no enemy close' }[spot.kind] : 'Taking the high ground');
+    return;
   }
   let post = postAt(wx, wy, Math.max(2.8, R));
   if (post) { orderMove(sel, post); return; }
@@ -783,9 +991,39 @@ function orderAttack(list, foe) {
   B.pick = { x: foe.x, y: foe.y, t: 0.8, foe: true };
   sfx('clash'); toast(`Attacking ${foe.name}`);
 }
+// tactic orders that need a spot on the field: a charge lane, or an area to guard
+function laneSquads() { return B.mode && B.mode.k === 'lane' ? selSquads().filter((q) => q.abil === 'charge' && (q.abCd || 0) <= 0 && q.state !== 'rout') : []; }
+function laneEnd(s, x, y) {
+  const d = Math.hypot(x - s.x, y - s.y) || 1, L = Math.min(CHARGE_LEN, d);
+  return { x: s.x + (x - s.x) / d * L, y: s.y + (y - s.y) / d * L };
+}
+function setMode(k) {
+  if (B.mode && B.mode.k === k) { B.mode = null; refreshHUD(true); return; }
+  B.mode = { k }; B.aim = null; sfx('open');
+  toast(k === 'lane' ? 'Charge: tap (or drag to) where the riders should thunder through' : 'Guard: tap a spot to guard it, or drag out the area', 'gold');
+  refreshHUD(true);
+}
+function modeOrder(x, y, r) {
+  const M = B.mode; B.mode = null;
+  const sel = selSquads();
+  if (M.k === 'lane') {
+    const riders = sel.filter((q) => q.abil === 'charge' && (q.abCd || 0) <= 0 && q.state !== 'rout');
+    if (!riders.length) { toast('No riders ready to charge', 'bad'); refreshHUD(true); return; }
+    for (const q of riders) { const e = laneEnd(q, x, y); send({ type: 'ability', squad: q.id, x: +e.x.toFixed(2), y: +e.y.toFixed(2) }); }
+    B.pick = { x, y, t: 0.8, foe: true };
+  } else {
+    const F = B.sim.field;
+    if (terrainAt(F, x, y) === 3 || terrainAt(F, x, y) === 6) { toast('Pick open ground to guard', 'bad'); B.mode = M; return; }
+    for (const q of sel) send({ type: 'guard', squad: q.id, x: +x.toFixed(2), y: +y.toFixed(2), r: r == null ? 3 : +Math.max(1.5, Math.min(6, r)).toFixed(1) });
+    B.pick = { x, y, t: 0.8 }; sfx('march');
+    toast(`${sel.length > 1 ? 'Squads guard' : sel[0].name + ' guards'} the area · they engage anything that enters, but never chase out`);
+  }
+  refreshHUD(true);
+}
 function dragStart(sx, sy) {
   B.drag = null;
   if (!B.started || B.ended || !B.side || B.aim) return;
+  if (B.mode) { B.drag = { mode: B.mode.k, sx, sy, x: sx, y: sy }; return; }
   const w = cam.toWorld(sx, sy), wx = w.x / TS, wy = w.y / TS;
   const own = squadAt(wx, wy, B.side, hitR());
   if (own) {
@@ -799,6 +1037,12 @@ function dragEnd(x, y) {
   cam.clamp();
   if (!d || d.mode === 'pan' || x == null) return;
   if (d.mode === 'order') { tap(x, y); return; }
+  if ((d.mode === 'lane' || d.mode === 'guard') && B.mode) {
+    const a = cam.toWorld(d.sx, d.sy), b = cam.toWorld(x, y);
+    if (d.mode === 'guard') { const r = Math.hypot(b.x - a.x, b.y - a.y) / TS; if (r < 0.9) modeOrder(b.x / TS, b.y / TS, null); else modeOrder(a.x / TS, a.y / TS, r); }
+    else modeOrder(b.x / TS, b.y / TS, null);
+    return;
+  }
   if (d.mode === 'box') {
     const a = cam.toWorld(Math.min(d.sx, x), Math.min(d.sy, y)), b = cam.toWorld(Math.max(d.sx, x), Math.max(d.sy, y));
     const ids = B.sim.squads.filter((s) => s.side === B.side && !HIDDEN(s) && !s.ally && s.x * TS >= a.x - 8 && s.x * TS <= b.x + 8 && s.y * TS >= a.y - 8 && s.y * TS <= b.y + 8).map((s) => s.id);
@@ -812,7 +1056,10 @@ function send(c) {
   else command(B.sim, B.side, c);
   if (B.client && c.type === 'move' && !c.queue) { const s = B.sim.squads.find((q) => q.id === c.squad); if (s) { s.goal = c.post; s.state = 'move'; } }
   if (B.client && c.type === 'moveTo' && !c.queue) { const s = B.sim.squads.find((q) => q.id === c.squad); if (s) { s.rally = { x: c.x, y: c.y }; s.path = [{ x: c.x, y: c.y }]; s.state = 'move'; } }
-  if (B.client && c.type === 'chase') { const s = B.sim.squads.find((q) => q.id === c.squad); if (s) { s.chase = c.target; s.goal = null; } }
+  if (B.client && c.type === 'chase') { const s = B.sim.squads.find((q) => q.id === c.squad); if (s) { s.chase = c.target; s.goal = null; s.guard = null; s.regroup = 0; } }
+  if (B.client && c.type === 'spot') { const s = B.sim.squads.find((q) => q.id === c.squad); if (s) { s.path = [{ x: c.x, y: c.y }]; s.state = 'move'; s.guard = null; s.regroup = 0; } }
+  if (B.client && c.type === 'guard') { const s = B.sim.squads.find((q) => q.id === c.squad); if (s) { s.guard = { x: c.x, y: c.y, r: c.r }; s.regroup = 0; } }
+  if (B.client && c.type === 'camp') { const s = B.sim.squads.find((q) => q.id === c.squad); if (s) { s.regroup = 1; s.guard = null; } }
 }
 
 function startAim(id) {
@@ -865,7 +1112,8 @@ function squadCard(s) {
   } },
     h('div', { class: 'row', style: { gap: '3px' } }, icon, h('b', { class: 'bsq-n' }, dead ? picon('cross', 12) : `${n}`), s.special >= 1 && !dead && s.heroAlive ? h('span', { class: 'gold bsq-star' }, picon('star', 12)) : s.role && s.skillCd <= 0 && !dead && s.heroAlive ? h('span', { class: 'bsq-star', style: { color: '#9fd0ff' } }, picon('points', 12)) : null),
     s.ally ? h('span', { class: 'bsq-tag' }, 'Ally') : null,
-    bar(s.soldiers.length ? n / s.soldiers.length : 0, 'thin'), bar(Math.max(0, s.morale) / 100, 'mor thin'));
+    bar(s.soldiers.length ? n / s.soldiers.length : 0, 'thin'), bar(Math.max(0, s.morale) / 100, 'mor thin'),
+    s.ammoMax && !dead ? bar(s.ammo / s.ammoMax, 'amm' + (s.ammo <= 0 ? ' empty' : '')) : null);
 }
 function focusSquad(s) { cam.x = s.x * TS; cam.y = s.y * TS; if (cam.zoom < cam.min * 1.6) cam.zoom = cam.min * 1.6; cam.clamp(); }
 
@@ -874,7 +1122,7 @@ function refreshHUD(full) {
   const sim = B.sim;
   const sels = selSquads();
   const mine = B.side ? sim.squads.filter((s) => s.side === B.side) : sim.squads.filter((q) => q.side === 'att');
-  const leftKey = mine.map((s) => `${s.id}${s.state.slice(0, 3)}${liveCount(s)}${Math.round(s.morale / 5)}${s.special >= 1 ? 1 : 0}${s.skillCd > 0 ? 0 : 1}${s.state === 'reinforce' ? Math.ceil(s.arriveAt - sim.t) : ''}`).join() + '|' + B.selected.join() + B.box;
+  const leftKey = mine.map((s) => `${s.id}${s.state.slice(0, 3)}${liveCount(s)}${Math.round(s.morale / 5)}${s.special >= 1 ? 1 : 0}${s.skillCd > 0 ? 0 : 1}${s.state === 'reinforce' ? Math.ceil(s.arriveAt - sim.t) : ''}${s.ammoMax ? Math.ceil(s.ammo / 3) : ''}`).join() + '|' + B.selected.join() + B.box;
   if (full || leftKey !== hud.leftKey) {
     hud.leftKey = leftKey;
     hud.left.innerHTML = '';
@@ -916,12 +1164,25 @@ function refreshHUD(full) {
       }
     }
   }
-  const key = sels.map((q) => q.id + q.formation + (q.reform ? q.reform.to : '') + (q.special >= 1 ? '*' : '') + (q.holdFast ? 'h' : '') + Math.ceil(q.skillCd || 0) + terrainAt(sim.field, q.x, q.y)).join() + '|' + (B.aim ? B.aim.id : '') + B.started + B.queue;
+  const md = myDuel();
+  const key = sels.map((q) => q.id + q.formation + (q.reform ? q.reform.to : '') + (q.special >= 1 ? '*' : '') + (q.holdFast ? 'h' : '') + Math.ceil(q.skillCd || 0) + terrainAt(sim.field, q.x, q.y) + 'a' + Math.ceil(q.abCd || 0) + (q.guard ? 'g' : '') + (q.regroup || '') + (q.state === 'rout' ? 'r' : '')).join() + '|' + (B.aim ? B.aim.id : '') + B.started + B.queue + '|' + (B.mode ? B.mode.k : '') + '|' + (md ? `${md.key}${md.pending}${Math.ceil(md.left)}${md.wins}` : '');
   if (full || hud.key !== key) {
     hud.key = key;
     hud.bottom.innerHTML = '';
-    if (B.aim) {
+    if (md) {
+      const R = Math.min(3, md.d.round);
+      hud.bottom.appendChild(h('div', { class: 'bpanel duel-panel' },
+        h('span', { class: 'bpanel-name ellipsis' }, `${md.me.name} vs ${md.foe.name}`, h('small', { class: 'bpanel-ter' }, `Round ${R}/3 · ${md.wins[0]}–${md.wins[1]}`)),
+        ...(md.pending ? [
+          ...DUEL_PICKS.map((k) => btn(PICK_NAME[k], () => pickDuel(k), 'tiny duel-pick ' + k)),
+          h('span', { class: 'duel-time' + (md.left < 1.6 ? ' bad' : '') }, `${Math.ceil(md.left)}s`),
+          h('small', { class: 'duel-help' }, 'Strike › Feint › Guard › Strike'),
+        ] : [h('span', { class: 'muted' }, md.d.rt < 0 ? 'The heroes circle…' : 'Waiting for your foe…')])));
+    } else if (B.aim) {
       hud.bottom.appendChild(h('div', { class: 'bpanel' }, h('span', { class: 'gold' }, `${STRATAGEMS[B.aim.id].name}:`), h('span', {}, 'tap a glowing target'), btn('Cancel', () => { B.aim = null; refreshHUD(true); }, 'tiny')));
+    } else if (B.mode && sels.length) {
+      hud.bottom.appendChild(h('div', { class: 'bpanel' }, h('span', { class: 'gold' }, B.mode.k === 'lane' ? 'Charge:' : 'Guard:'),
+        h('span', {}, B.mode.k === 'lane' ? 'tap or drag where to charge' : 'tap a spot · drag to size the area'), btn('Cancel', () => { B.mode = null; refreshHUD(true); }, 'tiny')));
     } else if (sels.length) {
       const one = sels.length === 1 ? sels[0] : null;
       const forms = new Set(sels.map((q) => (q.reform ? q.reform.to : q.formation)));
@@ -931,14 +1192,38 @@ function refreshHUD(full) {
       const skillers = sels.filter((q) => q.role && SKILLS[q.role] && q.heroAlive);
       const ter = one ? TERRAIN[terrainAt(sim.field, one.x, one.y)] : null;
       const SK = { commander: 'Rally', duelist: 'Duel', strategist: 'Read', scout: 'Scout' };
-      hud.bottom.appendChild(h('div', { class: 'bpanel' },
-        h('span', { class: 'bpanel-name ellipsis', title: ter && ter.tip ? `${ter.name}: ${ter.tip}` : '' }, one ? one.name : `${sels.length} squads`, ter && ter.tip ? h('small', { class: 'bpanel-ter' }, ter.name) : null),
-        ...FORMS.map((f) => btn(FORMATIONS[f].name + (reforming && cur === f ? '…' : ''), () => { for (const q of sels) send({ type: 'formation', squad: q.id, formation: f }); refreshHUD(true); }, 'tiny' + (cur === f ? (reforming ? ' primary' : ' sel') : ''))),
-        btn('Hold', () => { for (const q of sels) send({ type: 'hold', squad: q.id }); toast('Holding position'); refreshHUD(true); }, 'tiny' + (sels.every((q) => q.holdFast) ? ' sel' : '')),
-        specials.length ? btn(picon('star', 18), () => { for (const q of specials) send({ type: 'special', squad: q.id }); }, 'tiny primary') : null,
+      // one button per troop drill among the selection (cooldown shown)
+      const kinds = [...new Set(sels.filter((q) => q.state !== 'rout').map((q) => q.abil).filter(Boolean))].slice(0, 4);
+      const abBtns = kinds.map((k) => {
+        const qs = sels.filter((q) => q.abil === k && q.state !== 'rout'), ready = qs.filter((q) => (q.abCd || 0) <= 0), A = ABILITIES[k];
+        const cd = ready.length ? 0 : Math.min(...qs.map((q) => Math.ceil(q.abCd || 0)));
+        return btn(cd ? `${A.btn} ${cd}` : A.btn, () => {
+          if (!ready.length) return toast(`${A.name} is ready in ${cd}s`);
+          if (k === 'charge') return setMode('lane');
+          for (const q of ready) send({ type: 'ability', squad: q.id });
+          toast(`${A.name}: ${A.desc}`);
+        }, 'tiny ab' + (cd ? ' dim' : ' good'));
+      });
+      const guarding = sels.every((q) => q.guard), camping = sels.every((q) => q.regroup);
+      const row2 = [
+        ...abBtns,
+        btn('Guard', () => setMode('guard'), 'tiny' + (guarding ? ' sel' : '')),
+        btn('Camp', () => {
+          if (camping) return toast('Already regrouping · any order sends them back out');
+          for (const q of sels) send({ type: 'camp', squad: q.id });
+          toast(`${sels.length > 1 ? 'Squads fall' : one.name + ' falls'} back to camp: morale, arrows and some wounded recover`); sfx('march');
+        }, 'tiny' + (camping ? ' sel' : '')),
         ...(skillers.length === 1 ? [skillers[0]] : []).map((q) => btn(q.skillCd > 0 ? `${SK[q.role]} ${Math.ceil(q.skillCd)}` : SK[q.role], () => { if (q.skillCd > 0) return toast(`${SKILLS[q.role].name} is ready in ${Math.ceil(q.skillCd)}s`); send({ type: 'skill', squad: q.id }); toast(`${SKILLS[q.role].name}: ${SKILLS[q.role].desc}`); }, 'tiny' + (q.skillCd > 0 ? ' dim' : ' good'))),
-        btn('+Then', () => { B.queue = !B.queue; toast(B.queue ? 'Queue on: each order is added after the last one' : 'Queue off'); refreshHUD(true); }, 'tiny' + (B.queue ? ' primary' : '')),
-        btn('✕', () => { setSel([]); }, 'tiny')));
+        specials.length ? btn(picon('star', 16), () => { for (const q of specials) send({ type: 'special', squad: q.id }); }, 'tiny primary') : null,
+      ].filter(Boolean);
+      hud.bottom.appendChild(h('div', { class: 'bpanel bpanel2' },
+        h('div', { class: 'bprow' },
+          h('span', { class: 'bpanel-name ellipsis', title: ter && ter.tip ? `${ter.name}: ${ter.tip}` : '' }, one ? one.name : `${sels.length} squads`, ter && ter.tip ? h('small', { class: 'bpanel-ter' }, ter.name) : null),
+          ...FORMS.map((f) => btn(FORMATIONS[f].name + (reforming && cur === f ? '…' : ''), () => { for (const q of sels) send({ type: 'formation', squad: q.id, formation: f }); refreshHUD(true); }, 'tiny' + (cur === f ? (reforming ? ' primary' : ' sel') : ''))),
+          btn('Hold', () => { for (const q of sels) send({ type: 'hold', squad: q.id }); toast('Holding position'); refreshHUD(true); }, 'tiny' + (sels.every((q) => q.holdFast && !q.regroup) ? ' sel' : '')),
+          btn('+Then', () => { B.queue = !B.queue; toast(B.queue ? 'Queue on: each order is added after the last one' : 'Queue off'); refreshHUD(true); }, 'tiny' + (B.queue ? ' primary' : '')),
+          btn('✕', () => { setSel([]); }, 'tiny')),
+        h('div', { class: 'bprow' }, ...row2)));
     } else if (B.started && B.side) {
       hud.bottom.appendChild(h('div', { class: 'bpanel hint' }, B.auto ? 'Your generals are in command' : 'Tap a squad, then a base, a road or an enemy · drag from a squad to order'));
     }
@@ -968,6 +1253,7 @@ function intro() {
     h('div', { class: 'muted' }, side === 'att' ? 'Take the enemy main post (the town) to win. Outposts on the way weaken them.'
       : side === 'def' ? 'Hold the main post until time runs out, or rout the attackers.' : 'You are watching this battle.'),
     tags.length ? h('div', { class: 'good', style: { fontSize: '12px' } }, `Bonuses: ${[...new Set(B.sim.squads.filter((s) => s.side === side).flatMap((s) => s.tags || []))].join(', ')}`) : null,
+    tacticChips(side),
     strengthRow(side),
     reserveRow(side),
     allyLine(side),
@@ -1006,6 +1292,17 @@ function terrainLine() {
   const t = B.sim.field.template;
   const wx = ({ fog: 'Thick fog: archers see less.', blizzard: 'Blizzard: troops march slowly and morale wanes.', storm: 'Storm: arrows fly short and fires sputter.', drought: 'Drought: fire spreads fast.' })[B.sim.weather] || '';
   return (wx + ' ' + (({ river: 'A river cuts the field: cross at bridges and fords.', lake: 'A lake sits in the middle.', forest: 'Thick woods give cover from arrows.', pass: 'High ground: hills slow troops but favour defenders and archers.', islands: 'Islands linked by bridges.', coast: 'The sea guards one flank.', ruins: 'Old ruins dot the field.', dungeon: 'Underground halls; beware traps.' })[t] || '')).trim();
+}
+// what's special about this field: night, hilltops, a side goal
+function tacticChips(side) {
+  const sim = B.sim, O = sim.obj, out = [];
+  const c = (icon, text, tip) => h('span', { class: 'tchip', title: tip }, picon(icon, 14), ' ' + text);
+  if (sim.night) out.push(c('moon', 'Night', 'You see only what your torches light. Ambushes strike twice as hard; scouts see farther.'));
+  if (sim.hills && sim.hills.length) out.push(c('hill', 'High ground', 'Hold a hilltop flag: squads there shoot farther and take less harm.'));
+  if (O) out.push(c(O.kind === 'caravan' ? 'wagon' : O.kind === 'supplies' ? 'warning' : 'lock',
+    ({ caravan: 'Escort the caravan', supplies: side === 'def' ? 'Guard the supplies' : 'Burn the supplies', captive: 'Free the captive' })[O.kind],
+    ({ caravan: 'Stand by the caravan with no enemy near and it rolls to your lines.', supplies: 'Hold a squad by the supply cache, unopposed, to burn it.', captive: 'Hold the hut with no enemy close to free the captive.' })[O.kind]));
+  return out.length ? h('div', { class: 'row wrap', style: { gap: '4px' } }, ...out) : null;
 }
 function allyLine(side) {
   if (!side) return null;
@@ -1067,6 +1364,9 @@ function endBattle(result) {
     elitesLost.length ? h('div', { class: 'bad', style: { fontSize: '12px' } }, `Fallen Elites: ${elitesLost.slice(0, 4).join(', ')}${elitesLost.length > 4 ? '…' : ''}`) : null,
     hurt.length ? h('div', { style: { fontSize: '12px' } }, h('span', { class: 'muted' }, 'Heroes beaten: '), hurt.map((q) => q.name.split(' ')[0] + (q.side === me ? ' (yours)' : '')).join(', '), h('span', { class: 'muted' }, ' — they may be wounded or taken prisoner.')) : null,
     (result.nemesisResult || []).length ? h('div', { class: 'gold', style: { fontSize: '12px' } }, 'A nemesis grudge was settled on this field.') : null,
+    result.objective ? h('div', { class: result.objective.done ? (result.objective.by === me ? 'good' : 'bad') : 'muted', style: { fontSize: '12px' } },
+      result.objective.done ? `${({ caravan: 'Caravan delivered', supplies: 'Supplies burned', captive: 'Captive freed' })[result.objective.kind]} by ${result.objective.by === me ? (B.side ? 'your army' : 'the attackers') : (B.side ? 'the enemy' : 'the defenders')}.`
+        : `${({ caravan: 'The caravan', supplies: 'The supply cache', captive: 'The captive' })[result.objective.kind]} was left ${result.objective.kind === 'supplies' ? 'standing' : 'behind'}.`) : null,
   ];
   setTimeout(() => modal(won == null ? (result.winner === 'att' ? 'Attackers win' : 'Defenders win') : won ? 'Victory!' : 'Defeat',
     h('div', { class: 'col recap' }, result.retreated ? h('div', { class: 'muted' }, `${result.retreated === 'att' ? 'The attackers' : 'The defenders'} retreated.`) : null, lines),
@@ -1090,6 +1390,7 @@ export function startPractice(opts = {}) {
     colors: { att: '#3a7bf0', def: '#d8402f' }, control: { att: 0, def: 'ai' },
     garrison: { squads: 2, size: 4 }, skirmish: true, weather: null, nemesis: [], intel: true,
     land: { forest: 0, mtn: 0, river: false, lake: false, coast: false, island: false, sites: [] }, reinforce: { att: [], def: [] },
+    night: false, objective: false, // keep the first fight simple
   };
   go('battle', { setup, items: {}, me: 0, practice: { back, backArgs } });
 }

@@ -444,3 +444,23 @@ body.overlay-open .side, body.overlay-open .goals, body.overlay-open .minimap, b
 
 .picon { image-rendering: pixelated; vertical-align: middle; flex: none; display: inline-block; }
 .chip .picon { margin-right: 2px; }
+
+/* battle 14 */
+.bpanel.bpanel2 { flex-direction: column; align-items: stretch; gap: 3px; padding: 3px 5px; }
+.bpanel .bprow { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; justify-content: center; }
+.bpanel .btn.tiny.ab.good { box-shadow: inset 0 0 0 1px #9fd0ff; }
+.bpanel .btn.dim { opacity: .55; }
+.duel-panel { border-color: #ffd86b; box-shadow: 0 0 0 2px rgba(255,216,107,.35); }
+.duel-panel .duel-pick { min-width: 54px; font-weight: 700; }
+.duel-panel .duel-pick.strike { box-shadow: inset 0 0 0 1px #ff9a7a; }
+.duel-panel .duel-pick.guard { box-shadow: inset 0 0 0 1px #9fd0ff; }
+.duel-panel .duel-pick.feint { box-shadow: inset 0 0 0 1px #c48bff; }
+.duel-panel .duel-time { font-weight: 700; color: var(--gold); min-width: 20px; text-align: center; }
+.duel-panel .duel-time.bad { color: #ff6a5a; }
+.duel-panel .duel-help { font-size: 10px; color: #9fd0ff; white-space: nowrap; }
+.bar.amm { height: 6px; border-width: 2px; border-image-width: 2px; }
+.bar.amm > i { background: linear-gradient(#fff0a8, #e8d070 60%, #b89a30); }
+.bar.amm.empty { animation: ammblink 1s steps(2) infinite; }
+@keyframes ammblink { 50% { opacity: .35; } }
+@media (max-width: 700px) { .duel-panel .duel-help { display: none; } .duel-panel .duel-pick { min-width: 46px; } .bpanel-name { max-width: 84px; } }
+.tchip { display: inline-flex; align-items: center; gap: 2px; font-size: 12px; line-height: 16px; padding: 1px 6px; border-radius: 3px; background: rgba(255,216,107,.12); border: 1px solid rgba(255,216,107,.35); color: #f2e6c8; white-space: nowrap; }
