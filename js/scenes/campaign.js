@@ -307,6 +307,7 @@ export function refreshUI() {
     h('span', { class: 'chip tap', title: 'Food', onClick: () => economySheet('food') }, picon('food', 16), `${Math.round(k.food)} `, h('small', { class: eco.food >= 0 ? 'good' : 'bad' }, sign(eco.food))),
     h('span', { class: 'chip tap ' + (k.morale < 30 ? 'bad' : ''), title: 'Order', onClick: () => economySheet('morale') }, picon('stability', 16), `${Math.round(k.morale)}`),
     h('span', { class: 'chip muted', title: cap1(dateOf(st.turn)) }, shortDate(st.turn)),
+    pendingChoice(st, k.id) && !waiting ? h('span', { class: 'chip gold tap pulse-chip', title: pendingChoice(st, k.id).title, onClick: showChoice }, picon('scroll', 16), 'Decide') : null,
     h('span', { class: 'grow' }),
     btn(picon('menu', 18), menu, 'small'),
     (() => { const pend = waiting ? '' : pendingLabel(pendingItems()); return btn(waiting ? waiting : h('span', { class: 'row', style: { gap: '4px' } }, 'End Turn', pend ? h('small', { class: 'pending-tag' }, pend) : null), endTurnPressed, 'primary small end-turn'); })(),
@@ -1105,16 +1106,16 @@ function connectionLost() {
 // ---------- what needs you before the month ends ----------
 function pendingItems() {
   const st = S.state, k = myK(), items = [];
+  if (pendingChoice(st, k.id)) items.push({ kind: 'choice', c: pendingChoice(st, k.id) });
   for (const a of armiesOf(st, k.id)) if (a.some((x) => !x.order)) items.push({ kind: 'idle', army: a });
   for (const p of st.proposals.filter((x) => x.to === k.id)) items.push({ kind: 'offer', p });
   for (const b of (st.pendingBirths || []).filter((x) => x.kid === k.id)) items.push({ kind: 'child', b });
   for (const x of kingdomHeroes(st, k.id).filter((x) => !x.role && x.level >= ROLE_LEVEL)) items.push({ kind: 'calling', x });
-  if (pendingChoice(st, k.id)) items.push({ kind: 'choice', c: pendingChoice(st, k.id) });
   return items;
 }
 function pendingLabel(items) {
   const n = (kind) => items.filter((i) => i.kind === kind).length;
-  return [[n('idle'), 'idle'], [n('offer'), n('offer') > 1 ? 'offers' : 'offer'], [n('choice'), 'decision'], [n('child'), n('child') > 1 ? 'children' : 'child'], [n('calling'), 'calling']]
+  return [[n('choice'), 'decision'], [n('offer'), n('offer') > 1 ? 'offers' : 'offer'], [n('idle'), 'idle'], [n('child'), n('child') > 1 ? 'children' : 'child'], [n('calling'), 'calling']]
     .filter(([c]) => c).slice(0, 2).map(([c, w]) => `${c} ${w}`).join(' · ');
 }
 // End Turn walks through what is pending, one at a time; skip all to end the month anyway
@@ -1398,7 +1399,9 @@ function achievementToasts() {
 export function showChoice() {
   const st = S.state, k = myK();
   const c = pendingChoice(st, k.id);
-  if (!c || document.querySelector('.modal')) return;
+  if (!c) return;
+  // another window is open (month summary, a battle report…): ask again once it closes
+  if (document.querySelector('.modal')) { clearTimeout(S._choiceRetry); S._choiceRetry = setTimeout(() => { if (S.state === st) showChoice(); }, 700); return; }
   sfx('alert');
   const body = h('div', { class: 'col' },
     h('div', {}, c.text),

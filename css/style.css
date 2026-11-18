@@ -485,3 +485,6 @@ body.overlay-open .side, body.overlay-open .goals, body.overlay-open .minimap, b
 @keyframes ammblink { 50% { opacity: .35; } }
 @media (max-width: 700px) { .duel-panel .duel-help { display: none; } .duel-panel .duel-pick { min-width: 46px; } .bpanel-name { max-width: 84px; } }
 .tchip { display: inline-flex; align-items: center; gap: 2px; font-size: 12px; line-height: 16px; padding: 1px 6px; border-radius: 3px; background: rgba(255,216,107,.12); border: 1px solid rgba(255,216,107,.35); color: #f2e6c8; white-space: nowrap; }
+/* decision waiting */
+@keyframes pulseChip { 0%,100% { box-shadow: 0 0 0 0 rgba(255,210,90,.0); } 50% { box-shadow: 0 0 0 3px rgba(255,210,90,.45); } }
+.pulse-chip { animation: pulseChip 1.6s ease-in-out infinite; flex-shrink: 0; }
