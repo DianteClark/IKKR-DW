@@ -14,8 +14,7 @@ const CORE = [
   'js/campaign/goals.js', 'js/campaign/mapview.js', 'js/campaign/share.js', 'js/campaign/widgets.js',
   'js/battle/field.js', 'js/battle/fx.js', 'js/battle/sim.js',
   'js/scenes/banner.js', 'js/scenes/battle.js', 'js/scenes/campaign.js', 'js/scenes/fame.js', 'js/scenes/howto.js', 'js/scenes/lobby.js', 'js/scenes/saves.js', 'js/scenes/setup.js', 'js/scenes/title.js',
-  'assets/fonts/nunito-latin-500-normal.woff2', 'assets/fonts/nunito-latin-700-normal.woff2', 'assets/fonts/nunito-latin-800-normal.woff2', 'assets/fonts/pixelify-sans-latin-400-normal.woff2', 'assets/fonts/pixelify-sans-latin-500-normal.woff2', 'assets/fonts/pixelify-sans-latin-600-normal.woff2', 'assets/fonts/pixelify-sans-latin-700-normal.woff2',
-  'assets/has2020/UI/Separate/Font/MiKrollFantasy.ttf',
+  'assets/fonts/nunito-latin-500-normal.woff2', 'assets/fonts/nunito-latin-700-normal.woff2', 'assets/fonts/nunito-latin-800-normal.woff2',
   'icons/icon-120.png', 'icons/icon-152.png', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png',
 ];
 const fresh = new Set();

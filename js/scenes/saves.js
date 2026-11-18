@@ -47,6 +47,7 @@ async function render() {
     h('div', { class: 'panel col grow', style: { minHeight: 0 } },
       h('div', { class: 'row' }, btn('‹ Back', () => { sfx('close'); go('title'); }, 'small'), h('h2', { class: 'grow', style: { margin: 0 } }, 'Continue'), btn('Import backup', importFlow, 'small')),
       list.length ? null : h('div', { class: 'muted' }, 'No saved campaigns yet. Every campaign saves itself each month.'),
+      listCampaigns.skipped ? h('div', { class: 'muted small-text' }, `${listCampaigns.skipped} older or damaged save${listCampaigns.skipped > 1 ? 's' : ''} on this phone can't be opened by this version.`) : null,
       h('div', { class: 'scroll grow', style: { minHeight: 0 } },
         h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' } }, cards)),
       h('div', { class: 'muted', style: { fontSize: '12px' } }, 'Two-player campaigns are saved on both phones. Either player taps Host & resume; the other opens Multiplayer and joins with the room code. Each phone holds a private seat key, so nobody can take the other\'s realm.'))));

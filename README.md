@@ -47,4 +47,4 @@ then open http://localhost:8000
 
 ## Credits
 Art: **Aleksandr Makarov (IKnowKingRabbit)** — HAS asset packs. https://www.patreon.com/iknowkingrabbit
-Fonts: Pixelify Sans and Nunito (SIL Open Font License), MiKroll Fantasy (HAS UI pack).
+Fonts: Nunito (SIL Open Font License).

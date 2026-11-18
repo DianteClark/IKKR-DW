@@ -110,4 +110,11 @@ export const install = { prompt: null, standalone: matchMedia('(display-mode: st
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); install.prompt = e; });
 window.addEventListener('appinstalled', () => { install.prompt = null; install.standalone = true; });
 
-boot();
+boot().catch((e) => {
+  // a file failed to arrive (lost signal on the first visit): say so instead of hanging on "Loading"
+  console.error(e);
+  const el = document.getElementById('boot');
+  el.classList.remove('hidden');
+  el.textContent = 'Could not load the game. Check your connection and tap to try again.';
+  el.addEventListener('click', () => location.reload(), { once: true });
+});

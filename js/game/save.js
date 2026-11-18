@@ -5,7 +5,7 @@
 const DB = 'ikkr-dw', STORE = 'campaigns', LEGACY = 'ikkr-dw-save-v1', LS_PREFIX = 'ikkr-dw-camp:';
 const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
-export function newCode(n = 6) { let s = ''; for (let i = 0; i < n; i++) s += ALPHA[Math.floor(Math.random() * ALPHA.length)]; return s; }
+function newCode(n = 6) { let s = ''; for (let i = 0; i < n; i++) s += ALPHA[Math.floor(Math.random() * ALPHA.length)]; return s; }
 export function newKey() { return newCode(16); }
 // small stable hash (FNV-1a, two lanes) — enough to tell keys apart without shipping them
 export function hashKey(str) {
