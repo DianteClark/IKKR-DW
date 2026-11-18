@@ -106,6 +106,7 @@ img, .spr { image-rendering: pixelated; }
 .col { display: flex; flex-direction: column; gap: 8px; }
 .wrap { flex-wrap: wrap; }
 .grow { flex: 1; min-width: 0; }
+.row.wrap > .grow { flex: 1 1 auto; } /* in a wrapping row a growing item moves to its own line instead of being crushed */
 .scroll { overflow-y: auto; -webkit-overflow-scrolling: touch; touch-action: pan-y; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--gold-deep) transparent; }
 .scroll::-webkit-scrollbar { width: 6px; }
 .scroll::-webkit-scrollbar-thumb { background: var(--gold-deep); border-radius: 3px; }
@@ -138,7 +139,11 @@ img, .spr { image-rendering: pixelated; }
 .side { position: absolute; top: calc(52px + var(--sat)); bottom: calc(6px + var(--sab)); right: calc(6px + var(--sar)); width: min(48vw, 400px); display: flex; flex-direction: column; animation: slideInR .28s var(--ease) both; }
 .side .panel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 @keyframes slideInR { from { transform: translateX(40px); opacity: 0; } to { transform: none; opacity: 1; } }
-.bottombar { position: absolute; left: calc(6px + var(--sal)); bottom: calc(6px + var(--sab)); display: flex; gap: 6px; flex-wrap: wrap; max-width: 52vw; }
+/* the bottom bar stays on one line up to the minimap; when its buttons do not fit it scrolls sideways instead of crushing them */
+.bottombar { position: absolute; left: calc(3px + var(--sal)); bottom: calc(3px + var(--sab)); padding: 3px; display: flex; gap: 4px; flex-wrap: nowrap; max-width: calc(100vw - 196px - var(--sar) - var(--sal)); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.bottombar::-webkit-scrollbar { display: none; }
+.bottombar > .btn { white-space: nowrap; flex: none; }
+@media (max-width: 800px) { .bottombar .btn { padding-left: 8px; padding-right: 8px; font-size: 14px; } }
 
 /* ---------- modal / sheet ---------- */
 .modal-back {
@@ -305,6 +310,7 @@ input.text:focus { outline: none; box-shadow: 0 0 0 2px var(--gold); }
 .topbar .chip.row { flex-shrink: 1; min-width: 0; overflow: hidden; }
 .topbar .btn { flex-shrink: 0; white-space: nowrap; }
 @media (max-width: 760px) { .topbar .chip { font-size: 13px; } .topbar .chip small { display: none; } }
+@media (max-width: 940px) { .topbar .realm-chip .tag { display: none; } } /* the realm's name matters more than its rank on a phone */
 /* battle 10 */
 .battle-top { gap: 5px; }
 .battle-top .chip { white-space: nowrap; }
@@ -328,10 +334,7 @@ input.text:focus { outline: none; box-shadow: 0 0 0 2px var(--gold); }
 /* banner maker */
 .swatch-btn { width: 30px; height: 30px; border: 3px solid #1a1420; border-radius: 3px; cursor: pointer; padding: 0; }
 .swatch-btn.on { outline: 3px solid var(--gold); outline-offset: 1px; }
-/* bottom bar stays on one line: room up to the minimap */
-.bottombar { max-width: calc(100vw - 200px); flex-wrap: nowrap; gap: 4px; }
-.bottombar .btn { white-space: nowrap; flex-shrink: 1; min-width: 0; }
-.bottombar .home-btn { font-size: 20px; padding-left: 10px; padding-right: 10px; flex-shrink: 0; }
+.bottombar .home-btn { font-size: 20px; padding-left: 10px; padding-right: 10px; }
 /* banner maker v2 */
 .bm-stage { flex: none; width: 190px; display: grid; place-items: center; border-radius: 4px;
   background: radial-gradient(ellipse at 50% 35%, #3a6fb0 0%, #24427a 55%, #18233f 100%); box-shadow: inset 0 0 0 3px #1a1420, inset 0 -38px 0 #3c7a35, inset 0 -41px 0 #2c5a27; }
@@ -352,9 +355,8 @@ input.text:focus { outline: none; box-shadow: 0 0 0 2px var(--gold); }
 .bpanel-name > .ellipsis, .battle-top .chip > .ellipsis { display: block; max-width: 100%; }
 .bpanel-ter { font-size: 10px; color: #9fd0ff; font-weight: 600; }
 .btn.tiny.dim { opacity: .55; }
-.bottombar .gold-btn { color: var(--gold); flex-shrink: 0; }
+.bottombar .gold-btn { color: var(--gold); }
 
-.bottombar.narrow { max-width: calc(54vw - 16px); overflow-x: auto; scrollbar-width: none; }
 .bottombar.narrow .btn { padding-left: 8px; padding-right: 8px; font-size: 14px; }
 
 /* ux 12 */
@@ -441,10 +443,6 @@ body.overlay-open .side, body.overlay-open .goals, body.overlay-open .minimap, b
 .disabled-block { opacity: .45; pointer-events: none; }
 .walk-card { align-items: stretch; gap: 6px; }
 .pending-tag { font-size: 11px; opacity: .9; margin-left: 4px; }
-/* narrow phones: when the land panel is open the bottom bar scrolls sideways instead of crushing its buttons */
-.bottombar.narrow { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
-.bottombar.narrow::-webkit-scrollbar { display: none; }
-.bottombar.narrow > .btn { flex: none; }
 .end-turn .pending-tag { color: #3a2408; }
 /* battle 14 */
 .bpanel.bpanel2 { flex-direction: column; align-items: stretch; gap: 3px; padding: 3px 5px; }
