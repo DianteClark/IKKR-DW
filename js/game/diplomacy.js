@@ -1,6 +1,6 @@
 // Alliances, vassals (allegiance by fear), coalitions against a dominant realm, lending heroes, loyalty and defection.
 import {
-  treaty, allied, friendly, overlordOf, kingdomHeroes, kingdomTerritories, log, clamp, hero, joinKingdom, isHumanKingdom, rngFor,
+  treaty, allied, friendly, kingdomHeroes, kingdomTerritories, log, clamp, hero, joinKingdom, isHumanKingdom, rngFor,
 } from './world.js';
 import { squadPower, tierIndex, temper } from './rules.js';
 
@@ -62,6 +62,8 @@ export function makeTreaty(state, a, b, type, proposer) {
   state.treaties = state.treaties.filter((t) => !((t.a === a && t.b === b) || (t.a === b && t.b === a)) || t.type === type);
   if (type === 'vassal') state.treaties = state.treaties.filter((t) => !(t.type === 'vassal' && t.b === b));
   state.treaties.push({ a, b, type, proposer, since: state.turn });
+  // friends are not at war: an alliance or fealty ends any war between realms it makes friendly
+  state.wars = (state.wars || []).filter((w) => !friendly(state, w.a, w.b));
   bump(state, a, b, 20); bump(state, b, a, 20);
   const A = state.kingdoms[a], B = state.kingdoms[b];
   log(state, type === 'alliance' ? `${A.name} and ${B.name} formed an alliance.` : type === 'vassal' ? `${B.name} bent the knee to ${A.name}.` : `${A.name} and ${B.name} agreed a truce.`, -1, 'diplomacy');
@@ -79,7 +81,7 @@ export function propose(state, from, to, type) {
     return 'pending';
   }
   const w = willingness(state, to, from, type) + (rngFor(state, from * 7 + to)() - 0.5) * 0.15;
-  if (w > 0.5) { makeTreaty(state, type === 'vassal' ? from : from, to, type, from); return 'accepted'; }
+  if (w > 0.5) { makeTreaty(state, from, to, type, from); return 'accepted'; }
   bump(state, to, from, type === 'vassal' ? -25 : -5);
   if (type === 'vassal') log(state, `${state.kingdoms[to].name} refused to bow to ${state.kingdoms[from].name}.`, -1, 'diplomacy');
   return 'refused';
@@ -89,6 +91,7 @@ export function respondProposal(state, id, accept) {
   const p = state.proposals.find((x) => x.id === id);
   if (!p) return false;
   state.proposals = state.proposals.filter((x) => x.id !== id);
+  if (!state.kingdoms[p.from].alive || !state.kingdoms[p.to].alive) return true; // the other side is gone
   if (p.type === 'peace') {
     // gold > 0: the offerer pays; gold < 0: the receiver pays to end it
     if (accept) { const pay = p.gold || 0; const F = state.kingdoms[p.from], T = state.kingdoms[p.to];
@@ -260,7 +263,7 @@ export function actOfWar(state, by, against, what, notes) {
     if (isHumanKingdom(state, by)) {
       state.proposals.push({ id: state.nextId++, from: against, to: by, type: 'peace', gold, turn: state.turn });
       if (notes) notes.push({ kid: by, kind: 'diplomacy', text: `${V.name} is outmatched and offers ${gold}g for peace.` });
-    } else if (willingness(state, by, against, 'truce') > 0.3) { V.gold -= gold; A.gold += gold; makePeace(state, by, against); }
+    } else if (willingness(state, by, against, 'truce') > 0.3) { const paid = Math.min(gold, Math.max(0, V.gold)); V.gold -= paid; A.gold += paid; makePeace(state, by, against); }
     log(state, `${A.name} committed an act of war against ${V.name} (${what}).`, against, 'war');
     return;
   }

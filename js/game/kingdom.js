@@ -31,7 +31,7 @@ export function economyPreview(state, k) {
   }
   const trade = k.landless ? 0 : tradeIncome(state, k.id);
   return { gold: gold - tributeOut + tributeIn + trade, trade, food: food - eat, foodMade: food, foodEaten: eat, tributeIn, tributeOut, soldiers, lands: lands.length,
-    morale: tax.morale + rat.morale, stability: 0,
+    morale: tax.morale + rat.morale,
     // parts, for the economy breakdown
     landGold, landFood, taxGold: tax.gold, granary: !!k.buildings.granary, season, seasonFood: SEASON_FOOD[season], rationFood: rat.food,
     heroCount: heroes.length, ruined: lands.filter((t) => t.ruined > 0).length };

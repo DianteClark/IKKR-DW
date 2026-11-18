@@ -1,7 +1,6 @@
 // World events, bandits, monster outbreaks, civil uprisings, overthrows and wandering heroes.
-import { FACTIONS, FACTION_IDS } from '../data/art.js';
 import {
-  makeHero, newKingdom, heroesAt, kingdomHeroes, kingdomTerritories, log, clamp, joinKingdom, hero, isHumanKingdom, pickLoadout,
+  makeHero, newKingdom, heroesAt, kingdomHeroes, kingdomTerritories, log, clamp, joinKingdom, hero, pickLoadout,
 } from './world.js';
 import { squadPower, garrisonPower, squadCap } from './rules.js';
 
@@ -137,7 +136,7 @@ export function overthrow(state, k, rng, list) {
   const heroes = kingdomHeroes(state, k.id, true);
   let followers = 0;
   for (const h of heroes) {
-    if (human && (h.id === k.ruler || h.loyalty >= 55)) { followers++; h.lentTo = -1; continue; }
+    if (human && (h.id === k.ruler || h.loyalty >= 55)) { if (h.id !== k.ruler) followers++; h.lentTo = -1; continue; }
     if (h.loyalty < 40 && rng() < 0.6) { joinKingdom(state, h, rebels.id, 65); if (!hero(state, rebels.ruler)) rebels.ruler = h.id; }
     else { h.status = 'vagabond'; h.kingdom = -1; h.order = null; h.lentTo = -1; if (h.id === k.ruler) h.ambition = 100; }
   }
@@ -147,7 +146,7 @@ export function overthrow(state, k, rng, list) {
   state.treaties = state.treaties.filter((t) => t.a !== k.id && t.b !== k.id);
   k.gold = Math.round(k.gold / 2); k.morale = 40;
   ev(state, list, 'overthrow', k.capital, human
-    ? `Revolution! ${k.name} has been overthrown. ${ruler ? ruler.name : 'Your ruler'} flees with ${followers - 1} loyal hero${followers === 2 ? '' : 'es'}.`
+    ? `Revolution! ${k.name} has been overthrown. ${ruler ? ruler.name : 'Your ruler'} flees with ${followers} loyal hero${followers === 1 ? '' : 'es'}.`
     : `${k.name} was overthrown by its own people! ${ruler ? ruler.name + ' is now a vagabond.' : ''}`, k.id);
   return rebels;
 }

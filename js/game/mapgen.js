@@ -13,7 +13,6 @@ export const SIZES = {
   huge: { W: 262, H: 162, n: 150, scale: 22, mode: 'mainland', rivers: 9 },
   enormous: { W: 416, H: 260, n: 320, scale: 24, mode: 'world', rivers: 18 },
 };
-export const MAP_W = SIZES.medium.W, MAP_H = SIZES.medium.H;
 
 const DIRS4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 

@@ -2,6 +2,7 @@
 // Some achievements unlock extra banner emblems. A new campaign may start with the heir of a famous hero.
 import { FACTIONS } from '../data/art.js';
 import { setEarnedSource } from '../engine/banner.js';
+import { yearOf } from './family.js';
 
 const FAME = 'ikkr-dw-fame', ACH = 'ikkr-dw-ach';
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) || d; } catch { return d; } };
@@ -16,7 +17,7 @@ export function recordCampaign(state, kid, result) {
     .map((h) => ({ name: h.name, fid: h.fid, gender: h.gender, portrait: h.portrait, level: h.level, deeds: h.deeds || 0, atk: h.atk, def: h.def, lead: h.lead, int: h.int }));
   const ruler = state.heroes.find((h) => h.id === k.ruler);
   const list = hallOfFame();
-  list.unshift({ when: Date.now(), cid: state.cid, realm: k.name, fid: k.fid, banner: k.banner, ruler: ruler ? ruler.name : '?', years: Math.floor((state.turn - 1) / 4) + 1, lands: state.territories.filter((t) => t.owner === kid).length, result, size: state.size, heroes });
+  list.unshift({ when: Date.now(), cid: state.cid, realm: k.name, fid: k.fid, banner: k.banner, ruler: ruler ? ruler.name : '?', years: yearOf(state.turn), lands: state.territories.filter((t) => t.owner === kid).length, result, size: state.size, heroes });
   save(FAME, list.slice(0, 30));
 }
 // heroes worth descending from, for the new-campaign option
@@ -46,7 +47,7 @@ export const ACHIEVEMENTS = [
   { id: 'rich', name: 'Treasury', desc: 'Hoard 3000 gold.', test: (s, k) => k.gold >= 3000, unlock: 'coins' },
   { id: 'army', name: 'Host', desc: 'Command 150 soldiers.', test: (s, k) => s.heroes.filter((h) => h.kingdom === k.id && h.status === 'active').reduce((n, h) => n + h.troops.length, 0) >= 150 },
   { id: 'elite', name: 'Veterans', desc: 'Have ten named Elites.', test: (s, k) => s.heroes.filter((h) => h.kingdom === k.id).reduce((n, h) => n + h.troops.filter((t) => t.s === 3).length, 0) >= 10 },
-  { id: 'year10', name: 'A Decade of Rule', desc: 'Reach year 10.', test: (s) => s.turn >= 37 },
+  { id: 'year10', name: 'A Decade of Rule', desc: 'Reach year 10.', test: (s) => yearOf(s.turn) >= 10 },
   { id: 'victory', name: 'Dynasty', desc: 'Win a campaign.', test: (s, k) => s.over && (s.over.winner === k.id || (s.over.winners || []).includes(k.id)), unlock: 'crossshield' },
   ...Object.keys(FACTIONS).map((fid) => ({ id: 'win_' + fid, name: `Champion of the ${FACTIONS[fid].race}`, desc: `Win as ${FACTIONS[fid].name}.`, test: (s, k) => k.fid === fid && s.over && (s.over.winner === k.id || (s.over.winners || []).includes(k.id)) })),
 ];

@@ -11,7 +11,6 @@ const RARITY = [
   { name: 'Epic', adj: ['Dragon', 'Ancient', 'Mythic', 'Celestial'], pts: 11, color: '#d48bff' },
 ];
 export function rarityColor(r) { return RARITY[r].color; }
-export function rarityName(r) { return RARITY[r].name; }
 
 // main stat weights per slot
 const BIAS = { weapon: ['atk', 'atk', 'int'], armor: ['def', 'def', 'lead'], helm: ['def', 'int', 'morale'], shield: ['def', 'def'], gloves: ['atk', 'def'], boots: ['spd', 'def', 'lead'], accessory: ['int', 'lead', 'morale', 'atk'] };

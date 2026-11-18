@@ -2,10 +2,10 @@
 // About a third of the world begins unclaimed: free hamlets with their own militia, plus ruins, lairs, bandit camps,
 // shrines, mines and groves scattered through the wilds. Heroes travel into neutral land to claim it by force,
 // plunder it, protect it until it chooses to join, explore sites, or court a wanderer hiding there.
-import { FACTION_IDS, FACTIONS } from '../data/art.js';
-import { hero, heroesAt, log, isHumanKingdom, joinKingdom, giveItem, makeHero, gainHeroXp, gainTroopXp, kingdomTerritories } from './world.js';
+import { FACTION_IDS } from '../data/art.js';
+import { hero, heroesAt, log, isHumanKingdom, joinKingdom, giveItem, makeHero, gainHeroXp, gainTroopXp } from './world.js';
 import { squadPower, newSoldier, squadCap } from './rules.js';
-import { canWed, wed } from './family.js';
+import { wed } from './family.js';
 
 export const SITES = {
   ruin: { name: 'Ancient Ruin', verb: 'Explore', desc: 'Crumbling halls with old treasure and older guardians.', power: [55, 140] },
@@ -17,8 +17,6 @@ export const SITES = {
 };
 export const SITE_IDS = Object.keys(SITES);
 export const PROTECT_TURNS = 3;
-
-export const isNeutral = (t) => t.owner < 0;
 
 // ---------- world setup ----------
 export function initNeutral(state, T, rng) {

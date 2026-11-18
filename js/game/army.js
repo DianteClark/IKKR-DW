@@ -28,8 +28,6 @@ export function sharedOrder(list) {
   if (!o) return list.every((h) => !h.order) ? null : 'mixed';
   return list.every((h) => h.order && h.order.type === o.type && h.order.target === o.target && h.order.site === o.site) ? o : 'mixed';
 }
-const STANDING = ['protect', 'besiege'];
-export function isStanding(o) { return !!o && STANDING.includes(o.type); }
 // one line describing an order, with progress for orders that last several months
 export function orderStatus(state, h) {
   const o = h.order; if (!o) return null;

@@ -1,6 +1,6 @@
 // End-of-turn: economy, prisoners, wanderers, world events, diplomacy, then the next turn begins.
 import { FACTION_IDS } from '../data/art.js';
-import { rngFor, kingdomHeroes, makeHero, decideCaptive, isHumanKingdom, checkKingdoms, log, hero, pickLoadout, tidy } from './world.js';
+import { rngFor, kingdomHeroes, makeHero, decideCaptive, isHumanKingdom, checkKingdoms, log, hero, pickLoadout, tidy, suggestRole } from './world.js';
 import { economyTick, aiDevelop, autoPromote } from './kingdom.js';
 import { familyTick } from './family.js';
 import { neutralTick } from './neutral.js';
@@ -10,7 +10,7 @@ import { weatherTick } from './weather.js';
 import { warTick } from './diplomacy.js';
 import { worldEvents, vagabondTick, decayMarks } from './events.js';
 import { diplomacyTick } from './diplomacy.js';
-import { TIERS, tierIndex } from './rules.js';
+import { TIERS, tierIndex, ROLE_LEVEL, ROLES } from './rules.js';
 import { stewardTick } from './steward.js';
 
 export function endTurn(state) {
@@ -36,12 +36,13 @@ export function endTurn(state) {
     const harsh = k.kind === 'bandit' || k.kind === 'monster' ? 0.35 : 0.15;
     decideCaptive(state, h.id, r < harsh ? 'execute' : r < 0.55 ? 'recruit' : r < 0.85 ? 'release' : 'keep');
   }
-  vagabondTick(state, rng, notes);
+  const uprisings = []; // revolts raised by wanderers are world events like any other
+  vagabondTick(state, rng, uprisings);
   familyTick(state, rng, notes);
   neutralTick(state, rng, notes);
   storyTick(state, rng);
   choiceTick(state, rng);
-  const events = worldEvents(state, rng);
+  const events = [...uprisings, ...worldEvents(state, rng)];
   diplomacyTick(state, rng, notes);
   warTick(state, rng);
   // realms with land but no heroes raise a champion; AI realms grow
@@ -55,7 +56,15 @@ export function endTurn(state) {
     if (k.player < 0) { aiDevelop(state, k, rng); if (state.turn % 5 === 0) k.loadout = pickLoadout(k, rng); }
   }
   autoPromote(state);
-  for (const h of state.heroes) if (h.pendingRole && !h.role && !isHumanKingdom(state, h.kingdom)) { h.role = h.pendingRole; delete h.pendingRole; }
+  for (const h of state.heroes) {
+    if (h.role || h.status !== 'active' || h.level < ROLE_LEVEL || h.kingdom < 0) continue;
+    if (!isHumanKingdom(state, h.kingdom)) { if (h.pendingRole) { h.role = h.pendingRole; delete h.pendingRole; } continue; }
+    // a player who leaves a calling unchosen for three months: the hero takes the one that suits them
+    if ((h.roleWait = (h.roleWait || 0) + 1) >= 3) {
+      h.role = ROLES[h.pendingRole] ? h.pendingRole : suggestRole(h); delete h.pendingRole; delete h.roleWait;
+      notes.push({ kid: h.kingdom, kind: 'calling', text: `${h.name} took up the calling of ${ROLES[h.role].name}: ${ROLES[h.role].desc}` });
+    }
+  }
   if (state.turn % 9 === 0) {
     const n = rng.int(1, 2);
     for (let i = 0; i < n; i++) makeHero(state, rng, rng.pick(FACTION_IDS), -1, rng.pick(state.territories).id, { status: 'vagabond', level: Math.floor(state.turn / 6) });

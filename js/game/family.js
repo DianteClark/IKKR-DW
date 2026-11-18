@@ -2,7 +2,6 @@
 // Married heroes of the same realm can have a child. The child is born a year (4 months) after the news,
 // joins a parent's squad as a named recruit who starts stronger than ordinary soldiers, trains each month,
 // and when they reach Elite they come of age as a hero with a subtle mix of their parents' strengths.
-import { FACTIONS } from '../data/art.js';
 import { hero, makeHero, log, isHumanKingdom } from './world.js';
 import { EVOLVE_XP, canLead, squadCap } from './rules.js';
 // heirs live in a parent's squad, or as a ward at their side when that squad is made of beasts
@@ -10,7 +9,6 @@ const kin = (x) => [...(x.troops || []), ...(x.wards || [])];
 import { namesFor } from '../data/givennames.js';
 
 export const SEASONS = ['Spring', 'Summer', 'Autumn', 'Winter'];
-export const SEASON_ICON = { Spring: 'sprout', Summer: 'sun', Autumn: 'leaf', Winter: 'snow' };
 // one turn is one month: three months to a season, twelve to a year
 export const MONTHS_PER_SEASON = 3;
 export const seasonOf = (turn) => SEASONS[Math.floor((Math.max(1, turn) - 1) / MONTHS_PER_SEASON) % 4];
@@ -19,7 +17,6 @@ export const monthOf = (turn) => ((Math.max(1, turn) - 1) % MONTHS_PER_SEASON); 
 export const MONTH_NAMES = ['Early', 'Mid', 'Late'];
 export const dateOf = (turn) => `${MONTH_NAMES[monthOf(turn)]} ${seasonOf(turn).toLowerCase()}, year ${yearOf(turn)}`;
 export const shortDate = (turn) => `${seasonOf(turn).slice(0, 3)} ${['I', 'II', 'III'][monthOf(turn)]} · Y${yearOf(turn)}`;
-export const seasonStarts = (turn) => monthOf(turn) === 0;
 // harvests swell in autumn and wither in winter
 export const SEASON_FOOD = { Spring: 1, Summer: 1.1, Autumn: 1.3, Winter: 0.7 };
 export const MARRY_LEVEL = 3;

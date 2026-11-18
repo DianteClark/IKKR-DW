@@ -1,6 +1,6 @@
 // Where everything lives in the sprite sheets, plus small draw helpers.
 import { UNIT_SHEETS } from './units.js';
-import { img, recolor, eliteTint } from '../engine/assets.js';
+import { img, recolor } from '../engine/assets.js';
 
 const H = 'assets/has2020/';
 const TOWNS = H + 'Buildings/Towns/AllTownsSpriteSheet.png';
@@ -134,11 +134,6 @@ export const WALLS = 'assets/weekly/WallsSpriteSheet.png';
 export const DESTROYED = 'assets/weekly/DestroyedTowns.png';
 
 // ---- drawing ----
-export function unitImage(fid, stage) {
-  const sh = UNIT_SHEETS[fid];
-  return img(sh.src);
-}
-
 // draw a creature frame. anchor = feet center.
 export function drawUnit(ctx, fid, ui, stage, anim, t, x, y, flip, alpha = 1) {
   const sh = UNIT_SHEETS[fid];

@@ -3,7 +3,7 @@
 //   blizzard — mounted troops lose their two-land ride; attacking into it costs the attacker morale
 //   drought  — harvests in these lands fail (−food)
 //   fog      — scouting fails here
-import { log, isHumanKingdom } from './world.js';
+import { isHumanKingdom } from './world.js';
 import { seasonOf } from './family.js';
 
 export const WEATHER = {

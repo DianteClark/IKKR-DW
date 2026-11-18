@@ -8,7 +8,7 @@ export function scoutsPerSeason(state, k) {
 }
 export function scoutsLeft(state, k) {
   const used = k.scouted && k.scouted.turn === state.turn ? k.scouted.n : 0;
-  return Math.max(0, scoutsPerSeason(state, k) - used);
+  return Math.max(0, scoutsPerSeason(state, k) + (k.scoutBonus === state.turn ? 1 : 0) - used); // a turned spy lends one more
 }
 // lands worth scouting: anything within two steps of your lands or heroes
 export function scoutableLands(state, kid) {

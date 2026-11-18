@@ -14,7 +14,6 @@ export const RANGED = {
 };
 
 // stage 1 → stage 2 (new sprite, or stats only) → stage 3 Elite (named, hero-grade stats, stage-2 sprite)
-export const STAGE_NAMES = ['', 'Recruit', 'Veteran', 'Elite'];
 export const RANK_NAMES = [['Recruit', 'Seasoned'], ['Veteran', 'Hardened'], ['Elite']];
 export const EVOLVE_XP = { 1: [2, 5], 2: [4, 9] }; // [xp for rank 1, xp to evolve]
 
@@ -143,7 +142,6 @@ export function formationEdge(a, b) {
 // seconds to switch formation; big squads and stiff formations take longer, leadership helps
 export function formationChangeTime(from, to, n, lead) {
   let t = FORMATIONS[to].time;
-  if (from === 'loose') t *= 0.8;
   if (from === 'square') t *= 1.25;
   t *= 0.85 + Math.min(0.6, n / 40);
   t -= Math.max(0, lead - 8) * 0.08;
@@ -233,9 +231,8 @@ export function developCost(t) { return 250 * (t.level + 1); }
 export const HIRE_COST = 400;
 export const PROMOTE_ELITE_COST = 300;
 
-// legacy names still used by some UI code
+// legacy name still used by some UI code
 export const RANKS = [['Recruit', 'Seasoned'], ['Veteran', 'Hardened'], ['Elite', 'Elite']];
-export const RANK_XP = [EVOLVE_XP[1], EVOLVE_XP[2]];
 
 // AI ruler temperaments
 export const TEMPERS = {

@@ -152,9 +152,8 @@ export function seatOfKey(state, key) {
   return state.seats.findIndex((s) => s && s.hash === hk);
 }
 
-// legacy API (kept so older call sites still work)
+// legacy single-slot save check (the title screen still asks)
 export function hasSave() { try { return !!localStorage.getItem(LEGACY); } catch { return false; } }
-export function clearSave() {}
 
 // ---------- mid-battle saves (single player) ----------
 // A battle in progress is kept as `battle` on the campaign's record: { at, setup, sim, b, ctx, ... } (see scenes/battle.js).

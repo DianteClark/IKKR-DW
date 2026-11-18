@@ -1,7 +1,7 @@
 // Siege blockade: heroes next to an enemy walled town (level >= 2, or any town of a kingdom or empire) can besiege it instead of storming it.
 // Each month of siege the town starves (owner loses food, morale and garrison strength). After three months the
 // town may surrender (it changes hands without a battle) or the besiegers storm the weakened walls.
-import { hero, heroesAt, friendly, log, validTargets, isHumanKingdom, clamp } from './world.js';
+import { heroesAt, friendly, log, validTargets, isHumanKingdom, clamp } from './world.js';
 import { squadPower } from './rules.js';
 import { actOfWar } from './diplomacy.js';
 

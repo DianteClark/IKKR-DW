@@ -16,7 +16,7 @@ import { applySieges, canBesiege } from './siege.js';
 import { makeItem, SLOTS } from './items.js';
 import {
   squadCap, recruitCost, squadPower, garrisonPower, unitLevel, HIRE_COST, EVOLVE_XP, LEVEL_XP, MAX_LEVEL,
-  newSoldier, TIERS, tierIndex, PROMOTE_ELITE_COST, STRATAGEMS, STRATAGEM_IDS, unitClass, CLASS_INFO, ROLE_LEVEL, ROLES, canLead, FORMATIONS, TEMPER_IDS,
+  newSoldier, TIERS, tierIndex, PROMOTE_ELITE_COST, STRATAGEMS, STRATAGEM_IDS, unitClass, CLASS_INFO, ROLE_LEVEL, canLead, FORMATIONS, TEMPER_IDS,
 } from './rules.js';
 
 export const SIZES = {
@@ -232,13 +232,24 @@ export function createWorld(seed, players, opts = {}) {
   return state;
 }
 
-// older saves: give every hero a face that matches their gender
+// older saves: fill in what later systems expect, and give every hero a face that matches their gender
 export function fixPortraits(state) {
+  // saves from before the wilds, wars, diplomacy offers and choices
+  for (const f of ['treaties', 'proposals', 'pendingCaptives', 'wars', 'sites', 'log']) if (!Array.isArray(state[f])) state[f] = [];
+  if (!state.items) state.items = {};
+  for (const t of state.territories) { if (!t.favor) t.favor = {}; if (!Array.isArray(t.fx)) t.fx = []; }
+  for (const k of state.kingdoms) {
+    for (const f of ['rel', 'intel', 'buildings']) if (!k[f]) k[f] = {};
+    for (const f of ['items', 'loadout']) if (!Array.isArray(k[f])) k[f] = [];
+    if (!Array.isArray(k.troopRaces)) k.troopRaces = [k.fid];
+    if (!k.policy) k.policy = { tax: 'normal', rations: 'normal' };
+  }
+  for (const h of state.heroes) { if (!h.gear) h.gear = {}; if (!Array.isArray(h.troops)) h.troops = []; if (h.lentTo == null) h.lentTo = -1; if (h.secret == null) h.secret = -1; if (!h.ufid) h.ufid = h.fid; }
   // older saves: morale and stability became one Order value (kept in k.morale)
   for (const k of state.kingdoms) if (k.player >= 0 && !k.steward) k.steward = { on: false, focus: 'grow' }; // older saves keep running the realm by hand
   for (const k of state.kingdoms) if (k.stability != null) { k.morale = Math.round((k.morale + k.stability) / 2); delete k.stability; }
   for (const h of state.heroes) if (!FORMATIONS[h.formation]) h.formation = 'line'; // Loose was retired
-  tidy(state); // squads above their cap in older saves
+  capSquads(state); // squads above their cap in older saves
   for (const h of state.heroes) if (!portraitFits(h.fid, h.gender, h.portrait)) h.portrait = (h.portrait % 20) + (h.gender === 'f' ? 20 : 0);
   // older saves: AI realms get a temperament
   for (const k of state.kingdoms) if (k.player < 0 && !k.temper) k.temper = TEMPER_IDS[(k.id * 7 + state.seed) % TEMPER_IDS.length];
@@ -281,7 +292,6 @@ export function captivesOf(state, kid) { return state.heroes.filter((h) => h.sta
 export function vagabondsIn(state, tid) { return state.heroes.filter((h) => h.status === 'vagabond' && h.loc === tid); }
 export function totalTroops(state, kid) { return kingdomHeroes(state, kid, true).reduce((n, h) => n + h.troops.length, 0); }
 export function log(state, text, kid = -1, kind = '') { state.log.push({ turn: state.turn, text, kid, kind }); if (state.log.length > 400) state.log.splice(0, state.log.length - 400); }
-export function playerKingdom(state, playerIdx) { const p = state.players[playerIdx]; return p ? state.kingdoms[p.kingdom] : null; }
 export function isHumanKingdom(state, kid) { return kid >= 0 && state.kingdoms[kid] && state.kingdoms[kid].player >= 0; }
 
 export function treaty(state, a, b, type) {
@@ -453,15 +463,14 @@ export function gainTroopXp(h, amount, rng) {
   }
   return promos;
 }
+// the calling that fits a hero best (taken on their own by computer heroes, suggested to players)
+export function suggestRole(h) { return h.lead >= 11 ? 'commander' : h.atk >= h.def + 2 ? 'duelist' : h.int >= 6 ? 'strategist' : 'scout'; }
 export function gainHeroXp(h, amount, rng) {
   h.xp += amount;
   let ups = 0;
   while (h.level < MAX_LEVEL && h.xp >= LEVEL_XP(h.level)) { h.xp -= LEVEL_XP(h.level); levelUp(h, rng); ups++; }
   // computer heroes pick a calling on their own; players choose in the hero sheet
-  if (!h.role && h.level >= ROLE_LEVEL && h.kingdom >= 0 && rng && h.autoRole !== false) {
-    const best = h.lead >= 11 ? 'commander' : h.atk >= h.def + 2 ? 'duelist' : h.int >= 6 ? 'strategist' : 'scout';
-    h.pendingRole = best;
-  }
+  if (!h.role && h.level >= ROLE_LEVEL && h.kingdom >= 0 && rng) h.pendingRole = suggestRole(h);
   return ups;
 }
 
@@ -727,7 +736,17 @@ export function checkKingdoms(state) {
       k.alive = false;
       log(state, `${k.name} has fallen.`, -1, 'fall');
       for (const h of state.heroes) if (h.kingdom === k.id && h.status === 'active') { h.status = 'vagabond'; h.kingdom = -1; h.order = null; h.lentTo = -1; }
+      // its prisoners walk free: home if their realm still stands, else into the wilds
+      for (const h of state.heroes) {
+        if (h.status !== 'captive' || h.captor !== k.id) continue;
+        const home = h.kingdom >= 0 ? state.kingdoms[h.kingdom] : null;
+        h.captor = -1; h.order = null;
+        if (home && home.alive) { h.status = 'active'; const own = kingdomTerritories(state, home.id); if (own.length) h.loc = (own.find((t) => t.id === home.capital) || own[0]).id; }
+        else { h.status = 'vagabond'; h.kingdom = -1; }
+      }
+      state.pendingCaptives = state.pendingCaptives.filter((id) => { const h = hero(state, id); return h && h.status === 'captive'; });
       state.treaties = state.treaties.filter((t) => t.a !== k.id && t.b !== k.id);
+      state.proposals = state.proposals.filter((p) => p.from !== k.id && p.to !== k.id); // no offers from (or to) the fallen
       continue;
     }
     if (k.landless) k.landless = false;
@@ -805,10 +824,9 @@ export function applyOrders(state) {
   }
   return results;
 }
-// keep save files small: drop the long dead and items nobody holds
-export function tidy(state) {
-  // no squad ever holds more soldiers than its hero can lead (e.g. after losing Training Pits or changing realm):
-  // the weakest recruits are sent home first; heirs and Elites stay
+// no squad ever holds more soldiers than its hero can lead (e.g. after losing Training Pits or changing realm):
+// the weakest recruits are sent home first; heirs and Elites stay
+function capSquads(state) {
   for (const h of state.heroes) {
     if (!h.troops) continue;
     const cap = squadCap(h, h.kingdom >= 0 ? state.kingdoms[h.kingdom] : null);
@@ -819,6 +837,10 @@ export function tidy(state) {
     h.troops = h.troops.filter((_, i) => !drop.has(i));
     if (heirs.length) (h.wards = h.wards || []).push(...heirs);
   }
+}
+// keep save files small: drop the long dead and items nobody holds
+export function tidy(state) {
+  capSquads(state);
   state.heroes = state.heroes.filter((h) => h.status !== 'dead' || state.turn - (h.diedTurn ?? state.turn) < 2);
   for (const h of state.heroes) if (h.status === 'dead' && h.diedTurn == null) h.diedTurn = state.turn;
   const held = new Set();
